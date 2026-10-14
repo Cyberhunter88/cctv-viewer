@@ -43,6 +43,7 @@ func run() error {
 		case "admin":
 			flags := flag.NewFlagSet("admin", flag.ContinueOnError)
 			name := flags.String("username", "admin", "Benutzername")
+			recoverLogin := flags.Bool("recover", false, "Lokale Anmeldung aktivieren und OIDC deaktivieren; anschließend neu starten")
 			dir := flags.String("data", os.Getenv("CTV_DATA_DIR"), "Datenverzeichnis")
 			if e := flags.Parse(os.Args[2:]); e != nil {
 				return e
@@ -80,10 +81,13 @@ func run() error {
 				return e
 			}
 			defer db.Close()
-			if e = db.CreateAdmin(*name, password); e != nil {
+			if e = db.CreateAdminRecovery(*name, password, *recoverLogin); e != nil {
 				return e
 			}
 			fmt.Println("Administrator angelegt.")
+			if *recoverLogin {
+				fmt.Println("Lokale Anmeldung aktiviert, OIDC deaktiviert. Viewer neu starten.")
+			}
 			return nil
 		default:
 			return fmt.Errorf("unbekannter Befehl")

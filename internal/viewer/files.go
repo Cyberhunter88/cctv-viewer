@@ -3,6 +3,8 @@ package viewer
 import (
 	"errors"
 	"fmt"
+	"image/jpeg"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -84,7 +86,13 @@ func validateCamera(c Camera, root *os.Root) error {
 	if strings.TrimSpace(c.Name) == "" || len(c.Name) > 100 || !validRelative(c.Folder) || c.Offset < -86400 || c.Offset > 86400 {
 		return errors.New("Name, Ordner oder Zeitversatz ungültig")
 	}
-	if _, e := patternRE(c.Pattern); e != nil {
+	if cameraFormat(c) == "reolink" {
+		if strings.TrimSpace(c.Prefix) == "" || len(c.Prefix) > 100 || strings.ContainsAny(c.Prefix, "/\\") {
+			return errors.New("Reolink-Kamerapräfix ungültig")
+		}
+	} else if cameraFormat(c) != "custom" {
+		return errors.New("Unbekanntes Aufnahmeformat")
+	} else if _, e := patternRE(c.Pattern); e != nil {
 		return e
 	}
 	if _, e := time.LoadLocation(c.Timezone); e != nil {
@@ -102,6 +110,9 @@ func validateCamera(c Camera, root *os.Root) error {
 	return nil
 }
 func partition(c Camera, day time.Time) (string, error) {
+	if cameraFormat(c) == "reolink" {
+		return path.Join(c.Folder, day.Format("2006/01/02")), nil
+	}
 	// Only use the prefix before the first filename component containing a clock token.
 	components := strings.Split(c.Pattern, "/")
 	var dirs []string
@@ -117,4 +128,49 @@ func partition(c Camera, day time.Time) (string, error) {
 		return "", errors.New("ungültige Tagespartition")
 	}
 	return p, nil
+}
+
+func cameraFormat(c Camera) string {
+	if c.Format == "" {
+		return "custom"
+	}
+	return c.Format
+}
+func cameraTimestamp(c Camera, name string) (time.Time, error) {
+	if cameraFormat(c) != "reolink" {
+		pattern := c.Pattern
+		if ext := strings.ToLower(path.Ext(name)); ext == ".jpg" || ext == ".jpeg" {
+			if contains([]string{".mp4", ".mov", ".mkv", ".avi", ".ts", ".h264", ".h265"}, strings.ToLower(path.Ext(pattern))) {
+				pattern = strings.TrimSuffix(pattern, path.Ext(pattern)) + path.Ext(name)
+			}
+		}
+		return ParseTimestamp(pattern, name, c.Timezone, c.Offset)
+	}
+	re := regexp.MustCompile(`^(\d{4})/(\d{2})/(\d{2})/` + regexp.QuoteMeta(c.Prefix) + `_[0-9]+_([0-9]{14})\.(?i:mp4|jpg|jpeg)$`)
+	m := re.FindStringSubmatch(name)
+	if m == nil {
+		return time.Time{}, errors.New("Dateiname passt nicht zum Reolink-Format")
+	}
+	if m[1]+m[2]+m[3] != m[4][:8] {
+		return time.Time{}, errors.New("Ordnerdatum und Dateidatum stimmen nicht überein")
+	}
+	return ParseTimestamp("{YYYY}{MM}{DD}{hh}{mm}{ss}", m[4], c.Timezone, c.Offset)
+}
+func supportedMedia(name string) bool {
+	return contains([]string{".mp4", ".mov", ".mkv", ".avi", ".ts", ".h264", ".h265", ".jpg", ".jpeg"}, strings.ToLower(path.Ext(name)))
+}
+
+func validateJPEG(f *os.File) error {
+	conf, e := jpeg.DecodeConfig(f)
+	if e != nil {
+		return e
+	}
+	if conf.Width < 1 || conf.Height < 1 || int64(conf.Width)*int64(conf.Height) > 40000000 {
+		return errors.New("Bildgröße ungültig oder zu groß")
+	}
+	if _, e = f.Seek(0, io.SeekStart); e != nil {
+		return e
+	}
+	_, e = jpeg.Decode(f)
+	return e
 }

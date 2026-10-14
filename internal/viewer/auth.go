@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -71,39 +72,78 @@ func checkPassword(hash, password string) bool {
 	return subtle.ConstantTimeCompare(key, actual) == 1
 }
 func (s *Store) CreateAdmin(name, password string) error {
-	if len(name) < 1 || len(name) > 100 {
+	return s.CreateAdminRecovery(name, password, false)
+}
+func (s *Store) CreateAdminRecovery(name, password string, recoverLogin bool) error {
+	if strings.TrimSpace(name) == "" || len(name) > 100 {
 		return errors.New("Benutzername ungültig")
 	}
 	hash, e := HashPassword(password)
 	if e != nil {
 		return e
 	}
-	_, e = s.Exec(`INSERT INTO admins(username,hash) VALUES(?,?)`, name, hash)
-	return e
+	tx, e := s.Begin()
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	if _, e = tx.Exec(`INSERT INTO admins(username,hash) VALUES(?,?)`, name, hash); e != nil {
+		return e
+	}
+	if recoverLogin {
+		var version int
+		var payload string
+		values := map[string]json.RawMessage{}
+		e = tx.QueryRow(`SELECT version,payload FROM settings WHERE id=1`).Scan(&version, &payload)
+		if e != nil && e != sql.ErrNoRows {
+			return e
+		}
+		if payload != "" {
+			if e = json.Unmarshal([]byte(payload), &values); e != nil {
+				return e
+			}
+		}
+		values["localLogin"] = json.RawMessage(`true`)
+		values["oidcIssuer"] = json.RawMessage(`""`)
+		b, e := json.Marshal(values)
+		if e != nil {
+			return e
+		}
+		if _, e = tx.Exec(`INSERT INTO settings(id,version,payload) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,payload=excluded.payload`, version+1, string(b)); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(`DELETE FROM sessions;DELETE FROM oidc_flows;`); e != nil {
+			return e
+		}
+	}
+	return tx.Commit()
 }
+
 func (a *App) cookie(w http.ResponseWriter, name, value string, maxAge int) {
-	http.SetCookie(w, &http.Cookie{Name: name, Value: value, Path: "/", HttpOnly: true, Secure: !a.cfg.DevHTTP, SameSite: http.SameSiteLaxMode, MaxAge: maxAge})
+	http.SetCookie(w, &http.Cookie{Name: name, Value: value, Path: "/", HttpOnly: true, Secure: !a.config().DevHTTP, SameSite: http.SameSiteLaxMode, MaxAge: maxAge})
 }
 func (a *App) newSession(w http.ResponseWriter, s Session) error {
 	raw := token()
 	s.CSRF = token()
-	_, e := a.db.Exec(`INSERT INTO sessions VALUES(?,?,?,?,?,?,?)`, digest(raw), s.Subject, s.Name, s.Role, s.Kind, s.CSRF, time.Now().Add(a.cfg.SessionTTL).Unix())
+	_, e := a.db.Exec(`INSERT INTO sessions VALUES(?,?,?,?,?,?,?)`, digest(raw), s.Subject, s.Name, s.Role, s.Kind, s.CSRF, time.Now().Add(a.config().SessionTTL).Unix())
 	if e == nil {
-		a.cookie(w, "ctv_session", raw, int(a.cfg.SessionTTL.Seconds()))
+		a.cookie(w, "ctv_session", raw, int(a.config().SessionTTL.Seconds()))
 	}
 	return e
 }
 func (a *App) session(r *http.Request) (Session, error) {
+	a.authMu.RLock()
+	defer a.authMu.RUnlock()
 	var s Session
 	c, e := r.Cookie("ctv_session")
 	if e != nil {
 		return s, e
 	}
 	e = a.db.QueryRowContext(r.Context(), `SELECT subject,name,role,kind,csrf FROM sessions WHERE hash=? AND expires>?`, digest(c.Value), time.Now().Unix()).Scan(&s.Subject, &s.Name, &s.Role, &s.Kind, &s.CSRF)
-	if s.Kind == "oidc" && (a.verifier == nil || !strings.HasPrefix(s.Subject, a.cfg.OIDCIssuer+"\x00")) {
+	if s.Kind == "oidc" && (a.verifier == nil || !strings.HasPrefix(s.Subject, a.config().OIDCIssuer+"\x00")) {
 		return Session{}, errors.New("OIDC-Anmeldung deaktiviert")
 	}
-	if s.Kind == "local" && !a.cfg.LocalAdmin {
+	if s.Kind == "local" && !a.config().LocalAdmin {
 		return Session{}, errors.New("lokale Anmeldung deaktiviert")
 	}
 	return s, e
@@ -120,7 +160,7 @@ func (a *App) protect(admin bool, h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if r.Method != "GET" && r.Method != "HEAD" {
-			if r.Header.Get("Origin") != a.cfg.BaseURL || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(s.CSRF)) != 1 {
+			if r.Header.Get("Origin") != a.config().BaseURL || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(s.CSRF)) != 1 {
 				fail(w, 403, "Ungültige Anfrage")
 				return
 			}
@@ -177,7 +217,7 @@ func (a *App) clientIP(r *http.Request) string {
 		return "unknown"
 	}
 	trusted := func(ip netip.Addr) bool {
-		for _, p := range a.cfg.TrustedProxies {
+		for _, p := range a.config().TrustedProxies {
 			if p.Contains(ip) {
 				return true
 			}
@@ -200,11 +240,13 @@ func (a *App) clientIP(r *http.Request) string {
 	return ip.String()
 }
 func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
-	if !a.cfg.LocalAdmin {
+	a.authMu.RLock()
+	defer a.authMu.RUnlock()
+	if !a.config().LocalAdmin {
 		fail(w, 404, "Lokale Anmeldung deaktiviert")
 		return
 	}
-	if r.Header.Get("Origin") != a.cfg.BaseURL {
+	if r.Header.Get("Origin") != a.config().BaseURL {
 		fail(w, 403, "Ungültige Herkunft")
 		return
 	}
@@ -231,27 +273,27 @@ func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "Anmeldedaten ungültig")
 		return
 	}
-	var hash string
-	if e := a.db.QueryRowContext(r.Context(), `SELECT hash FROM admins WHERE username=?`, input.Username).Scan(&hash); e != nil {
+	var hash, role string
+	if e := a.db.QueryRowContext(r.Context(), `SELECT hash,role FROM admins WHERE username=? AND disabled=0`, input.Username).Scan(&hash, &role); e != nil {
 		hash = a.dummyHash
 	}
 	if !checkPassword(hash, input.Password) || hash == a.dummyHash {
 		fail(w, 401, "Anmeldedaten ungültig")
 		return
 	}
-	if e := a.newSession(w, Session{Subject: input.Username, Name: input.Username, Role: "admin", Kind: "local"}); e != nil {
+	if e := a.newLocalSession(w, input.Username, role, hash); e != nil {
 		fail(w, 500, "Anmeldung fehlgeschlagen")
 		return
 	}
 	jsonOut(w, 200, map[string]bool{"ok": true})
 }
 func (a *App) initOIDC(ctx context.Context) error {
-	if a.cfg.OIDCIssuer == "" {
+	if a.config().OIDCIssuer == "" {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	provider, e := oidc.NewProvider(ctx, a.cfg.OIDCIssuer)
+	provider, e := oidc.NewProvider(ctx, a.config().OIDCIssuer)
 	if e != nil {
 		return fmt.Errorf("OIDC Discovery: %w", e)
 	}
@@ -267,11 +309,13 @@ func (a *App) initOIDC(ctx context.Context) error {
 			return errors.New("OIDC-Endpunkte müssen HTTPS verwenden")
 		}
 	}
-	a.verifier = provider.Verifier(&oidc.Config{ClientID: a.cfg.OIDCClientID})
-	a.oauth = oauth2.Config{ClientID: a.cfg.OIDCClientID, ClientSecret: a.cfg.OIDCSecret, Endpoint: provider.Endpoint(), RedirectURL: a.cfg.BaseURL + "/auth/oidc/callback", Scopes: []string{oidc.ScopeOpenID, "profile"}}
+	a.verifier = provider.Verifier(&oidc.Config{ClientID: a.config().OIDCClientID})
+	a.oauth = oauth2.Config{ClientID: a.config().OIDCClientID, ClientSecret: a.config().OIDCSecret, Endpoint: provider.Endpoint(), RedirectURL: a.config().BaseURL + "/auth/oidc/callback", Scopes: []string{oidc.ScopeOpenID, "profile", "groups"}}
 	return nil
 }
 func (a *App) oidcStart(w http.ResponseWriter, r *http.Request) {
+	a.authMu.RLock()
+	defer a.authMu.RUnlock()
 	if a.verifier == nil {
 		fail(w, 503, "OIDC nicht verfügbar")
 		return
@@ -287,7 +331,7 @@ func (a *App) oidcStart(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Anmeldung fehlgeschlagen")
 		return
 	}
-	a.cookie(w, "ctv_oidc", state, 300)
+	a.cookie(w, a.oidcCookie(), state, 300)
 	http.Redirect(w, r, a.oauth.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)), http.StatusFound)
 }
 func contains(list []string, v string) bool {
@@ -300,18 +344,18 @@ func contains(list []string, v string) bool {
 }
 func (a *App) oidcRole(subject string, claims map[string]any) string {
 	var groups []string
-	if raw, ok := claims[a.cfg.OIDCGroupClaim].([]any); ok {
+	if raw, ok := claims[a.config().OIDCGroupClaim].([]any); ok {
 		for _, v := range raw {
 			if g, ok := v.(string); ok {
 				groups = append(groups, g)
 			}
 		}
 	}
-	admin := contains(a.cfg.AdminUsers, subject)
-	allowed := contains(a.cfg.AllowedUsers, subject)
+	admin := contains(a.config().AdminUsers, subject)
+	allowed := contains(a.config().AllowedUsers, subject)
 	for _, g := range groups {
-		admin = admin || contains(a.cfg.AdminGroups, g)
-		allowed = allowed || contains(a.cfg.AllowedGroups, g)
+		admin = admin || contains(a.config().AdminGroups, g)
+		allowed = allowed || contains(a.config().AllowedGroups, g)
 	}
 	if admin {
 		return "admin"
@@ -322,17 +366,19 @@ func (a *App) oidcRole(subject string, claims map[string]any) string {
 	return ""
 }
 func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
+	a.authMu.RLock()
+	defer a.authMu.RUnlock()
 	if a.verifier == nil {
 		fail(w, 503, "OIDC nicht verfügbar")
 		return
 	}
-	cookie, e := r.Cookie("ctv_oidc")
+	cookie, e := r.Cookie(a.oidcCookie())
 	state := r.URL.Query().Get("state")
 	if e != nil || state == "" || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(state)) != 1 {
 		fail(w, 400, "OIDC-Anfrage ungültig")
 		return
 	}
-	a.cookie(w, "ctv_oidc", "", -1)
+	a.cookie(w, a.oidcCookie(), "", -1)
 	var nonce, verifier string
 	e = a.db.QueryRowContext(r.Context(), `DELETE FROM oidc_flows WHERE hash=? AND expires>? RETURNING nonce,verifier`, digest(state), time.Now().Unix()).Scan(&nonce, &verifier)
 	if e != nil {
@@ -370,7 +416,16 @@ func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = id.Subject
 	}
-	if e = a.newSession(w, Session{Subject: a.cfg.OIDCIssuer + "\x00" + id.Subject, Name: name, Role: role, Kind: "oidc"}); e != nil {
+	s := Session{Subject: a.config().OIDCIssuer + "\x00" + id.Subject, Name: name, Role: role, Kind: "oidc"}
+	if a.confirmOIDC != nil {
+		if e = a.confirmOIDC(s); e != nil {
+			fail(w, 403, e.Error())
+			return
+		}
+		http.Redirect(w, r, "/?settings=confirmed", http.StatusSeeOther)
+		return
+	}
+	if e = a.newSession(w, s); e != nil {
 		fail(w, 500, "Anmeldung fehlgeschlagen")
 		return
 	}
@@ -385,4 +440,31 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+func (a *App) oidcCookie() string {
+	if a.testOIDC {
+		return "ctv_oidc_test"
+	}
+	return "ctv_oidc"
+}
+
+// The password and role checked before hashing must still be current when the
+// session is inserted. This closes races with password resets and account edits.
+func (a *App) newLocalSession(w http.ResponseWriter, name, role, hash string) error {
+	raw, csrf := token(), token()
+	ttl := a.config().SessionTTL
+	result, e := a.db.Exec(`INSERT INTO sessions(hash,subject,name,role,kind,csrf,expires) SELECT ?,username,username,role,'local',?,? FROM admins WHERE username=? AND hash=? AND role=? AND disabled=0`, digest(raw), csrf, time.Now().Add(ttl).Unix(), name, hash, role)
+	if e != nil {
+		return e
+	}
+	n, e := result.RowsAffected()
+	if e != nil {
+		return e
+	}
+	if n != 1 {
+		return errors.New("Konto wurde inzwischen geändert")
+	}
+	a.cookie(w, "ctv_session", raw, int(ttl.Seconds()))
+	return nil
 }

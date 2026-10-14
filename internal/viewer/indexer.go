@@ -146,8 +146,7 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) {
 		if d.IsDir() {
 			return nil
 		}
-		ext := strings.ToLower(path.Ext(name))
-		if !contains([]string{".mp4", ".mov", ".mkv", ".avi", ".ts", ".h264", ".h265"}, ext) {
+		if !supportedMedia(name) {
 			return nil
 		}
 		st, e := d.Info()
@@ -177,7 +176,7 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) {
 		}
 		seen[item.path] = true
 		relative := strings.TrimPrefix(item.path, c.Folder+"/")
-		start, e := ParseTimestamp(c.Pattern, relative, c.Timezone, c.Offset)
+		start, e := cameraTimestamp(c, relative)
 		if e != nil {
 			a.warn(c.Name + ": " + relative + ": " + e.Error())
 			continue
@@ -201,11 +200,18 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) {
 			a.warn(c.Name + ": Datei nicht lesbar")
 			continue
 		}
-		duration, codec, e := probe(a.ctx, file)
+		var duration float64
+		var codec string
+		if strings.EqualFold(path.Ext(item.path), ".jpg") || strings.EqualFold(path.Ext(item.path), ".jpeg") {
+			e = validateJPEG(file)
+			codec = "jpeg"
+		} else {
+			duration, codec, e = probe(a.ctx, file)
+		}
 		after, se := file.Stat()
 		file.Close()
 		if e != nil || se != nil || after.Size() != size || after.ModTime().UnixNano() != mod {
-			a.warn(c.Name + ": " + relative + ": noch unvollständig oder Video nicht lesbar")
+			a.warn(c.Name + ": " + relative + ": noch unvollständig oder Bild/Video nicht lesbar")
 			continue
 		}
 		h := sha256.Sum256([]byte(c.ID + "\x00" + item.path))

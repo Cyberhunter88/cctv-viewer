@@ -5,12 +5,14 @@ eine gemeinsame Zeitleiste, geschützte Anmeldung und ein Docker-Container.
 
 - Synchronisierte Kameraansichten, Datumsauswahl, Timeline-Zoom und Vorschaubilder
 - Originalwiedergabe mit HTTP-Range und H.265 → H.264-HLS bei Bedarf
-- OIDC mit Gruppen-/Nutzerfreigaben und abschaltbarem lokalen Administrator
+- Reolink-Assistent mit Ordnerauswahl und JPG-Einzelbildern auf der Zeitleiste
+- MP4-Clip-Export über Dateigrenzen hinweg
+- Benutzer-, OIDC- und Betriebseinstellungen in der Weboberfläche
 - Aufnahmen ausschließlich lesend; SQLite und Cache in einem Datenverzeichnis
 - AMD64 und ARM64; Images automatisch beim Veröffentlichen eines GitHub-Releases
 
 Kein NVR: Der Viewer zeichnet keine Livekameras auf. Er liest bereits vorhandene
-Videodateien. Clip-Export, KI-Analyse und Home Assistant sind nicht Bestandteil.
+Videodateien und JPG-Einzelbilder. KI-Analyse und Home Assistant sind nicht Bestandteil.
 
 ## Mit Docker Compose starten
 
@@ -29,7 +31,9 @@ sudo chmod 700 data
 In `.env` mindestens `CTV_BASE_URL=https://cctv.example.org` und
 `CTV_RECORDINGS_PATH=/mnt/kameras` eintragen. Für eine Vorabversion zusätzlich
 `CTV_VERSION=0.1.0-beta.1` setzen, da Vorabversionen kein `latest` erhalten.
-Alle Einstellungen werden direkt über `env_file: .env` geladen. Die Compose-Datei
+Die `.env` liefert die Ausgangswerte. Im Browser gespeicherte Einstellungen
+haben dauerhaft Vorrang; über „Herkunft und Umgebungswerte“ lassen sie sich
+einzeln zurücksetzen. Die Compose-Datei
 muss dafür nicht bearbeitet werden. `CTV_DATA_PATH`, `CTV_BIND_ADDRESS` und
 `CTV_HTTP_PORT` steuern Datenordner und Portbindung.
 UID/GID lassen sich über `CTV_UID`/`CTV_GID` ändern; der Datenordner muss dann
@@ -44,6 +48,10 @@ docker compose up -d
 Das Admin-Kommando fragt das Passwort verdeckt zweimal ab (mindestens 14 Zeichen).
 Ein bereits existierender Benutzername wird nicht überschrieben. Für eine
 Wiederherstellung kann ein neuer Adminname über dasselbe CLI angelegt werden.
+Bei ausgesperrtem oder nicht erreichbarem OIDC zusätzlich `--recover` verwenden:
+Container stoppen, `docker compose run --rm cctv-viewer admin --username rettung --recover`
+ausführen und den Container wieder starten. Das aktiviert die lokale Anmeldung,
+deaktiviert OIDC und widerruft vorhandene Sitzungen; übrige Webeinstellungen bleiben erhalten.
 Keine Benutzerregistrierung, keine Standardzugangsdaten. Für Automation steht
 `CTV_ADMIN_PASSWORD_FILE` zur Verfügung. Passwörter nicht als Kommandoargument
 übergeben und nicht in Git speichern.
@@ -83,8 +91,10 @@ CTV_OIDC_ISSUER=https://auth.example.org/application/o/cctv/
 CTV_OIDC_CLIENT_ID=cctv-viewer
 CTV_OIDC_CLIENT_SECRET=dein-client-secret
 CTV_OIDC_GROUP_CLAIM=groups
-CTV_OIDC_ALLOWED_GROUPS=cctv-viewers
-CTV_OIDC_ADMIN_GROUPS=cctv-admins
+CTV_OIDC_ALLOWED_GROUPS=
+CTV_OIDC_ADMIN_GROUPS=cctv-admin
+CTV_OIDC_ALLOWED_SUBJECTS=
+CTV_OIDC_ADMIN_SUBJECTS=
 ```
 
 Das Client-Secret wird direkt in `.env` eingetragen; die Datei ist in Git
@@ -95,28 +105,94 @@ weglassen. Beide Varianten gleichzeitig werden abgelehnt.
 
 Der Gruppen-Claim muss als Array von Strings **im
 ID-Token** enthalten sein; beim Anbieter einen entsprechenden Mapper einrichten.
-Angefordert werden `openid profile`. Zusätzliche anbieterspezifische Claims sind
+Angefordert werden `openid profile groups`. Zusätzliche anbieterspezifische Claims sind
 über den Mapper bereitzustellen. Verschachtelte Claim-Pfade werden nicht ausgewertet.
+
+Für Pocket-ID den Benutzer zur Gruppe mit dem exakten Namen `cctv-admin`
+hinzufügen (nicht nur zum Anzeigenamen). Im OIDC-Client unter **Allowed User
+Groups** ebenfalls ausschließlich `cctv-admin` auswählen. Mit der obigen
+Konfiguration erhalten nur Mitglieder dieser Gruppe SSO-Zugang und die
+Administratorrolle; weitere Gruppen- und Subject-Freigaben bleiben leer.
+Pocket-ID liefert die Gruppen über den angeforderten Scope `groups` automatisch.
+Über **OIDC Data Preview** lässt sich prüfen, ob das ID-Token
+`"groups": ["cctv-admin"]` enthält. Anmeldungseinstellungen können alternativ unter **Einstellungen → Anmeldung/OIDC**
+geändert werden. OIDC zuerst speichern, dann die angebotene Testanmeldung mit
+einem freigegebenen Administrator abschließen. Bis dahin bleibt die bisherige
+Konfiguration aktiv. Der Test nutzt dieselbe Callback-URL. Eine alleinige
+Betrachteranmeldung aktiviert nichts; der Testentwurf verfällt nach zehn Minuten.
+
+Nach Änderungen an `.env` den Container mit
+`docker compose up -d --force-recreate cctv-viewer` neu erstellen und erneut anmelden.
 
 Alternativ/zusätzlich `CTV_OIDC_ALLOWED_SUBJECTS` und `CTV_OIDC_ADMIN_SUBJECTS`
 setzen: durch Komma getrennte, exakte `sub`-Werte des konfigurierten Issuers.
 E-Mail-Adressen werden nicht als Identität verwendet. Adminfreigaben implizieren
 Lesezugriff. Ohne passende Freigabe bleibt der Zugang gesperrt.
 
-Betrachter können alle eingerichteten Kameras sehen; Administratoren zusätzlich
-Kameras verwalten und manuelle Scans starten. Es gibt keine Rechte pro Kamera.
+Betrachter können alle eingerichteten Kameras und Bilder sehen sowie Clips
+exportieren; Administratoren zusätzlich Kameras, lokale Benutzer und Einstellungen
+verwalten und manuelle Scans starten. Es gibt keine Rechte pro Kamera.
 Nach erfolgreichem Test kann `CTV_LOCAL_ADMIN=false` die lokale Anmeldung
-vollständig abschalten. Bei nicht erreichbarem OIDC-Discovery-Endpunkt schlägt
+vollständig abschalten, sofern kein Webwert diese Vorgabe überschreibt. Im Browser
+ist das Abschalten erst nach erfolgreicher OIDC-Administrator-Testanmeldung möglich.
+Bei nicht erreichbarem OIDC-Discovery-Endpunkt schlägt
 der Start fehl; der Container startet nach Wiederverfügbarkeit erneut.
 
-Sitzungen laufen nach acht Stunden ab. Logout widerruft die lokale Sitzung, beendet
+Sitzungen laufen standardmäßig nach acht Stunden ab. Die Webeinstellung
+„Sitzungsdauer“ beziehungsweise `CTV_SESSION_MINUTES` gilt für neue Sitzungen
+(15–1440 Minuten). Logout widerruft die lokale Sitzung, beendet
 aber nicht die globale Sitzung beim Identity Provider. OIDC-Sitzungen werden beim
-Neustart verworfen, damit geänderte Freigaben sicher wirksam werden. Bei Änderungen
-an OIDC-Gruppen den Viewer neu starten oder bestehende Sitzungen ablaufen lassen.
+Neustart verworfen, damit geänderte Freigaben sicher wirksam werden. Im Browser aktivierte OIDC-Änderungen widerrufen bestehende OIDC-Sitzungen sofort.
+Bei Gruppenänderungen ausschließlich beim Identity Provider den Viewer neu
+starten oder bestehende Sitzungen ablaufen lassen.
+
+## Benutzer und Webeinstellungen
+
+Über das Zahnrad die Kameraeinrichtung öffnen; **Benutzer · Anmeldung · Betrieb**
+öffnet die weiteren Einstellungsbereiche. Lokale Konten haben die Rolle
+„Administrator“ oder „Betrachter“. Bestehende Administratorkonten und Passwort-Hashes
+werden übernommen. Benutzer können gesperrt, gelöscht und ihre Passwörter
+zurückgesetzt werden. Passwort-, Rollen- und Sperränderungen widerrufen die
+zugehörigen Sitzungen. Der letzte aktive lokale Administrator bleibt geschützt.
+Eigene lokale Passwörter über „Passwort ändern“ ändern; SSO-Passwörter beim Provider.
+
+Scanintervall, Cachebudget, Umwandlungsplätze und Sitzungsdauer werden ohne
+Neustart übernommen. Bei weniger Umwandlungsplätzen dürfen laufende Aufträge
+fertig werden. Docker-Mounts, Port, Basis-URL und vertrauenswürdige Proxys bleiben
+extern konfiguriert und werden nur angezeigt. Gleichzeitig bearbeitete
+Einstellungen werden mit Versionskonflikt abgewiesen statt überschrieben.
+
+Client-Secrets werden nie angezeigt oder über die API zurückgeliefert. Die
+SQLite-Datenbank enthält jedoch gespeicherte Secrets: Datenordner und Sicherungen
+entsprechend schützen. Vor dem ersten Upgrade den Datenordner sichern; neue
+Datenbankspalten und die Einstellungstabelle werden automatisch ergänzt.
 
 ## Kamera und Zeitmuster
 
-Als Administrator links die Kameraeinstellungen öffnen und beispielsweise setzen:
+Als Administrator die Kameraeinstellungen öffnen und **Ordner auswählen** nutzen.
+Der Assistent zeigt ausschließlich Ordner innerhalb des eingebundenen
+Aufnahmeverzeichnisses. Für dein Reolink-Archiv:
+
+| Einstellung | Wert |
+|---|---|
+| Kameraordner | `Reolink/Eingang` |
+| Aufnahmeformat | Reolink |
+| Kamerapräfix | `Eingang` |
+| Zeitzone | `Europe/Berlin` |
+
+`Reolink/Eingang/2026/10/14/Eingang_00_20261014061217.mp4` wird als Video ab
+14.10.2026, 06:12:17 Berliner Ortszeit erkannt. `.jpg` und `.jpeg` werden als
+punktuelle Bildereignisse erkannt. Andere numerische Kennungen wie `_01_` sind
+zulässig; Ordner- und Dateidatum müssen übereinstimmen. Der Assistent schlägt den
+Präfix aus einer Beispieldatei vor; **Erkennung prüfen** zeigt Zeiten und Dateifehler.
+Die begrenzte Suche kann bei großen Archiven einen spezifischeren Ordner benötigen.
+
+JPGs auf der Zeitleiste oder unter **Einzelbilder** anklicken, um sie zu öffnen und
+herunterzuladen. Gleichnamige Bilder werden bevorzugt als MP4-Vorschau verwendet.
+Einzelbilder haben keine Videodauer und füllen keine Wiedergabe- oder Exportlücken.
+Beschädigte Bilder werden mit Warnung ausgelassen; Bildgröße maximal 40 Megapixel.
+
+Für andere Archive weiterhin **Eigenes Dateimuster** wählen, beispielsweise:
 
 | Einstellung | Wert |
 |---|---|
@@ -167,7 +243,9 @@ Browserdecoder können geringfügig voneinander abweichen; Abweichungen über et
 „Automatisch“ bevorzugt H.264 in MP4/MOV sowie browserfähiges H.265. Bei Browser-
 Codecfehlern „Kompatibel“ auswählen. MKV/AVI/TS und inkompatible Codecs benötigen
 HLS-Konvertierung. Rohes H.264/H.265 ohne ermittelbare Dauer wird ausgelassen.
-Keine Audioausgabe. Unterstützte Erweiterungen: MP4, MOV, MKV, AVI, TS, H264, H265.
+Keine Audioausgabe. Unterstützte Videoerweiterungen: MP4, MOV, MKV, AVI, TS, H264, H265.
+Zusätzlich JPG/JPEG als Einzelbilder. Bei eigenen Videomustern wird für Bilder
+dasselbe Zeitmuster mit JPG-/JPEG-Endung verwendet.
 
 - `CTV_MAX_TRANSCODERS=1`: gleichzeitige FFmpeg-Videoumwandlungen; zulässig 1–16.
 - `CTV_SCAN_INTERVAL_SECONDS=300`: Hintergrundscan des aktuellen Tages, 30–86400 Sekunden.
@@ -187,6 +265,30 @@ CPU und Arbeitsspeicher ausreichen. Hardwarebeschleunigung ist nicht integriert.
 Die App kopiert keine Originalvideos. Die Größe und der Speicherverbrauch des
 Images werden in den Release-/CI-Prüfungen ausgegeben; Laufzeitlast hängt stark
 von Auflösung, Codec, Kamerazahl und Transcoding ab.
+
+## Clips exportieren
+
+**Clip exportieren** öffnen, eine Kamera und Start/Ende in `Europe/Berlin` wählen.
+Die Wiedergabeposition wird als Start vorgeschlagen. **Zeitraum prüfen** zeigt
+Videolücken; **Export starten** erzeugt asynchron eine MP4-Datei mit Fortschritt,
+Abbruch und Download. Administratoren und Betrachter dürfen exportieren.
+
+- Maximal 30 Minuten, über Dateigrenzen und Mitternacht hinweg; JPGs füllen keine Lücken.
+- H.264, ohne Ton, erneute Komprimierung mit 30 Bildern pro Sekunde. Auflösung des
+  ersten Abschnitts; abweichende Auflösungen werden mit Randflächen angepasst.
+  Ungerade Bildabmessungen werden für H.264 auf gerade Pixelzahlen aufgerundet.
+- Bei überlappenden Videos gilt dieselbe Auswahl wie bei der Wiedergabe.
+- Umwandlungsplätze und Cachebudget werden mit der Wiedergabe geteilt. Bei
+  Auslastung Wiedergabe pausieren und erneut versuchen. Sehr viele Dateigrenzen
+  erfordern einen kürzeren Exportzeitraum.
+- Exporte gehören zur aktuellen Sitzung. Abmelden oder Sitzungswiderruf beendet
+  den Zugriff; ein erneutes Login übernimmt die alten Aufträge nicht.
+- Temporäre Exporte verfallen eine Stunde nach Auftragserstellung und werden bei
+  Neustart entfernt. Unter Speicherdruck können sie früher entfernt werden.
+  Aktive Downloads werden vor Bereinigung geschützt. Für eine harte Speichergrenze
+  weiterhin Dateisystem-/Volume-Quota verwenden.
+- Mehrdeutige oder nicht existierende lokale Exportzeiten bei einer Zeitumstellung
+  werden abgewiesen. Es ist kein framegenauer forensischer Export zugesagt.
 
 ## Releases und Updates
 
@@ -241,6 +343,8 @@ go test -race ./...
 python3 -m unittest discover -s scripts -p 'test_*.py'
 go build -o bin/cctv ./cmd/cctv
 npx playwright install chrome
+# Optional vorhandenen Chromium-Browser verwenden:
+# CTV_TEST_BROWSER=/pfad/zum/browser npm run test:browser
 npm run test:browser
 mkdir -p data recordings
 CTV_DATA_DIR=./data bin/cctv admin --username admin

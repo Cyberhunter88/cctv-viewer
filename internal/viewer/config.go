@@ -64,6 +64,11 @@ func LoadConfig() (Config, error) {
 		}
 		c.TrustedProxies = append(c.TrustedProxies, n)
 	}
+	minutes, err := strconv.Atoi(env("CTV_SESSION_MINUTES", "480"))
+	if err != nil || minutes < 15 || minutes > 1440 {
+		return c, errors.New("CTV_SESSION_MINUTES muss zwischen 15 und 1440 liegen")
+	}
+	c.SessionTTL = time.Duration(minutes) * time.Minute
 	seconds, err := strconv.Atoi(env("CTV_SCAN_INTERVAL_SECONDS", "300"))
 	if err != nil || seconds < 30 || seconds > 86400 {
 		return c, errors.New("CTV_SCAN_INTERVAL_SECONDS muss zwischen 30 und 86400 liegen")

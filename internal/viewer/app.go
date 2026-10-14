@@ -20,23 +20,34 @@ import (
 )
 
 type App struct {
-	cfg        Config
-	db         *Store
-	root       *os.Root
-	ctx        context.Context
-	cancel     context.CancelFunc
-	work       sync.WaitGroup
-	index      indexer
-	limits     limiter
-	dummyHash  string
-	verifier   *oidc.IDTokenVerifier
-	oauth      oauth2.Config
-	mediaMu    sync.Mutex
-	streams    map[string]*stream
-	slots      chan struct{}
-	cacheMu    sync.Mutex
-	thumbSlots chan struct{}
-	assets     fs.FS
+	cfg             Config
+	cfgMu           sync.RWMutex
+	authMu          sync.RWMutex
+	settingsMu      sync.Mutex
+	envCfg          Config
+	settingsVersion int
+	overrides       map[string]json.RawMessage
+	pending         *oidcPending
+	testOIDC        bool
+	confirmOIDC     func(Session) error
+	exportMu        sync.Mutex
+	exports         map[string]*exportJob
+	db              *Store
+	root            *os.Root
+	ctx             context.Context
+	cancel          context.CancelFunc
+	work            sync.WaitGroup
+	index           indexer
+	limits          limiter
+	dummyHash       string
+	verifier        *oidc.IDTokenVerifier
+	oauth           oauth2.Config
+	mediaMu         sync.Mutex
+	streams         map[string]*stream
+	slots           chan struct{}
+	cacheMu         sync.Mutex
+	thumbSlots      chan struct{}
+	assets          fs.FS
 }
 
 func New(ctx context.Context, cfg Config, assets fs.FS) (*App, error) {
@@ -55,7 +66,14 @@ func New(ctx context.Context, cfg Config, assets fs.FS) (*App, error) {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	a := &App{cfg: cfg, db: db, root: root, ctx: ctx, cancel: cancel, index: indexer{last: map[string]time.Time{}, status: ScanStatus{Warnings: []string{}}}, limits: limiter{entries: map[string]attempt{}, active: make(chan struct{}, 2)}, streams: map[string]*stream{}, slots: make(chan struct{}, cfg.MaxTranscoders), thumbSlots: make(chan struct{}, 1), assets: assets}
+	a := &App{cfg: cfg, db: db, root: root, ctx: ctx, cancel: cancel, index: indexer{last: map[string]time.Time{}, status: ScanStatus{Warnings: []string{}}}, limits: limiter{entries: map[string]attempt{}, active: make(chan struct{}, 2)}, streams: map[string]*stream{}, slots: make(chan struct{}, 16), thumbSlots: make(chan struct{}, 1), assets: assets}
+	a.envCfg = cfg
+	a.overrides = map[string]json.RawMessage{}
+	a.exports = map[string]*exportJob{}
+	if e = a.loadSettings(); e != nil {
+		a.Close()
+		return nil, e
+	}
 	a.dummyHash, _ = HashPassword(token())
 	if e = os.MkdirAll(path.Join(cfg.DataDir, "cache"), 0700); e != nil {
 		a.Close()
@@ -64,7 +82,7 @@ func New(ctx context.Context, cfg Config, assets fs.FS) (*App, error) {
 	// Old HLS jobs cannot survive process restart.
 	entries, _ := os.ReadDir(path.Join(cfg.DataDir, "cache"))
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "hls-") {
+		if strings.HasPrefix(entry.Name(), "hls-") || strings.HasPrefix(entry.Name(), "export-") {
 			os.RemoveAll(path.Join(cfg.DataDir, "cache", entry.Name()))
 		}
 	}
@@ -100,8 +118,9 @@ func (a *App) background() {
 		case <-ticker.C:
 			a.db.Cleanup(a.ctx)
 			a.pruneStreams()
+			a.pruneExports()
 			a.pruneCache()
-			if time.Since(lastScan) >= a.cfg.ScanInterval {
+			if time.Since(lastScan) >= a.config().ScanInterval {
 				loc, _ := time.LoadLocation("Europe/Berlin")
 				a.startScan(time.Now().In(loc).Format("2006-01-02"), false)
 				lastScan = time.Now()
@@ -127,11 +146,17 @@ func (a *App) Handler() http.Handler {
 		jsonOut(w, 200, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /auth/methods", func(w http.ResponseWriter, r *http.Request) {
-		jsonOut(w, 200, map[string]bool{"local": a.cfg.LocalAdmin, "oidc": a.verifier != nil})
+		jsonOut(w, 200, map[string]bool{"local": a.config().LocalAdmin, "oidc": a.oidcEnabled()})
 	})
 	mux.HandleFunc("POST /auth/local", a.localLogin)
 	mux.HandleFunc("GET /auth/oidc", a.oidcStart)
-	mux.HandleFunc("GET /auth/oidc/callback", a.oidcCallback)
+	mux.HandleFunc("GET /auth/oidc/callback", func(w http.ResponseWriter, r *http.Request) {
+		if cookie, e := r.Cookie("ctv_oidc_test"); e == nil && r.URL.Query().Get("state") != "" && cookie.Value == r.URL.Query().Get("state") {
+			a.protect(true, a.finishOIDCTest)(w, r)
+			return
+		}
+		a.oidcCallback(w, r)
+	})
 	mux.HandleFunc("GET /api/session", a.protect(false, func(w http.ResponseWriter, r *http.Request) { jsonOut(w, 200, r.Context().Value(sessionKey)) }))
 	mux.HandleFunc("POST /api/logout", a.protect(false, a.logout))
 	mux.HandleFunc("GET /api/cameras", a.protect(false, func(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +176,9 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/cameras", a.protect(true, a.saveCamera))
 	mux.HandleFunc("POST /api/cameras/preview", a.protect(true, a.preview))
 	mux.HandleFunc("DELETE /api/cameras/{id}", a.protect(true, a.deleteCamera))
+	a.registerManagement(mux)
+	a.registerExports(mux)
+	mux.HandleFunc("GET /api/cameras/folders", a.protect(true, a.cameraFolders))
 	mux.HandleFunc("GET /api/day", a.protect(false, a.day))
 	mux.HandleFunc("GET /api/scan", a.protect(false, func(w http.ResponseWriter, r *http.Request) { jsonOut(w, 200, a.scanStatus()) }))
 	mux.HandleFunc("POST /api/scan", a.protect(true, func(w http.ResponseWriter, r *http.Request) {
@@ -205,7 +233,7 @@ func (a *App) Handler() http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
-		if !a.cfg.DevHTTP {
+		if !a.config().DevHTTP {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		}
 		defer func() {
@@ -270,6 +298,7 @@ func (a *App) preview(w http.ResponseWriter, r *http.Request) {
 	type item struct {
 		File  string `json:"file"`
 		Time  string `json:"time,omitempty"`
+		Kind  string `json:"kind"`
 		Error string `json:"error,omitempty"`
 	}
 	out := []item{}
@@ -286,16 +315,33 @@ func (a *App) preview(w http.ResponseWriter, r *http.Request) {
 		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
-		if !contains([]string{".mp4", ".mov", ".mkv", ".avi", ".ts", ".h264", ".h265"}, strings.ToLower(path.Ext(name))) {
+		if !supportedMedia(name) {
 			return nil
 		}
 		relative := strings.TrimPrefix(name, c.Folder+"/")
-		t, e := ParseTimestamp(c.Pattern, relative, c.Timezone, c.Offset)
-		v := item{File: relative}
+		t, e := cameraTimestamp(c, relative)
+		v := item{File: relative, Kind: "video"}
+		if strings.EqualFold(path.Ext(relative), ".jpg") || strings.EqualFold(path.Ext(relative), ".jpeg") {
+			v.Kind = "image"
+		}
 		if e != nil {
 			v.Error = e.Error()
 		} else {
 			v.Time = t.Format(time.RFC3339)
+			file, openErr := openSource(a.root, name)
+			if openErr != nil {
+				v.Error = "Datei nicht lesbar"
+			} else {
+				if v.Kind == "image" {
+					openErr = validateJPEG(file)
+				} else {
+					_, _, openErr = probe(r.Context(), file)
+				}
+				file.Close()
+				if openErr != nil {
+					v.Error = "Bild oder Video beschädigt oder nicht lesbar"
+				}
+			}
 		}
 		out = append(out, v)
 		if len(out) >= 8 {

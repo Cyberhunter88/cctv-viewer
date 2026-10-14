@@ -5,7 +5,7 @@
   "scripts": {
     "build": "esbuild web/src/app.ts --bundle --minify --target=es2022 --outfile=web/dist/app.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test web/src/timeline.test.ts",
+    "test": "node --experimental-strip-types --test web/src/timeline.test.ts web/src/management.test.ts",
     "test:browser": "playwright test"
   },
   "devDependencies": {

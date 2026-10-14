@@ -1,6 +1,7 @@
 package viewer
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -55,7 +56,11 @@ func TestOIDCFlow(t *testing.T) {
 			case "denied":
 				claims["groups"] = []string{"other"}
 			case "admin":
-				claims["groups"] = []string{"cctv-admins"}
+				claims["groups"] = []string{"cctv-admin"}
+			case "missing-groups":
+				delete(claims, "groups")
+			case "string-group":
+				claims["groups"] = "cctv-admin"
 			}
 			payload, _ := json.Marshal(claims)
 			signed, _ := signer.Sign(payload)
@@ -77,7 +82,7 @@ func TestOIDCFlow(t *testing.T) {
 	a.cfg.OIDCSecret = "secret"
 	a.cfg.OIDCGroupClaim = "groups"
 	a.cfg.AllowedGroups = []string{"cctv-viewers"}
-	a.cfg.AdminGroups = []string{"cctv-admins"}
+	a.cfg.AdminGroups = []string{"cctv-admin"}
 	ctx := oidc.ClientContext(context.Background(), provider.Client())
 	if e = a.initOIDC(ctx); e != nil {
 		t.Fatal(e)
@@ -85,7 +90,7 @@ func TestOIDCFlow(t *testing.T) {
 	for _, tc := range []struct {
 		mode string
 		want int
-	}{{"valid", 303}, {"expired", 401}, {"audience", 401}, {"issuer", 401}, {"nonce", 401}, {"denied", 403}, {"admin", 303}, {"tampered", 401}} {
+	}{{"valid", 303}, {"expired", 401}, {"audience", 401}, {"issuer", 401}, {"nonce", 401}, {"denied", 403}, {"admin", 303}, {"missing-groups", 403}, {"string-group", 403}, {"tampered", 401}} {
 		t.Run(tc.mode, func(t *testing.T) {
 			mode = tc.mode
 			// Use a unique client IP so each case tests OIDC rather than the shared login limiter.
@@ -101,6 +106,9 @@ func TestOIDCFlow(t *testing.T) {
 				t.Fatal(e)
 			}
 			q := location.Query()
+			if q.Get("scope") != "openid profile groups" {
+				t.Fatal("group membership must be requested", q.Get("scope"))
+			}
 			state := q.Get("state")
 			nonce = q.Get("nonce")
 			challenge = q.Get("code_challenge")
@@ -151,6 +159,72 @@ func TestOIDCFlow(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatal("unbound callback accepted")
 	}
+	t.Run("web settings require administrator test before activation", func(t *testing.T) {
+		cookie, session := login(t, a)
+		send := func(method, target string, body any, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+			var b bytes.Buffer
+			if body != nil {
+				json.NewEncoder(&b).Encode(body)
+			}
+			r := httptest.NewRequest(method, target, &b).WithContext(ctx)
+			r.RemoteAddr = "192.0.2.200:1234"
+			r.Header.Set("Origin", a.config().BaseURL)
+			r.Header.Set("X-CSRF-Token", session.CSRF)
+			for _, c := range cookies {
+				r.AddCookie(c)
+			}
+			w := httptest.NewRecorder()
+			a.Handler().ServeHTTP(w, r)
+			return w
+		}
+		values := map[string]any{"oidcIssuer": issuer, "oidcClientId": "cctv", "oidcSecret": "changed secret", "oidcGroupClaim": "groups", "allowedGroups": []string{"cctv-viewers"}, "adminGroups": []string{"cctv-admin"}, "localLogin": false}
+		w := send("PUT", "/api/admin/settings", map[string]any{"version": 0, "values": values}, cookie)
+		if w.Code != 202 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		if !a.config().LocalAdmin || a.config().OIDCSecret == "changed secret" {
+			t.Fatal("unconfirmed settings activated")
+		}
+		for _, testMode := range []string{"valid", "admin"} {
+			mode = testMode
+			w = send("GET", "/auth/oidc/test", nil, cookie)
+			if w.Code != 302 {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			location, _ := url.Parse(w.Header().Get("Location"))
+			q := location.Query()
+			nonce = q.Get("nonce")
+			challenge = q.Get("code_challenge")
+			state := q.Get("state")
+			testCookie := w.Result().Cookies()[0]
+			w = send("GET", "/auth/oidc/callback?state="+url.QueryEscape(state)+"&code=valid-code", nil, cookie, testCookie)
+			if testMode == "valid" {
+				if w.Code != 403 || !a.config().LocalAdmin {
+					t.Fatal("viewer activated settings", w.Code, w.Body.String())
+				}
+				continue
+			}
+			if w.Code != 303 || a.config().LocalAdmin || a.config().OIDCSecret != "changed secret" {
+				t.Fatal("administrator activation failed", w.Code, w.Body.String())
+			}
+			if out := request(a, "GET", "/api/session", nil, cookie, ""); out.Code != 401 {
+				t.Fatal("local session not revoked")
+			}
+			var newCookie *http.Cookie
+			for _, c := range w.Result().Cookies() {
+				if c.Name == "ctv_session" {
+					newCookie = c
+				}
+			}
+			if newCookie == nil || request(a, "GET", "/api/session", nil, newCookie, "").Code != 200 {
+				t.Fatal("confirmed admin session missing")
+			}
+			if w = send("GET", "/auth/oidc/callback?state="+url.QueryEscape(state)+"&code=valid-code", nil, cookie, testCookie); w.Code != 401 {
+				t.Fatal("test replay accepted", w.Code)
+			}
+		}
+	})
+
 }
 func TestOIDCAccessDefaults(t *testing.T) {
 	a := testApp(t)
@@ -165,5 +239,28 @@ func TestOIDCAccessDefaults(t *testing.T) {
 	a.cfg.AdminGroups = []string{"admins"}
 	if a.oidcRole("other", map[string]any{"roles": []any{"admins"}}) != "admin" {
 		t.Fatal("group claim")
+	}
+}
+
+func TestOIDCAdminGroupOnly(t *testing.T) {
+	a := testApp(t)
+	a.cfg.OIDCGroupClaim = "groups"
+	a.cfg.AdminGroups = []string{"cctv-admin"}
+	for _, tc := range []struct {
+		name   string
+		claims map[string]any
+		want   string
+	}{
+		{"member", map[string]any{"groups": []any{"other", "cctv-admin"}}, "admin"},
+		{"nonmember", map[string]any{"groups": []any{"cctv-viewers", "cctv-admins"}}, ""},
+		{"missing", map[string]any{}, ""},
+		{"wrong-case", map[string]any{"groups": []any{"CCTV-Admin"}}, ""},
+		{"malformed", map[string]any{"groups": "cctv-admin"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := a.oidcRole("user", tc.claims); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

@@ -49,6 +49,14 @@ func (a *App) file(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
+	if record.Kind == "image" {
+		w.Header().Set("Content-Type", "image/jpeg")
+		if r.URL.Query().Get("download") == "1" {
+			w.Header().Set("Content-Disposition", `attachment; filename="snapshot.jpg"`)
+		}
+		http.ServeContent(w, r, "snapshot.jpg", time.Unix(0, record.Mod), f)
+		return
+	}
 	if record.Codec != "h264" && record.Codec != "hevc" {
 		fail(w, 415, "Kompatible Wiedergabe auswählen")
 		return
@@ -68,7 +76,25 @@ func (a *App) thumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
-	name := filepath.Join(a.cfg.DataDir, "cache", record.ID+"-"+strconv.FormatInt(record.Mod, 10)+".jpg")
+	imageID := ""
+	if record.Kind == "image" {
+		imageID = record.ID
+	} else {
+		a.db.QueryRow(`SELECT id FROM recordings WHERE camera_id=? AND path=? AND codec='jpeg'`, record.CameraID, strings.TrimSuffix(record.Path, filepath.Ext(record.Path))+".jpg").Scan(&imageID)
+		if imageID == "" {
+			a.db.QueryRow(`SELECT id FROM recordings WHERE camera_id=? AND path=? AND codec='jpeg'`, record.CameraID, strings.TrimSuffix(record.Path, filepath.Ext(record.Path))+".jpeg").Scan(&imageID)
+		}
+	}
+	if imageID != "" {
+		_, picture, e := a.source(imageID)
+		if e == nil {
+			defer picture.Close()
+			w.Header().Set("Content-Type", "image/jpeg")
+			http.ServeContent(w, r, "snapshot.jpg", time.Unix(0, record.Mod), picture)
+			return
+		}
+	}
+	name := filepath.Join(a.config().DataDir, "cache", record.ID+"-"+strconv.FormatInt(record.Mod, 10)+".jpg")
 	if b, e := os.ReadFile(name); e == nil {
 		now := time.Now()
 		os.Chtimes(name, now, now)
@@ -85,7 +111,7 @@ func (a *App) thumbnail(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	tmp, e := os.CreateTemp(filepath.Join(a.cfg.DataDir, "cache"), "thumb-*.jpg")
+	tmp, e := os.CreateTemp(filepath.Join(a.config().DataDir, "cache"), "thumb-*.jpg")
 	if e != nil {
 		fail(w, 500, "Vorschau fehlgeschlagen")
 		return
@@ -132,24 +158,26 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
+	if record.Kind == "image" {
+		fail(w, 400, "Einzelbilder sind keine Videos")
+		return
+	}
 	if math.IsNaN(input.Offset) || math.IsInf(input.Offset, 0) || input.Offset < 0 || input.Offset >= record.Duration {
 		fail(w, 400, "Startposition ungültig")
 		return
 	}
 	a.pruneStreams()
 	a.pruneCache()
-	if a.cacheUsage() >= a.cfg.CacheBytes*9/10 {
+	if a.cacheUsage() >= a.config().CacheBytes*9/10 {
 		fail(w, 503, "Temporärer Videospeicher ausgelastet")
 		return
 	}
-	select {
-	case a.slots <- struct{}{}:
-	default:
+	if !a.acquireEncoder() {
 		fail(w, 429, "Alle Umwandlungsplätze sind belegt. Weniger Kameras oder Originalwiedergabe wählen.")
 		return
 	}
 	id := token()[:24]
-	dir := filepath.Join(a.cfg.DataDir, "cache", "hls-"+id)
+	dir := filepath.Join(a.config().DataDir, "cache", "hls-"+id)
 	if e = os.Mkdir(dir, 0700); e != nil {
 		<-a.slots
 		fail(w, 500, "Streaming konnte nicht gestartet werden")
@@ -292,7 +320,7 @@ func (a *App) pruneStreams() {
 }
 func (a *App) cacheUsage() int64 {
 	var total int64
-	filepath.WalkDir(filepath.Join(a.cfg.DataDir, "cache"), func(p string, d fs.DirEntry, e error) error {
+	filepath.WalkDir(filepath.Join(a.config().DataDir, "cache"), func(p string, d fs.DirEntry, e error) error {
 		if e == nil && !d.IsDir() {
 			if s, e := d.Info(); e == nil {
 				total += s.Size()
@@ -311,7 +339,7 @@ func (a *App) pruneCache() {
 		size int64
 	}
 	entries := []entry{}
-	filepath.WalkDir(filepath.Join(a.cfg.DataDir, "cache"), func(p string, d fs.DirEntry, e error) error {
+	filepath.WalkDir(filepath.Join(a.config().DataDir, "cache"), func(p string, d fs.DirEntry, e error) error {
 		if e == nil && !d.IsDir() && strings.HasSuffix(p, ".jpg") {
 			if st, e := d.Info(); e == nil {
 				entries = append(entries, entry{p, st.ModTime(), st.Size()})
@@ -322,14 +350,16 @@ func (a *App) pruneCache() {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].time.Before(entries[j].time) })
 	used := a.cacheUsage()
 	for _, entry := range entries {
-		if used < a.cfg.CacheBytes*3/4 {
+		if used < a.config().CacheBytes*3/4 {
 			break
 		}
 		if os.Remove(entry.path) == nil {
 			used -= entry.size
 		}
 	}
-	if used > a.cfg.CacheBytes {
+	if used > a.config().CacheBytes {
+		a.trimExports()
+		used = a.cacheUsage()
 		a.mediaMu.Lock()
 		ids := []string{}
 		for id := range a.streams {
@@ -338,7 +368,7 @@ func (a *App) pruneCache() {
 		sort.Slice(ids, func(i, j int) bool { return a.streams[ids[i]].created.Before(a.streams[ids[j]].created) })
 		a.mediaMu.Unlock()
 		for _, id := range ids {
-			if a.cacheUsage() < a.cfg.CacheBytes*3/4 {
+			if a.cacheUsage() < a.config().CacheBytes*3/4 {
 				break
 			}
 			a.removeStream(id)

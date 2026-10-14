@@ -7,7 +7,7 @@ import (
 )
 
 func TestConfigDefaultsAndValidation(t *testing.T) {
-	for _, key := range []string{"CTV_BASE_URL", "CTV_DEV_HTTP", "CTV_LOCAL_ADMIN", "CTV_OIDC_ISSUER", "CTV_OIDC_CLIENT_ID", "CTV_OIDC_CLIENT_SECRET", "CTV_OIDC_CLIENT_SECRET_FILE", "CTV_MAX_TRANSCODERS", "CTV_CACHE_MB", "CTV_SCAN_INTERVAL_SECONDS", "CTV_TRUSTED_PROXIES"} {
+	for _, key := range []string{"CTV_BASE_URL", "CTV_DEV_HTTP", "CTV_LOCAL_ADMIN", "CTV_OIDC_ISSUER", "CTV_OIDC_CLIENT_ID", "CTV_OIDC_CLIENT_SECRET", "CTV_OIDC_CLIENT_SECRET_FILE", "CTV_MAX_TRANSCODERS", "CTV_CACHE_MB", "CTV_SCAN_INTERVAL_SECONDS", "CTV_TRUSTED_PROXIES", "CTV_SESSION_MINUTES"} {
 		t.Setenv(key, "")
 	}
 	if _, e := LoadConfig(); e == nil {
@@ -18,7 +18,7 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 	if e != nil || c.MaxTranscoders != 1 || c.CacheBytes != 512<<20 {
 		t.Fatal(c, e)
 	}
-	for _, entry := range []struct{ key, value string }{{"CTV_MAX_TRANSCODERS", "0"}, {"CTV_CACHE_MB", "1"}, {"CTV_SCAN_INTERVAL_SECONDS", "1"}, {"CTV_TRUSTED_PROXIES", "invalid"}, {"CTV_BASE_URL", "https://cctv.example.org/subpath"}, {"CTV_OIDC_ISSUER", "http://example.org"}} {
+	for _, entry := range []struct{ key, value string }{{"CTV_SESSION_MINUTES", "0"}, {"CTV_MAX_TRANSCODERS", "0"}, {"CTV_CACHE_MB", "1"}, {"CTV_SCAN_INTERVAL_SECONDS", "1"}, {"CTV_TRUSTED_PROXIES", "invalid"}, {"CTV_BASE_URL", "https://cctv.example.org/subpath"}, {"CTV_OIDC_ISSUER", "http://example.org"}} {
 		t.Run(entry.key, func(t *testing.T) {
 			t.Setenv(entry.key, entry.value)
 			if _, e := LoadConfig(); e == nil {
