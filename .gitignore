@@ -13,3 +13,5 @@ __pycache__/
 *.pyc
 .sync-conflicts/
 **/*.sync-conflict-*
+test-results/
+playwright-report/

@@ -9,3 +9,5 @@ web/dist/app.js.map
 secrets
 .sync-conflicts/
 **/*.sync-conflict-*
+test-results/
+playwright-report/

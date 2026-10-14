@@ -204,10 +204,7 @@ func TestIndexAndMedia(t *testing.T) {
 	}
 	r := rs[0]
 	if r.Duration < 2.9 || r.Codec != "h264" || r.Start != 1791959400 {
-		t.Log("timestamp", time.Unix(int64(r.Start), 0))
-		if r.Duration < 2.9 || r.Codec != "h264" {
-			t.Fatal(r)
-		}
+		t.Fatal("recording timestamp or metadata", r)
 	}
 	cookie, s := login(t, a)
 	req := httptest.NewRequest("GET", "/api/recordings/"+r.ID+"/file", nil)

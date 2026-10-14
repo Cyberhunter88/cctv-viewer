@@ -1,0 +1,37 @@
+import {test,expect} from '@playwright/test';
+
+test('Login, camera synchronization, thumbnails, HLS and mobile layout',async({page})=>{
+ await page.goto('/');
+ await page.getByLabel('Benutzername',{exact:true}).fill('browser');
+ await page.getByLabel('Passwort',{exact:true}).fill('synthetic browser test password');
+ await page.getByRole('button',{name:'Anmelden →'}).click();
+ await expect(page.getByRole('heading',{name:'Aufnahmen',exact:true})).toBeVisible();
+ await page.locator('#date').fill('2026-10-14');
+ await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:20000});
+ await page.locator('.thumb').first().click();
+ await expect.poll(()=>page.locator('.thumb img').first().evaluate((img:HTMLImageElement)=>img.naturalWidth)).toBeGreaterThan(0);
+ await page.getByRole('button',{name:'10 Sekunden vor',exact:true}).click();
+ await page.getByRole('button',{name:'Abspielen',exact:true}).click();
+ await expect.poll(()=>page.locator('video').first().evaluate(v=>v.currentTime)).toBeGreaterThan(10.5);
+ const times=await page.locator('video').evaluateAll(videos=>videos.map(v=>v.currentTime));
+ expect(times).toHaveLength(2);expect(Math.abs(times[0]-times[1]-5)).toBeLessThan(.8);
+ await page.getByRole('button',{name:'Pause',exact:true}).click();
+ await page.locator('#layout').selectOption('1');
+ await page.locator('.thumb').first().click();
+ await page.locator('#quality').selectOption('compatible');
+ await expect.poll(()=>page.locator('video').first().evaluate(v=>v.readyState),{timeout:25000}).toBeGreaterThanOrEqual(2);
+ await page.getByRole('button',{name:'Abspielen',exact:true}).click();
+ await expect.poll(()=>page.locator('video').first().evaluate(v=>v.currentTime)).toBeGreaterThan(1);
+ await expect(page.locator('.tile-message.error')).toHaveCount(0);
+ await page.getByRole('button',{name:'Pause',exact:true}).click();
+ await page.getByRole('button',{name:'Kameras verwalten',exact:true}).click();
+ await page.locator('.camera-entry button').filter({hasText:'Eingang'}).click();
+ await page.getByRole('button',{name:'Erkennung prüfen',exact:true}).click();
+ await expect(page.locator('#preview-result')).toContainText('2026-10-14T06:30:00Z');
+ await page.getByRole('button',{name:'Schließen',exact:true}).click();
+ await page.setViewportSize({width:390,height:844});
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await page.screenshot({path:'test-results/mobile.png',fullPage:true});
+ await page.getByRole('button',{name:'Abmelden ↗'}).click();
+ await expect(page.getByRole('heading',{name:'Willkommen zurück'})).toBeVisible();
+});
