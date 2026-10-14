@@ -234,7 +234,7 @@ go vet ./...
 go test -race ./...
 python3 -m unittest discover -s scripts -p 'test_*.py'
 go build -o bin/cctv ./cmd/cctv
-npx playwright install chromium
+npx playwright install chrome
 npm run test:browser
 mkdir -p data recordings
 CTV_DATA_DIR=./data bin/cctv admin --username admin

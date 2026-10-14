@@ -35,6 +35,15 @@ func OpenStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
+	file, err := os.OpenFile(filepath.Join(dir, "viewer.db"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err = file.Chmod(0600); err != nil {
+		file.Close()
+		return nil, err
+	}
+	file.Close()
 	db, err := sql.Open("sqlite", filepath.Join(dir, "viewer.db"))
 	if err != nil {
 		return nil, err

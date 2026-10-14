@@ -86,6 +86,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ needs.prepare.outputs.commit }}
             org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
       - run: ./scripts/smoke.sh cctv-viewer:test
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -101,6 +102,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ needs.prepare.outputs.commit }}
             org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
   publish:
     needs: [prepare, build]
     runs-on: ubuntu-24.04

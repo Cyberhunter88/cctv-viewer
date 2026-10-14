@@ -13,9 +13,11 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/crypto/argon2"
@@ -42,7 +44,7 @@ func token() string {
 }
 func digest(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 func HashPassword(password string) (string, error) {
-	if len(password) < 14 || len(password) > 1024 {
+	if utf8.RuneCountInString(password) < 14 || len(password) > 1024 {
 		return "", errors.New("Passwort muss 14 bis 1024 Zeichen lang sein")
 	}
 	salt := make([]byte, 16)
@@ -252,6 +254,18 @@ func (a *App) initOIDC(ctx context.Context) error {
 	provider, e := oidc.NewProvider(ctx, a.cfg.OIDCIssuer)
 	if e != nil {
 		return fmt.Errorf("OIDC Discovery: %w", e)
+	}
+	var discovery struct {
+		JWKS string `json:"jwks_uri"`
+	}
+	if e = provider.Claims(&discovery); e != nil {
+		return e
+	}
+	for _, endpoint := range []string{provider.Endpoint().AuthURL, provider.Endpoint().TokenURL, discovery.JWKS} {
+		u, e := url.Parse(endpoint)
+		if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+			return errors.New("OIDC-Endpunkte müssen HTTPS verwenden")
+		}
 	}
 	a.verifier = provider.Verifier(&oidc.Config{ClientID: a.cfg.OIDCClientID})
 	a.oauth = oauth2.Config{ClientID: a.cfg.OIDCClientID, ClientSecret: a.cfg.OIDCSecret, Endpoint: provider.Endpoint(), RedirectURL: a.cfg.BaseURL + "/auth/oidc/callback", Scopes: []string{oidc.ScopeOpenID, "profile"}}
