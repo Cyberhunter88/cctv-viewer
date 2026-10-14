@@ -19,13 +19,13 @@ ARG TARGETARCH
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o /cctv ./cmd/cctv
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install --no-install-recommends -y ffmpeg ca-certificates tzdata tini && rm -rf /var/lib/apt/lists/* \
-    && groupadd -g 10001 cctv && useradd -u 10001 -g cctv -M -d /data -s /usr/sbin/nologin cctv \
+FROM alpine:3.22
+RUN apk add --no-cache ffmpeg ca-certificates tzdata tini \
+    && addgroup -g 10001 cctv && adduser -D -u 10001 -G cctv -h /data -s /sbin/nologin cctv \
     && mkdir -p /data /recordings && chown cctv:cctv /data
 COPY --from=backend /cctv /usr/local/bin/cctv
 USER 10001:10001
 EXPOSE 8080
 ENV CTV_DATA_DIR=/data CTV_RECORDINGS_DIR=/recordings
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/cctv","healthcheck"]
-ENTRYPOINT ["/usr/bin/tini","--","/usr/local/bin/cctv"]
+ENTRYPOINT ["/sbin/tini","--","/usr/local/bin/cctv"]

@@ -10,13 +10,13 @@ behalten ihre jeweiligen Lizenzen. Insbesondere:
 - hls.js: Apache-2.0; Lizenzhinweise bleiben im gebauten JavaScript enthalten.
 - Go: BSD-3-Clause; Go-Abhängigkeiten sind in go.mod/go.sum festgehalten.
 - modernc.org/sqlite: BSD-3-Clause; SQLite-Kern: Public Domain.
-- FFmpeg einschließlich libx264 sowie Debian-Laufzeitpakete: jeweilige LGPL/GPL-
-  und Paketlizenzen. Paket-Copyright-Dateien befinden sich im Image unter
-  `/usr/share/doc`. Versionen lassen sich mit `dpkg-query -W` ermitteln.
-  Debian-Quellpakete der exakt installierten Paketversionen sind über
-  https://sources.debian.org/ und die Debian-Paketarchive erhältlich;
-  `apt-get source ffmpeg` in einer passenden Debian-Umgebung mit aktivierten
-  deb-src-Quellen lädt den Quellcode und Debian-Bauanweisungen.
+- FFmpeg einschließlich libx264 sowie Alpine-Laufzeitpakete: jeweilige LGPL/GPL-
+  und Paketlizenzen. Die Paketversionen im Image liefert `apk info -vv`.
+  Alpine-Paketdefinitionen und Quellcode-URLs für den Runtime-Zweig 3.22:
+  https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.22-stable/community/ffmpeg
+  und https://ffmpeg.org/download.html . Die APKBUILD-Dateien enthalten exakte
+  Quellversionen, Prüfsummen, Patches und Bauanweisungen. Die vollständige
+  Paketliste steht in der SBOM des jeweiligen Image-Digests.
 - tini: MIT.
 
 Der Container führt FFmpeg als separates Programm aus. FFmpeg wird nicht in die
