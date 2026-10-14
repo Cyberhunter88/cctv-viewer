@@ -7,3 +7,5 @@ data
 web/dist/app.js
 web/dist/app.js.map
 secrets
+.sync-conflicts/
+**/*.sync-conflict-*

@@ -28,6 +28,9 @@ sudo chmod 700 data
 In `.env` mindestens `CTV_BASE_URL=https://cctv.example.org` und
 `CTV_RECORDINGS_PATH=/mnt/kameras` eintragen. Für eine Vorabversion zusätzlich
 `CTV_VERSION=0.1.0-beta.1` setzen, da Vorabversionen kein `latest` erhalten.
+Alle Einstellungen werden direkt über `env_file: .env` geladen. Die Compose-Datei
+muss dafür nicht bearbeitet werden. `CTV_DATA_PATH`, `CTV_BIND_ADDRESS` und
+`CTV_HTTP_PORT` steuern Datenordner und Portbindung.
 UID/GID lassen sich über `CTV_UID`/`CTV_GID` ändern; der Datenordner muss dann
 entsprechend gehören. Der Prozess benötigt Leserechte auf den Kameraordnern.
 
@@ -143,7 +146,7 @@ von echten Löschungen unterscheidbar: Host-Mounts vor Containerstart sicherstel
 Dateien müssen mindestens 30 Sekunden unverändert alt sein und eine gültige Dauer
 haben. Nach dem Probe-Lauf werden Größe und Änderungszeit erneut geprüft. Das ist
 eine Stabilitätsheuristik; ungewöhnliche Schreiber können später weiter schreiben.
-Aufnahmen dürfen bis zu 48 Stunden dauern; der Vortag wird wegen über Mitternacht
+Aufnahmen dürfen bis zu 48 Stunden dauern; die beiden Vortage werden wegen über Mitternacht
 laufender Aufnahmen ebenfalls berücksichtigt. Konfigurationsänderungen an Pfad,
 Muster oder Zeitversatz verwerfen nur den abgeleiteten Index der Kamera.
 
@@ -161,6 +164,7 @@ HLS-Konvertierung. Rohes H.264/H.265 ohne ermittelbare Dauer wird ausgelassen.
 Keine Audioausgabe. Unterstützte Erweiterungen: MP4, MOV, MKV, AVI, TS, H264, H265.
 
 - `CTV_MAX_TRANSCODERS=1`: gleichzeitige FFmpeg-Videoumwandlungen; zulässig 1–16.
+- `CTV_SCAN_INTERVAL_SECONDS=300`: Hintergrundscan des aktuellen Tages, 30–86400 Sekunden.
 - `CTV_CACHE_MB=512`: gemeinsames Budget für Thumbnails und temporäre HLS-Dateien.
 - HLS: maximal 1280 Pixel breit, ca. 2 Mbit/s, ein Encoderthread, kein Audio.
 - Nach 90 Sekunden ohne Segmentabruf oder nach 30 Minuten werden Streams entfernt.

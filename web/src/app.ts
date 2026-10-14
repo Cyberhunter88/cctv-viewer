@@ -27,8 +27,9 @@ class Tile {
   const header=element('div','tile-header'),title=element('span','tile-title');title.append(element('i','secure-dot'),document.createTextNode(camera.name));header.append(title,this.codec);
   const footer=element('div','tile-footer');footer.append(this.timestamp,element('span','','AUFNAHME'));
   this.container.append(this.video,header,this.message,footer);
-  this.video.addEventListener('error',()=>{if(this.record&&!this.hls)this.fail('Originalformat nicht unterstützt. „Kompatibel“ wählen.')});
+  this.video.addEventListener('error',()=>{if(this.video.error&&this.record&&!this.loading&&!this.hls)this.fail(this.stream?'Streaming unterbrochen. Pause und Abspielen zum Wiederholen.':'Originalformat nicht unterstützt. „Kompatibel“ wählen.')});
   this.video.addEventListener('loadedmetadata',()=>this.align());
+  this.video.addEventListener('canplay',()=>{if(this.record&&!this.loading&&!this.video.error){this.failed=false;setMessage(this,'');this.align()}});
   this.video.addEventListener('ended',()=>{if(this.stream&&this.record&&cursor<this.record.start+this.record.duration-1){this.record=undefined;this.update()}});
  }
  fail(message:string){this.failed=true;setMessage(this,message,true)}
@@ -43,16 +44,16 @@ class Tile {
     this.abort=new AbortController();const stream=await api<{id:string;url:string;offset:number}>('/api/streams',{method:'POST',body:JSON.stringify({recording:record.id,offset:Math.max(0,cursor-record.start)}),signal:this.abort.signal});
     if(epoch!==this.epoch){void api('/api/streams/'+stream.id,{method:'DELETE'}).catch(()=>{});return}
     this.stream=stream.id;this.offset=stream.offset;
-    if(this.video.canPlayType('application/vnd.apple.mpegurl'))this.video.src=stream.url;
-    else if(Hls.isSupported()){
+    if(Hls.isSupported()){
      const hls=new Hls({maxBufferLength:20,maxMaxBufferLength:40,backBufferLength:10,liveSyncDurationCount:9999,liveMaxLatencyDurationCount:10000});this.hls=hls;
      hls.on(Hls.Events.ERROR,(_event,data)=>{if(data.fatal)this.fail('Streaming unterbrochen. Pause und Abspielen zum Wiederholen.')});hls.loadSource(stream.url);hls.attachMedia(this.video);
-    }else throw new Error('Dieser Browser unterstützt keine HLS-Wiedergabe.');
+    }else if(this.video.canPlayType('application/vnd.apple.mpegurl'))this.video.src=stream.url;
+    else throw new Error('Dieser Browser unterstützt keine HLS-Wiedergabe.');
    }
    if(epoch!==this.epoch)return;this.loading=false;setMessage(this,'');this.align();
   }catch(e){if(epoch!==this.epoch)return;this.loading=false;if((e as Error).name!=='AbortError')this.fail((e as Error).message)}
  }
- align(){if(!this.record||this.loading||this.failed)return;const target=cursor-this.record.start-this.offset;
+ align(){if(this.failed&&this.video.readyState>=2&&!this.video.error){this.failed=false;setMessage(this,'')}if(!this.record||this.loading||this.failed)return;const target=cursor-this.record.start-this.offset;
   if(target<-.5){this.record=undefined;this.update();return}
   if(this.video.readyState>=1&&Math.abs(this.video.currentTime-target)>.65){try{this.video.currentTime=Math.max(0,target)}catch{}}
   this.video.playbackRate=speed();if(playing){void this.video.play().catch(()=>{})}else this.video.pause();

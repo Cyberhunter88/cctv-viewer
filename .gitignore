@@ -11,3 +11,5 @@ coverage.out
 /secrets/
 __pycache__/
 *.pyc
+.sync-conflicts/
+**/*.sync-conflict-*

@@ -47,6 +47,9 @@ func (a *App) warn(s string) {
 	}
 }
 func (a *App) startScan(date string, force bool) bool {
+	if a.ctx.Err() != nil {
+		return false
+	}
 	a.index.mu.Lock()
 	defer a.index.mu.Unlock()
 	if a.index.status.Running || (!force && time.Since(a.index.last[date]) < time.Minute) {
@@ -101,9 +104,9 @@ func (a *App) scanDay(date string) {
 		if e != nil {
 			continue
 		}
-		// Include the preceding local day to find recordings crossing midnight.
+		// Include the preceding two local days to find recordings crossing midnight.
 		first := from.Add(-time.Duration(c.Offset) * time.Second).In(loc)
-		first = time.Date(first.Year(), first.Month(), first.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -1)
+		first = time.Date(first.Year(), first.Month(), first.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -2)
 		end := to.Add(-time.Duration(c.Offset) * time.Second).In(loc)
 		seen := map[string]bool{}
 		for d := first; !d.After(end); d = d.AddDate(0, 0, 1) {

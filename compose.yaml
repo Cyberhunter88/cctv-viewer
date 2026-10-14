@@ -2,26 +2,13 @@ services:
   cctv-viewer:
     image: ghcr.io/cyberhunter88/cctv-viewer:${CTV_VERSION:-latest}
     restart: unless-stopped
+    env_file: .env
     user: "${CTV_UID:-10001}:${CTV_GID:-10001}"
     ports:
-      - "127.0.0.1:8080:8080"
-    environment:
-      CTV_BASE_URL: ${CTV_BASE_URL:?HTTPS-URL in .env eintragen}
-      CTV_LOCAL_ADMIN: ${CTV_LOCAL_ADMIN:-true}
-      CTV_OIDC_ISSUER: ${CTV_OIDC_ISSUER:-}
-      CTV_OIDC_CLIENT_ID: ${CTV_OIDC_CLIENT_ID:-}
-      CTV_OIDC_CLIENT_SECRET_FILE: ${CTV_OIDC_CLIENT_SECRET_FILE:-}
-      CTV_OIDC_GROUP_CLAIM: ${CTV_OIDC_GROUP_CLAIM:-groups}
-      CTV_OIDC_ALLOWED_SUBJECTS: ${CTV_OIDC_ALLOWED_SUBJECTS:-}
-      CTV_OIDC_ALLOWED_GROUPS: ${CTV_OIDC_ALLOWED_GROUPS:-}
-      CTV_OIDC_ADMIN_SUBJECTS: ${CTV_OIDC_ADMIN_SUBJECTS:-}
-      CTV_OIDC_ADMIN_GROUPS: ${CTV_OIDC_ADMIN_GROUPS:-}
-      CTV_TRUSTED_PROXIES: ${CTV_TRUSTED_PROXIES:-}
-      CTV_MAX_TRANSCODERS: ${CTV_MAX_TRANSCODERS:-1}
-      CTV_CACHE_MB: ${CTV_CACHE_MB:-512}
+      - "${CTV_BIND_ADDRESS:-127.0.0.1}:${CTV_HTTP_PORT:-8080}:8080"
     volumes:
-      - ${CTV_RECORDINGS_PATH:?Host-Aufnahmeordner in .env eintragen}:/recordings:ro
-      - ./data:/data
+      - ${CTV_RECORDINGS_PATH:?Aufnahmeordner in .env eintragen}:/recordings:ro
+      - ${CTV_DATA_PATH:-./data}:/data
       - ./secrets:/run/secrets:ro
     read_only: true
     tmpfs:
