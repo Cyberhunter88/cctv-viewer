@@ -20,7 +20,8 @@ vom Host lesbarer Aufnahmeordner. Netzwerkfreigaben zuerst **auf dem Host** moun
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/Cyberhunter88/cctv-viewer/main/compose.yaml
 curl -fsSL https://raw.githubusercontent.com/Cyberhunter88/cctv-viewer/main/.env.example -o .env
-mkdir -p data secrets
+mkdir -p data
+chmod 600 .env
 sudo chown 10001:10001 data
 sudo chmod 700 data
 ```
@@ -80,14 +81,19 @@ Beispiel `.env` (Discovery-Issuer des jeweiligen Anbieters verwenden):
 ```dotenv
 CTV_OIDC_ISSUER=https://auth.example.org/application/o/cctv/
 CTV_OIDC_CLIENT_ID=cctv-viewer
-CTV_OIDC_CLIENT_SECRET_FILE=/run/secrets/oidc-client-secret
+CTV_OIDC_CLIENT_SECRET=dein-client-secret
 CTV_OIDC_GROUP_CLAIM=groups
 CTV_OIDC_ALLOWED_GROUPS=cctv-viewers
 CTV_OIDC_ADMIN_GROUPS=cctv-admins
 ```
 
-Das Client-Secret in `./secrets/oidc-client-secret` ablegen und nur für die
-Container-UID lesbar machen. Der Gruppen-Claim muss als Array von Strings **im
+Das Client-Secret wird direkt in `.env` eingetragen; die Datei ist in Git
+ausgeschlossen und sollte nur für dich lesbar sein (`chmod 600 .env`).
+Optional bleibt `CTV_OIDC_CLIENT_SECRET_FILE` unterstützt; dafür die Secret-Datei
+zusätzlich schreibgeschützt in den Container mounten und die direkte Variable
+weglassen. Beide Varianten gleichzeitig werden abgelehnt.
+
+Der Gruppen-Claim muss als Array von Strings **im
 ID-Token** enthalten sein; beim Anbieter einen entsprechenden Mapper einrichten.
 Angefordert werden `openid profile`. Zusätzliche anbieterspezifische Claims sind
 über den Mapper bereitzustellen. Verschachtelte Claim-Pfade werden nicht ausgewertet.
