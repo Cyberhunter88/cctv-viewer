@@ -84,5 +84,17 @@ Nachweis eines bereits erfolgreich ausgeführten Containerlaufs.
 - Docker-Smoke-Test: lokal nicht ausführbar, weil Docker/Container-Daemon fehlen.
   Der bestehende verpflichtende Container-CI-Schritt bleibt erhalten.
 
-Die lokale Funktionsprüfung ist damit abgeschlossen; die vollständige Abnahme
-für WebKit und den Container erfordert noch erfolgreiche CI-Läufe.
+Die lokal nicht verfügbaren Prüfungen sind inzwischen durch die folgende CI-Abnahme abgedeckt.
+
+## CI-Abnahme am 14.10.2026
+
+[Prüfungen für Commit 3c88307](https://github.com/Cyberhunter88/cctv-viewer/actions/runs/38553422253): erfolgreich.
+
+- TypeScript, Go-Vet und Go-Race-Tests bestanden.
+- Acht Chromium-Browsertests und sieben WebKit-Browsertests bestanden. Der
+  zusätzliche Bandbreitentest nutzt Chromium CDP und wird in WebKit bewusst übersprungen.
+- Der mobile Überlauf nativer WebKit-Steuerelemente ist korrigiert und geprüft.
+- Docker-Image gebaut; Containerstart, Anmeldung, Neustart und lesende
+  Aufnahme-Mounts im Smoke-Test erfolgreich geprüft.
+- Der Release-Workflow prüft zusätzlich native AMD64-/ARM64-Images vor der
+  Veröffentlichung der Versions- und `latest`-Tags.
