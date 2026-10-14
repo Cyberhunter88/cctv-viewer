@@ -81,7 +81,34 @@ func ParseTimestamp(pattern, name, zone string, offset float64) (time.Time, erro
 	}
 	return t.Add(time.Duration(offset * float64(time.Second))).UTC(), nil
 }
+
+// Markers match the relative filename or subfolder, never the camera folder.
+func recordingView(c Camera, filename string) string {
+	if c.ViewMode != "dual" {
+		return ""
+	}
+	relative := strings.ToLower(strings.TrimPrefix(filename, c.Folder+"/"))
+	wide := c.WideMarker != "" && strings.Contains(relative, strings.ToLower(c.WideMarker))
+	zoom := c.ZoomMarker != "" && strings.Contains(relative, strings.ToLower(c.ZoomMarker))
+	if wide == zoom {
+		return "unknown"
+	}
+	if wide {
+		return "wide"
+	}
+	return "zoom"
+}
 func validateCamera(c Camera, root *os.Root) error {
+	if c.ViewMode != "" && c.ViewMode != "single" && c.ViewMode != "dual" {
+		return errors.New("Ansichtsmodus ungültig")
+	}
+	if math.IsNaN(c.ZoomOffset) || math.IsInf(c.ZoomOffset, 0) || math.Abs(c.ZoomOffset) > 86400 || math.Abs(c.ZoomOffset*10-math.Round(c.ZoomOffset*10)) > 0.000001 {
+		return errors.New("Zoom-Zeitversatz ungültig")
+	}
+	if c.ViewMode == "dual" && (strings.TrimSpace(c.WideMarker) == "" || strings.TrimSpace(c.ZoomMarker) == "" || strings.EqualFold(c.WideMarker, c.ZoomMarker) || len(c.WideMarker) > 100 || len(c.ZoomMarker) > 100) {
+		return errors.New("Zwei unterschiedliche Kennungen für Weitwinkel und Zoom angeben")
+	}
+
 	if strings.TrimSpace(c.Name) == "" || len(c.Name) > 100 || !validRelative(c.Folder) || c.Offset < -86400 || c.Offset > 86400 || math.IsNaN(c.Offset) || math.IsInf(c.Offset, 0) || math.Abs(c.Offset*10-math.Round(c.Offset*10)) > 0.000001 {
 		return errors.New("Name, Ordner oder Zeitversatz ungültig")
 	}

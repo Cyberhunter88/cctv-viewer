@@ -20,16 +20,19 @@ import (
 )
 
 type ScanStatus struct {
-	Running  bool     `json:"running"`
-	Date     string   `json:"date"`
-	Camera   string   `json:"camera"`
-	Indexed  int      `json:"indexed"`
-	Warnings []string `json:"warnings"`
-	Finished string   `json:"finished,omitempty"`
+	Active    []string `json:"active"`
+	Completed int      `json:"completed"`
+	Total     int      `json:"total"`
+	Running   bool     `json:"running"`
+	Date      string   `json:"date"`
+	Camera    string   `json:"camera"`
+	Indexed   int      `json:"indexed"`
+	Warnings  []string `json:"warnings"`
+	Finished  string   `json:"finished,omitempty"`
 }
 type scanJob struct {
-	date, camera     string
-	all, incremental bool
+	date, camera, batch string
+	all, incremental    bool
 }
 type indexer struct {
 	current   scanJob
@@ -44,6 +47,7 @@ func (a *App) scanStatus() ScanStatus {
 	a.index.mu.Lock()
 	defer a.index.mu.Unlock()
 	s := a.index.status
+	s.Active = append([]string{}, s.Active...)
 	s.Warnings = append([]string{}, s.Warnings...)
 	return s
 }
@@ -174,61 +178,105 @@ func (a *App) scanJob(job scanJob) {
 		a.warn("Kameraliste nicht lesbar")
 		return
 	}
+	chosen := []Camera{}
 	for _, c := range cams {
 		if job.camera != "" && job.camera != c.ID {
 			continue
 		}
-		if a.ctx.Err() != nil {
-			return
-		}
-		a.index.mu.Lock()
-		a.index.status.Camera = c.Name
-		a.index.mu.Unlock()
-		loc, e := time.LoadLocation(c.Timezone)
-		if e != nil {
+		if job.batch != "" && !strings.Contains(","+job.batch+",", ","+c.ID+",") {
 			continue
 		}
-		// Include the preceding two local days to find recordings crossing midnight.
-		first := from.Add(-time.Duration(c.Offset * float64(time.Second))).In(loc)
-		first = time.Date(first.Year(), first.Month(), first.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -2)
-		end := to.Add(-time.Duration(c.Offset * float64(time.Second))).In(loc)
-		if job.incremental {
-			first = time.Date(time.Now().In(loc).Year(), time.Now().In(loc).Month(), time.Now().In(loc).Day(), 0, 0, 0, 0, loc)
-			end = first
+		chosen = append(chosen, c)
+	}
+	a.index.mu.Lock()
+	a.index.status.Total = len(chosen)
+	a.index.mu.Unlock()
+	// Jobs remain serialized, so the same camera cannot be scanned concurrently.
+	// Within each job, at most three independent camera sources are probed at once.
+	slots := make(chan struct{}, 3)
+	var workers sync.WaitGroup
+	for _, c := range chosen {
+		if a.ctx.Err() != nil {
+			break
 		}
-		complete := true
-		seen := map[string]bool{}
-		for d := first; !d.After(end); d = d.AddDate(0, 0, 1) {
-			p, e := partition(c, d)
-			if job.all {
-				p = c.Folder
-				e = nil
-			}
-			if e != nil {
-				a.warn(c.Name + ": " + e.Error())
-				complete = false
-				continue
-			}
-			if !seen[p] {
-				seen[p] = true
-				if c.IndexingMode == "full" || job.all || job.incremental {
-					complete = a.scanPartitionMode(c, p, 0, math.MaxInt64, job.incremental) && complete
-				} else {
-					complete = a.scanPartitionMode(c, p, from.Unix(), to.Unix(), job.incremental) && complete
+		select {
+		case slots <- struct{}{}:
+		case <-a.ctx.Done():
+			workers.Wait()
+			return
+		}
+		workers.Add(1)
+		go func(c Camera) {
+			defer workers.Done()
+			defer func() { <-slots }()
+			a.index.mu.Lock()
+			a.index.status.Active = append(a.index.status.Active, c.Name)
+			a.index.status.Camera = strings.Join(a.index.status.Active, " · ")
+			a.index.mu.Unlock()
+			defer func() {
+				a.index.mu.Lock()
+				for i, name := range a.index.status.Active {
+					if name == c.Name {
+						a.index.status.Active = append(a.index.status.Active[:i], a.index.status.Active[i+1:]...)
+						break
+					}
 				}
-			}
+				a.index.status.Completed++
+				a.index.status.Camera = strings.Join(a.index.status.Active, " · ")
+				a.index.mu.Unlock()
+			}()
+			a.scanCamera(job, c, from, to)
+		}(c)
+	}
+	workers.Wait()
+}
+func (a *App) scanCamera(job scanJob, c Camera, from, to time.Time) {
+	date := job.date
+	loc, e := time.LoadLocation(c.Timezone)
+	if e != nil {
+		return
+	}
+	// Include the preceding two local days to find recordings crossing midnight.
+	first := from.Add(-time.Duration((c.Offset + math.Max(0, c.ZoomOffset)) * float64(time.Second))).In(loc)
+	first = time.Date(first.Year(), first.Month(), first.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -2)
+	end := to.Add(-time.Duration((c.Offset + math.Min(0, c.ZoomOffset)) * float64(time.Second))).In(loc)
+	if job.incremental {
+		first = time.Date(time.Now().In(loc).Year(), time.Now().In(loc).Month(), time.Now().In(loc).Day(), 0, 0, 0, 0, loc)
+		end = first
+	}
+	complete := true
+	seen := map[string]bool{}
+	for d := first; !d.After(end); d = d.AddDate(0, 0, 1) {
+		p, e := partition(c, d)
+		if job.all {
+			p = c.Folder
+			e = nil
 		}
-		if a.ctx.Err() == nil {
-			now := time.Now().Unix()
-			success := int64(0)
-			if complete {
-				success = now
+		if e != nil {
+			a.warn(c.Name + ": " + e.Error())
+			complete = false
+			continue
+		}
+		if !seen[p] {
+			seen[p] = true
+			if c.IndexingMode == "full" || job.all || job.incremental {
+				complete = a.scanPartitionMode(c, p, 0, math.MaxInt64, job.incremental) && complete
+			} else {
+				complete = a.scanPartitionMode(c, p, from.Unix()-int64(math.Ceil(math.Abs(c.ZoomOffset))), to.Unix()+int64(math.Ceil(math.Abs(c.ZoomOffset))), job.incremental) && complete
 			}
-			a.db.ExecContext(a.ctx, `INSERT INTO camera_days VALUES(?,?,?,?) ON CONFLICT(camera_id,date) DO UPDATE SET checked=excluded.checked,complete=excluded.complete`, c.ID, date, now, complete)
-			a.db.ExecContext(a.ctx, `INSERT INTO camera_scans(camera_id,attempt,success,complete) VALUES(?,?,?,?) ON CONFLICT(camera_id) DO UPDATE SET attempt=excluded.attempt,complete=excluded.complete,success=CASE WHEN excluded.success>0 THEN excluded.success ELSE camera_scans.success END`, c.ID, now, success, complete)
 		}
 	}
+	if a.ctx.Err() == nil {
+		now := time.Now().Unix()
+		success := int64(0)
+		if complete {
+			success = now
+		}
+		a.db.ExecContext(a.ctx, `INSERT INTO camera_days VALUES(?,?,?,?) ON CONFLICT(camera_id,date) DO UPDATE SET checked=excluded.checked,complete=excluded.complete`, c.ID, date, now, complete)
+		a.db.ExecContext(a.ctx, `INSERT INTO camera_scans(camera_id,attempt,success,complete) VALUES(?,?,?,?) ON CONFLICT(camera_id) DO UPDATE SET attempt=excluded.attempt,complete=excluded.complete,success=CASE WHEN excluded.success>0 THEN excluded.success ELSE camera_scans.success END`, c.ID, now, success, complete)
+	}
 }
+
 func (a *App) scanPartition(c Camera, p string, from, to int64) bool {
 	return a.scanPartitionMode(c, p, from, to, false)
 }

@@ -189,6 +189,7 @@ func (a *App) Handler() http.Handler {
 		jsonOut(w, 200, cams)
 	}))
 	mux.HandleFunc("POST /api/cameras", a.protect(true, a.saveCamera))
+	mux.HandleFunc("POST /api/cameras/batch", a.protect(true, a.saveCameraBatch))
 	mux.HandleFunc("POST /api/cameras/preview", a.protect(true, a.preview))
 	mux.HandleFunc("DELETE /api/cameras/{id}", a.protect(true, a.deleteCamera))
 	a.registerManagement(mux)
@@ -305,6 +306,7 @@ func (a *App) preview(w http.ResponseWriter, r *http.Request) {
 	}
 	type item struct {
 		File  string `json:"file"`
+		View  string `json:"view,omitempty"`
 		Time  string `json:"time,omitempty"`
 		Kind  string `json:"kind"`
 		Error string `json:"error,omitempty"`
@@ -328,13 +330,16 @@ func (a *App) preview(w http.ResponseWriter, r *http.Request) {
 		}
 		relative := strings.TrimPrefix(name, c.Folder+"/")
 		t, e := a.previewTimestamp(r.Context(), c, name, relative)
-		v := item{File: relative, Kind: "video"}
+		v := item{File: relative, Kind: "video", View: recordingView(c, name)}
 		if strings.EqualFold(path.Ext(relative), ".jpg") || strings.EqualFold(path.Ext(relative), ".jpeg") {
 			v.Kind = "image"
 		}
 		if e != nil {
 			v.Error = e.Error()
 		} else {
+			if v.View == "zoom" {
+				t = t.Add(time.Duration(c.ZoomOffset * float64(time.Second)))
+			}
 			v.Time = t.Format(time.RFC3339)
 			file, openErr := openSource(a.root, name)
 			if openErr != nil {

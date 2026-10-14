@@ -99,6 +99,10 @@ func (a *App) rebuildIndex(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, 200, map[string]bool{"ok": true})
 }
 func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
+	// Apply the same zoom clock correction as the day API before filtering or sorting.
+	relativePath := "lower(substr(r.path,length(c.folder)+2))"
+	effectiveStart := "(r.start+CASE WHEN c.view_mode='dual' AND c.zoom_marker!='' AND instr(" + relativePath + ",lower(c.zoom_marker))>0 AND (c.wide_marker='' OR instr(" + relativePath + ",lower(c.wide_marker))=0) THEN c.zoom_offset ELSE 0 END)"
+
 	q := r.URL.Query()
 	conditions := []string{"r.codec!='jpeg'"}
 	args := []any{}
@@ -122,7 +126,7 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 				fail(w, 400, "Suchfilter ungültig")
 				return
 			}
-			expr := map[string]string{"from": "r.start+r.duration>=?", "to": "r.start<=?", "minDuration": "r.duration>=?"}[key]
+			expr := map[string]string{"from": effectiveStart + "+r.duration>=?", "to": effectiveStart + "<=?", "minDuration": "r.duration>=?"}[key]
 			conditions = append(conditions, expr)
 			args = append(args, n)
 		}
@@ -137,7 +141,7 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 	args = append(args, limit)
-	rows, e := a.db.QueryContext(r.Context(), `SELECT r.id,r.camera_id,c.name,r.path,r.start,r.duration FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+strings.Join(conditions, " AND ")+` ORDER BY r.start DESC,r.id LIMIT ?`, args...)
+	rows, e := a.db.QueryContext(r.Context(), `SELECT r.id,r.camera_id,c.name,r.path,`+effectiveStart+`,r.duration FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+strings.Join(conditions, " AND ")+` ORDER BY `+effectiveStart+` DESC,r.id LIMIT ?`, args...)
 	if e != nil {
 		fail(w, 500, "Suche nicht verfügbar")
 		return

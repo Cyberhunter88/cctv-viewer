@@ -174,6 +174,14 @@ Datenbankspalten und die Einstellungstabelle werden automatisch ergänzt.
 
 ## Kameraquellen und Indexierung
 
+Über **Mehrere Kameras hinzufügen** lassen sich bis zu 64 Kameraordner gesammelt
+auswählen und ihre Anzeigenamen bearbeiten. Das Kameraformular gibt Zeitzone,
+Indexierungsart und Ansichten für die Auswahl vor. Alle Quellen werden vor dem
+Speichern geprüft; ein ungültiger Ordner verhindert die gesamte Anlage. Anschließend
+werden die Aufnahmen des geöffneten Tages eingelesen. Tages- und vollständige
+Scans verarbeiten bis zu drei Kameras parallel; Aufträge bleiben untereinander
+geordnet. Der Fortschritt zeigt aktive und abgeschlossene Kameras sowie neue Videos.
+
 In „Kameras verwalten“ einen relativen Ordner innerhalb des eingebundenen
 Aufnahmeverzeichnisses auswählen. SMB/NFS vorher auf dem Host mounten; der Viewer
 speichert keine Freigabe-Zugangsdaten. Symlinks werden beim Indexieren übersprungen.
@@ -227,6 +235,21 @@ dafür den Tag öffnen oder manuell scannen. Neu geschriebene Dateien müssen vo
 Probe-Lauf mindestens 30 Sekunden alt sein. Die Stabilitätserkennung ist eine Heuristik.
 
 ## Ansicht, Suche und Wiedergabe
+
+Pro Kamera kann **Weitwinkel + Zoom** aktiviert werden. Beide MP4-Dateien liegen
+im selben Kameraordner oder dessen Unterordnern. Zwei einstellbare Kennungen
+(z. B. `_wide`/`_zoom`, `wide/`/`zoom/` oder nach Prüfung `_00_`/`_01_`)
+identifizieren die Ansicht anhand des relativen Pfads, ohne Beachtung der
+Großschreibung. „Erkennung prüfen“ zeigt die Zuordnung und Aufnahmezeit.
+Dateien ohne Kennung oder mit beiden Kennungen bleiben unklar und werden keiner
+Ansicht zugeordnet. Eine Kennung wie `_00_` hat keine fest vorgegebene Bedeutung.
+Der Kameraordner bestimmt die Kamera; die Aufnahmezeiten synchronisieren die
+Ansichten, auch bei unterschiedlichen Dateianfängen oder Clipgrenzen. Es erfolgt
+keine Bildanalyse. Ein zusätzlicher Zoom-Zeitversatz korrigiert dessen Uhr in
+Zehntelsekunden; negative Werte verschieben früher. Fehlt eine Ansicht, zeigt sie
+eine Aufnahmelücke. Weitwinkel steht links, Zoom rechts; das Raster zählt Kamerapaare.
+Doppelklick oder die Vergrößern-Schaltfläche öffnet eine Ansicht groß; Escape
+stellt die Rasteransicht wieder her. Browserdecoder können geringfügig abweichen.
 
 Kamerafilter per Ziehen umordnen. Gewählte Kameras bleiben über Seitenwechsel
 auch in kleinen Rastern erreichbar. Hotspot vergrößert eine Kamera. Im Automatikmodus

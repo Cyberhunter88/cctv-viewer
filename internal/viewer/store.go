@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
 	_ "modernc.org/sqlite"
 	"os"
 	"path/filepath"
@@ -13,6 +14,10 @@ import (
 
 type Store struct{ *sql.DB }
 type Camera struct {
+	ViewMode         string  `json:"viewMode"`
+	WideMarker       string  `json:"wideMarker"`
+	ZoomMarker       string  `json:"zoomMarker"`
+	ZoomOffset       float64 `json:"zoomOffset"`
 	ID               string  `json:"id"`
 	Name             string  `json:"name"`
 	Folder           string  `json:"folder"`
@@ -28,6 +33,7 @@ type Camera struct {
 	IndexedVideos    int     `json:"indexedVideos"`
 }
 type Recording struct {
+	View      string  `json:"view,omitempty"`
 	ID        string  `json:"id"`
 	CameraID  string  `json:"cameraId"`
 	Path      string  `json:"-"`
@@ -105,6 +111,10 @@ func OpenStore(dir string) (*Store, error) {
 	}
 	// Additive migrations preserve existing accounts and cameras.
 	for _, migration := range []struct{ table, column, ddl string }{
+		{"cameras", "view_mode", "ALTER TABLE cameras ADD COLUMN view_mode TEXT NOT NULL DEFAULT 'single'"},
+		{"cameras", "wide_marker", "ALTER TABLE cameras ADD COLUMN wide_marker TEXT NOT NULL DEFAULT '_00_'"},
+		{"cameras", "zoom_marker", "ALTER TABLE cameras ADD COLUMN zoom_marker TEXT NOT NULL DEFAULT '_01_'"},
+		{"cameras", "zoom_offset", "ALTER TABLE cameras ADD COLUMN zoom_offset REAL NOT NULL DEFAULT 0"},
 		{"camera_scans", "complete", "ALTER TABLE camera_scans ADD COLUMN complete INTEGER NOT NULL DEFAULT 0"},
 		{"cameras", "format", "ALTER TABLE cameras ADD COLUMN format TEXT NOT NULL DEFAULT 'custom'"},
 		{"cameras", "prefix", "ALTER TABLE cameras ADD COLUMN prefix TEXT NOT NULL DEFAULT ''"},
@@ -206,7 +216,7 @@ CREATE TABLE IF NOT EXISTS scan_schedule(camera_id TEXT PRIMARY KEY REFERENCES c
 	return &Store{db}, nil
 }
 func (s *Store) Cameras() ([]Camera, error) {
-	rows, e := s.Query(`SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern FROM cameras ORDER BY name`)
+	rows, e := s.Query(`SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset FROM cameras ORDER BY name`)
 	if e != nil {
 		return nil, e
 	}
@@ -214,7 +224,7 @@ func (s *Store) Cameras() ([]Camera, error) {
 	out := []Camera{}
 	for rows.Next() {
 		var c Camera
-		if e = rows.Scan(&c.ID, &c.Name, &c.Folder, &c.Pattern, &c.Timezone, &c.Offset, &c.Format, &c.Prefix, &c.IndexingMode, &c.DirectoryPattern); e != nil {
+		if e = rows.Scan(&c.ID, &c.Name, &c.Folder, &c.Pattern, &c.Timezone, &c.Offset, &c.Format, &c.Prefix, &c.IndexingMode, &c.DirectoryPattern, &c.ViewMode, &c.WideMarker, &c.ZoomMarker, &c.ZoomOffset); e != nil {
 			return nil, e
 		}
 		out = append(out, c)
@@ -223,10 +233,13 @@ func (s *Store) Cameras() ([]Camera, error) {
 }
 func (s *Store) Camera(id string) (Camera, error) {
 	var c Camera
-	e := s.QueryRow(`SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern FROM cameras WHERE id=?`, id).Scan(&c.ID, &c.Name, &c.Folder, &c.Pattern, &c.Timezone, &c.Offset, &c.Format, &c.Prefix, &c.IndexingMode, &c.DirectoryPattern)
+	e := s.QueryRow(`SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset FROM cameras WHERE id=?`, id).Scan(&c.ID, &c.Name, &c.Folder, &c.Pattern, &c.Timezone, &c.Offset, &c.Format, &c.Prefix, &c.IndexingMode, &c.DirectoryPattern, &c.ViewMode, &c.WideMarker, &c.ZoomMarker, &c.ZoomOffset)
 	return c, e
 }
 func (s *Store) SaveCamera(c Camera) error {
+	if c.ViewMode == "" {
+		c.ViewMode = "single"
+	}
 	if c.IndexingMode == "" {
 		c.IndexingMode = "partitioned"
 	}
@@ -255,14 +268,19 @@ func (s *Store) SaveCamera(c Camera) error {
 			return e
 		}
 	}
-	_, e = tx.Exec(`INSERT INTO cameras(id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,folder=excluded.folder,pattern=excluded.pattern,timezone=excluded.timezone,offset=excluded.offset,format=excluded.format,prefix=excluded.prefix,indexing_mode=excluded.indexing_mode,directory_pattern=excluded.directory_pattern`, c.ID, c.Name, c.Folder, c.Pattern, c.Timezone, c.Offset, cameraFormat(c), c.Prefix, c.IndexingMode, c.DirectoryPattern)
+	_, e = tx.Exec(`INSERT INTO cameras(id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,folder=excluded.folder,pattern=excluded.pattern,timezone=excluded.timezone,offset=excluded.offset,format=excluded.format,prefix=excluded.prefix,indexing_mode=excluded.indexing_mode,directory_pattern=excluded.directory_pattern,view_mode=excluded.view_mode,wide_marker=excluded.wide_marker,zoom_marker=excluded.zoom_marker,zoom_offset=excluded.zoom_offset`, c.ID, c.Name, c.Folder, c.Pattern, c.Timezone, c.Offset, cameraFormat(c), c.Prefix, c.IndexingMode, c.DirectoryPattern, c.ViewMode, c.WideMarker, c.ZoomMarker, c.ZoomOffset)
 	if e != nil {
 		return e
 	}
 	return tx.Commit()
 }
 func (s *Store) Recordings(camera string, from, to float64) ([]Recording, error) {
-	rows, e := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE camera_id=? AND start<? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, camera, to, from)
+	c, err := s.Camera(camera)
+	if err != nil {
+		return nil, err
+	}
+	margin := math.Abs(c.ZoomOffset)
+	rows, e := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE camera_id=? AND start<? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, camera, to+margin, from-margin)
 	if e != nil {
 		return nil, e
 	}
@@ -278,7 +296,13 @@ func (s *Store) Recordings(camera string, from, to float64) ([]Recording, error)
 		if r.Codec == "jpeg" {
 			r.Kind = "image"
 		}
-		out = append(out, r)
+		r.View = recordingView(c, r.Path)
+		if r.View == "zoom" {
+			r.Start += c.ZoomOffset
+		}
+		if r.Start < to && r.Start+r.Duration > from {
+			out = append(out, r)
+		}
 	}
 	return out, rows.Err()
 }

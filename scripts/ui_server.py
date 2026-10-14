@@ -12,7 +12,7 @@ import time
 with tempfile.TemporaryDirectory(prefix='cctv-ui-') as directory:
     root = pathlib.Path(directory)
     env = dict(os.environ, CTV_DEV_HTTP='true', CTV_BASE_URL='http://127.0.0.1:18080',
-               CTV_ADDRESS='127.0.0.1:18080', CTV_DATA_DIR=str(root/'data'),
+               CTV_ADDRESS='127.0.0.1:18080', CTV_TRUSTED_PROXIES='127.0.0.1/32', CTV_DATA_DIR=str(root/'data'),
                CTV_RECORDINGS_DIR=str(root/'recordings'), CTV_OIDC_ISSUER='',
                CTV_ADMIN_PASSWORD='synthetic browser test password')
     subprocess.run(['bin/cctv','admin','--username','browser'],env=env,check=True)
@@ -62,6 +62,13 @@ with tempfile.TemporaryDirectory(prefix='cctv-ui-') as directory:
     second.parent.mkdir(parents=True,exist_ok=True)
     shutil.copyfile(audio,second)
     os.utime(second,(time.time()-120,time.time()-120))
+    for camera in ['DualFront','DualBack']:
+        folder=root/'recordings'/camera/'2026/10/14'
+        folder.mkdir(parents=True)
+        for stamp,view in [('083000','wide'),('083005','zoom')]:
+            file=folder/('CAM_'+stamp+'_20261014'+stamp+'_'+view+'.mp4')
+            shutil.copyfile(root/'recordings/Eingang/2026/10/14/08-30-00.mp4',file)
+            os.utime(file,(time.time()-120,time.time()-120))
     connection.commit()
     connection.close()
     server = subprocess.Popen(['bin/cctv'],env=env)

@@ -8,6 +8,8 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 
 | Referenzfunktion | Umsetzung | Nachweis |
 |---|---|---|
+| Weitwinkel + Zoom pro Kamera | Getrennte MP4s über Kennungen und Aufnahmezeiten; Zoom-Zeitversatz; Vergrößerung | Go: DualViewClassificationAndPersistence; Browser: dual |
+| Sammelanlage und parallele Kamerascans | Bis zu 64 Quellen je Anlage; maximal drei Kameras parallel; Fortschritt | Go: BatchAtomicAndParallelCameraScan; Browser: dual |
 | Synchronisierte Kameras und gemeinsame Uhr | Erhalten, unabhängige Fehlerbehandlung | Browser: viewer |
 | Tag, Datum, Heute, Aufnahmelücken | Erhalten, Berliner 23-/25-Stunden-Tage | Go: Timestamps; Browser: viewer |
 | Aufnahmegrenzen, 0,25× bis 16× | Ergänzt | Frontend: view-state; Go: ProfilesSpeedTransport |
