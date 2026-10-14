@@ -140,13 +140,39 @@ func TestSearchRebuildAndRemovedEndpoints(t *testing.T) {
 	if w := request(a, "GET", "/api/search", nil, nil, ""); w.Code != 401 {
 		t.Fatal(w.Code)
 	}
+	type searchPage struct {
+		Results []map[string]any `json:"results"`
+		Total   int              `json:"total"`
+		Offset  int              `json:"offset"`
+		Limit   int              `json:"limit"`
+		HasMore bool             `json:"hasMore"`
+	}
 	w := request(a, "GET", "/api/search?q=A&camera="+c.ID+"&minDuration=2", nil, cookie, "")
-	var results []map[string]any
-	if e := json.Unmarshal(w.Body.Bytes(), &results); e != nil || len(results) != 1 {
+	var page searchPage
+	if e := json.Unmarshal(w.Body.Bytes(), &page); e != nil || len(page.Results) != 1 || page.Total != 1 || page.HasMore {
 		t.Fatal(w.Code, w.Body.String(), e)
 	}
 	if w = request(a, "GET", "/api/search?minDuration=NaN", nil, cookie, ""); w.Code != 400 {
 		t.Fatal(w.Code)
+	}
+	for i := 0; i < 205; i++ {
+		_, e := a.db.Exec(`INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod) VALUES(?,?,?,?,2,'h264',1,1)`, fmt.Sprintf("page-%03d", i), c.ID, fmt.Sprintf("Eingang/search-%03d.mp4", i), float64(i))
+		if e != nil {
+			t.Fatal(e)
+		}
+	}
+	for _, tc := range []struct {
+		offset, wantCount int
+		wantMore          bool
+	}{{0, 100, true}, {100, 100, true}, {200, 6, false}} {
+		w = request(a, "GET", fmt.Sprintf("/api/search?q=Eingang&offset=%d", tc.offset), nil, cookie, "")
+		page = searchPage{}
+		if e := json.Unmarshal(w.Body.Bytes(), &page); e != nil || w.Code != 200 || len(page.Results) != tc.wantCount || page.Total != 206 || page.Offset != tc.offset || page.Limit != 100 || page.HasMore != tc.wantMore {
+			t.Fatalf("search page at %d: status=%d body=%s err=%v", tc.offset, w.Code, w.Body.String(), e)
+		}
+	}
+	if w = request(a, "GET", "/api/search?offset=-1", nil, cookie, ""); w.Code != 400 {
+		t.Fatal(w.Code, w.Body.String())
 	}
 	if w = request(a, "POST", "/api/index/rebuild", nil, cookie, ""); w.Code != 403 {
 		t.Fatal(w.Code)
