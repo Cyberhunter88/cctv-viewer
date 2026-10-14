@@ -1,4 +1,13 @@
 export interface Recording {id:string;cameraId:string;view?:string;start:number;duration:number;codec:string;container?:string;kind?:'video'|'image'}
+// Unclassified dual recordings remain available for diagnostics, but cannot play
+// in either tile and must not fill gaps or become navigation targets.
+export function playbackRecordings(records:Recording[],cameras:{id:string;viewMode?:string}[]):Recording[]{
+ const modes=new Map(cameras.map(c=>[c.id,c.viewMode]));
+ return records.filter(r=>r.kind!=='image'&&modes.has(r.cameraId)&&(modes.get(r.cameraId)!=='dual'||r.view==='wide'||r.view==='zoom'));
+}
+export function firstRecordingStart(records:Recording[],fallback:number):number{
+ let start=Infinity;for(const r of records)start=Math.min(start,r.start);return start===Infinity?fallback:Math.max(fallback,start);
+}
 type CameraIndex={records:Recording[];maxEnd:number[]};
 const indexes=new WeakMap<Recording[],Map<string,CameraIndex>>();
 // Day arrays are immutable after loading. Cache sorted intervals once per response.
@@ -16,5 +25,7 @@ export function nextRecording(records:Recording[],cameras:string[],time:number):
 }
 export function latestStartBetween(records:Recording[],camera:string,from:number,to:number):Recording|undefined{const data=index(records).get(camera);if(!data)return;const r=data.records[upperBound(data.records,to)-1];return r&&r.start>from?r:undefined}
 export function clamp(value:number,min:number,max:number):number{return Math.max(min,Math.min(max,value))}
-export function berlinDate(date:Date):string{return new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(date)}
-export function clock(time:number):string{return new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date(time*1000))}
+const dateFormatter=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'});
+const clockFormatter=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+export function berlinDate(date:Date):string{return dateFormatter.format(date)}
+export function clock(time:number):string{return clockFormatter.format(new Date(time*1000))}

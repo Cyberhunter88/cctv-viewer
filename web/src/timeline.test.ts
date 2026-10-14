@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {recordingAt,nextRecording,clamp,berlinDate,clock,type Recording} from './timeline.ts';
+import {recordingAt,nextRecording,playbackRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline.ts';
 const records:Recording[]=[{id:'a',cameraId:'1',start:100,duration:60,codec:'h264'},{id:'b',cameraId:'1',start:150,duration:30,codec:'h264'},{id:'c',cameraId:'2',start:200,duration:50,codec:'hevc'}];
 test('intervals are half-open and overlaps use latest clip',()=>{assert.equal(recordingAt(records,'1',99),undefined);assert.equal(recordingAt(records,'1',100)?.id,'a');assert.equal(recordingAt(records,'1',150)?.id,'b');assert.equal(recordingAt(records,'1',180),undefined)});
 test('gap skipping respects visible cameras',()=>{assert.equal(nextRecording(records,['1'],160),undefined);assert.equal(nextRecording(records,['2'],160),200);assert.equal(nextRecording(records,['1'],99),100)});
@@ -12,4 +12,29 @@ test('dual views use independent overlapping intervals and missing zoom stays em
  assert.equal(recordingAt(items,'a',101,'wide')?.id,'wide');assert.equal(recordingAt(items,'a',101,'zoom'),undefined);
  assert.equal(recordingAt(items,'a',104,'wide')?.id,'wide');assert.equal(recordingAt(items,'a',104,'zoom')?.id,'zoom');
  assert.equal(recordingAt(items,'a',122,'zoom'),undefined);assert.equal(recordingAt(items,'a',122,'wide')?.id,'wide');
+});
+
+test('dual navigation skips unclassified clips and keeps a zoom-only interval playable',()=>{
+ const items:Recording[]=[
+  {id:'wide',cameraId:'pair',view:'wide',start:100,duration:5,codec:'h264'},
+  {id:'unknown',cameraId:'pair',view:'unknown',start:105,duration:100,codec:'h264'},
+  {id:'zoom',cameraId:'pair',view:'zoom',start:120,duration:10,codec:'h264'},
+  {id:'single',cameraId:'single',start:140,duration:10,codec:'h264'},
+ ];
+ const playable=playbackRecordings(items,[{id:'pair',viewMode:'dual'},{id:'single'}]);
+ assert.deepEqual(playable.map(r=>r.id),['wide','zoom','single']);
+ assert.equal(recordingAt(playable,'pair',110),undefined);
+ assert.equal(nextRecording(playable,['pair'],105),120);
+ assert.equal(recordingAt(playable,'pair',121,'wide'),undefined);
+ assert.equal(recordingAt(playable,'pair',121,'zoom')?.id,'zoom');
+ assert.equal(recordingAt(items,'pair',110,'unknown')?.id,'unknown');
+ assert.equal(firstRecordingStart(playable,0),100);
+ assert.deepEqual(playbackRecordings(items,[{id:'pair',viewMode:'single'}]).map(r=>r.id),['wide','unknown','zoom']);
+});
+
+test('large paired archives select their first start without argument expansion',()=>{
+ const items=Array.from({length:200000},(_,i)=>({id:String(i),cameraId:'pair',view:i%2?'zoom':'wide',start:300000-i,duration:1,codec:'h264'}));
+ assert.equal(firstRecordingStart(items,0),100001);
+ assert.equal(firstRecordingStart(items,200000),200000);
+ assert.equal(firstRecordingStart([],42),42);
 });

@@ -9,6 +9,7 @@ Viewers und sind eigenständig in Go/TypeScript umgesetzt. Unser Layout bleibt e
 - Automatische und feste Raster bis 4 × 4, eigene Raster bis 8 × 8 und Kameraseiten
 - Kameraauswahl und Reihenfolge per Ziehen; manueller oder automatischer Hotspot
 - Original, Ausgewogen und Schnell; Wiedergabe von 0,25× bis 16×
+- Tastatursteuerung (Leertaste/K für Pause/Play, Pfeiltasten, J/L zum Springen, F für Vollbild) und Timeline-Hover-Uhrzeit
 - Aufnahmesuche mit Kamera-, Zeitraum- und Mindestdauerfilter
 - Datumspartitionierte oder rekursive Indexierung; optionale automatische Tagesindexierung
 - OIDC/SSO, Rollen und lokale Administrator-Wiederherstellung
@@ -243,11 +244,14 @@ identifizieren die Ansicht anhand des relativen Pfads, ohne Beachtung der
 Großschreibung. „Erkennung prüfen“ zeigt die Zuordnung und Aufnahmezeit.
 Dateien ohne Kennung oder mit beiden Kennungen bleiben unklar und werden keiner
 Ansicht zugeordnet. Eine Kennung wie `_00_` hat keine fest vorgegebene Bedeutung.
+Unklare Aufnahmen bleiben im Index und in der Erkennungsprüfung erhalten, füllen
+aber keine Wiedergabelücken und erscheinen nicht als Vorschaubild oder Sprungziel.
 Der Kameraordner bestimmt die Kamera; die Aufnahmezeiten synchronisieren die
 Ansichten, auch bei unterschiedlichen Dateianfängen oder Clipgrenzen. Es erfolgt
 keine Bildanalyse. Ein zusätzlicher Zoom-Zeitversatz korrigiert dessen Uhr in
 Zehntelsekunden; negative Werte verschieben früher. Fehlt eine Ansicht, zeigt sie
 eine Aufnahmelücke. Weitwinkel steht links, Zoom rechts; das Raster zählt Kamerapaare.
+Eine fehlende oder fehlerhafte Ansicht stoppt die andere Ansicht nicht.
 Doppelklick oder die Vergrößern-Schaltfläche öffnet eine Ansicht groß; Escape
 stellt die Rasteransicht wieder her. Browserdecoder können geringfügig abweichen.
 
@@ -296,6 +300,8 @@ zur nächsten Aufnahme in den sichtbaren Kameras.
 
 - `CTV_MAX_TRANSCODERS=0`: unbegrenzte Zahl gleichzeitiger Encoder. UI-Bereich 0–64;
   ein kleineres Limit betrifft neue Aufträge, bestehende Encoder laufen weiter.
+  Bei komprimierter Wiedergabe benötigt ein Weitwinkel-/Zoom-Paar bis zu zwei
+  Encoderplätze. Originalwiedergabe benötigt keine Encoderplätze.
 - `CTV_HLS_TEMP_MB=256`: gemeinsames Budget für temporäre komprimierte Streams;
   in der Oberfläche 16–4096 MiB. Ein Watchdog prüft alle 500 ms und entfernt ganze
   Sitzungen, bevorzugt ältere abgeschlossene. Kurzzeitige Überschreitungen sind möglich.
