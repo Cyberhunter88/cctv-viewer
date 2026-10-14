@@ -29,8 +29,9 @@ jobs:
       - run: npm ci && npm run typecheck && npm test && npm run build
       - run: go vet ./... && go test -race ./...
       - run: go build -o bin/cctv ./cmd/cctv
-      - run: npx playwright install --with-deps chrome
+      - run: npx playwright install --with-deps chrome webkit
       - run: npm run test:browser
+      - run: CTV_TEST_ENGINE=webkit npm run test:browser
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

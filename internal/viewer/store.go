@@ -3,6 +3,7 @@ package viewer
 import (
 	"context"
 	"database/sql"
+	"errors"
 	_ "modernc.org/sqlite"
 	"os"
 	"path/filepath"
@@ -12,14 +13,19 @@ import (
 
 type Store struct{ *sql.DB }
 type Camera struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Folder   string `json:"folder"`
-	Pattern  string `json:"pattern"`
-	Timezone string `json:"timezone"`
-	Offset   int    `json:"offset"`
-	Format   string `json:"format"`
-	Prefix   string `json:"prefix"`
+	ID               string  `json:"id"`
+	Name             string  `json:"name"`
+	Folder           string  `json:"folder"`
+	Pattern          string  `json:"pattern"`
+	Timezone         string  `json:"timezone"`
+	Offset           float64 `json:"offset"`
+	Format           string  `json:"format"`
+	Prefix           string  `json:"prefix"`
+	IndexingMode     string  `json:"indexingMode"`
+	DirectoryPattern string  `json:"directoryPattern"`
+	SourceStatus     string  `json:"sourceStatus"`
+	LastScan         int64   `json:"lastScan"`
+	IndexedVideos    int     `json:"indexedVideos"`
 }
 type Recording struct {
 	ID        string  `json:"id"`
@@ -46,12 +52,44 @@ func OpenStore(dir string) (*Store, error) {
 		file.Close()
 		return nil, err
 	}
+	st, statErr := file.Stat()
+	if statErr != nil {
+		file.Close()
+		return nil, statErr
+	}
+	fresh := st.Size() == 0
 	file.Close()
 	db, err := sql.Open("sqlite", filepath.Join(dir, "viewer.db"))
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	// VACUUM INTO includes committed WAL pages and produces a standalone rollback copy.
+	var version int
+	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if version > 4 {
+		db.Close()
+		return nil, errors.New("Datenbankschema neuer als diese Anwendung")
+	}
+	if !fresh && version < 4 {
+		backup := filepath.Join(dir, "viewer-before-v4.db")
+		if _, statErr := os.Stat(backup); os.IsNotExist(statErr) {
+			if _, err = db.Exec("VACUUM INTO ?", backup); err != nil {
+				db.Close()
+				return nil, err
+			}
+			if err = os.Chmod(backup, 0600); err != nil {
+				db.Close()
+				return nil, err
+			}
+		} else if statErr != nil {
+			db.Close()
+			return nil, statErr
+		}
+	}
 	_, err = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS cameras(id TEXT PRIMARY KEY,name TEXT NOT NULL,folder TEXT NOT NULL,pattern TEXT NOT NULL,timezone TEXT NOT NULL,offset INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS recordings(id TEXT PRIMARY KEY,camera_id TEXT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,path TEXT NOT NULL,start REAL NOT NULL,duration REAL NOT NULL,codec TEXT NOT NULL,size INTEGER NOT NULL,mod INTEGER NOT NULL,UNIQUE(camera_id,path));
@@ -60,7 +98,7 @@ func OpenStore(dir string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS admins(username TEXT PRIMARY KEY,hash TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY,subject TEXT NOT NULL,name TEXT NOT NULL,role TEXT NOT NULL,kind TEXT NOT NULL,csrf TEXT NOT NULL,expires INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS oidc_flows(hash TEXT PRIMARY KEY,nonce TEXT NOT NULL,verifier TEXT NOT NULL,expires INTEGER NOT NULL);
- PRAGMA user_version=1;`)
+`)
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -70,6 +108,10 @@ func OpenStore(dir string) (*Store, error) {
 		{"camera_scans", "complete", "ALTER TABLE camera_scans ADD COLUMN complete INTEGER NOT NULL DEFAULT 0"},
 		{"cameras", "format", "ALTER TABLE cameras ADD COLUMN format TEXT NOT NULL DEFAULT 'custom'"},
 		{"cameras", "prefix", "ALTER TABLE cameras ADD COLUMN prefix TEXT NOT NULL DEFAULT ''"},
+		{"cameras", "indexing_mode", "ALTER TABLE cameras ADD COLUMN indexing_mode TEXT NOT NULL DEFAULT 'partitioned'"},
+		{"cameras", "directory_pattern", "ALTER TABLE cameras ADD COLUMN directory_pattern TEXT NOT NULL DEFAULT '{YYYY}/{MM}/{DD}'"},
+		{"recordings", "filename", "ALTER TABLE recordings ADD COLUMN filename TEXT NOT NULL DEFAULT ''"},
+		{"recordings", "settled", "ALTER TABLE recordings ADD COLUMN settled INTEGER NOT NULL DEFAULT 0"},
 		{"admins", "role", "ALTER TABLE admins ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'"},
 		{"admins", "disabled", "ALTER TABLE admins ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0"},
 	} {
@@ -99,16 +141,72 @@ func OpenStore(dir string) (*Store, error) {
 		}
 	}
 	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS camera_days(camera_id TEXT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,date TEXT NOT NULL,checked INTEGER NOT NULL,complete INTEGER NOT NULL,PRIMARY KEY(camera_id,date));
- CREATE TABLE IF NOT EXISTS bookmarks(id TEXT PRIMARY KEY,owner TEXT NOT NULL,time REAL NOT NULL,cameras TEXT NOT NULL,note TEXT NOT NULL);
- CREATE INDEX IF NOT EXISTS bookmarks_owner ON bookmarks(owner,time);
- PRAGMA user_version=3;`); err != nil {
+
+CREATE TABLE IF NOT EXISTS scan_schedule(camera_id TEXT PRIMARY KEY REFERENCES cameras(id) ON DELETE CASCADE,next_run INTEGER NOT NULL);
+ CREATE INDEX IF NOT EXISTS recordings_path ON recordings(camera_id,path);
+`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if !fresh && version < 4 && os.Getenv("CTV_MAX_TRANSCODERS") == "" {
+		if _, err = db.Exec(`INSERT INTO settings(id,version,payload) VALUES(1,1,'{"maxTranscoders":1}') ON CONFLICT(id) DO UPDATE SET payload=json_set(payload,'$.maxTranscoders',COALESCE(json_extract(payload,'$.maxTranscoders'),1))`); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if version < 4 {
+		for {
+			rows, e := db.Query(`SELECT id,path FROM recordings WHERE filename='' ORDER BY id LIMIT 1000`)
+			if e != nil {
+				db.Close()
+				return nil, e
+			}
+			type entry struct{ id, path string }
+			batch := []entry{}
+			for rows.Next() {
+				var item entry
+				if e = rows.Scan(&item.id, &item.path); e != nil {
+					rows.Close()
+					db.Close()
+					return nil, e
+				}
+				batch = append(batch, item)
+			}
+			e = rows.Err()
+			rows.Close()
+			if e != nil {
+				db.Close()
+				return nil, e
+			}
+			if len(batch) == 0 {
+				break
+			}
+			tx, e := db.Begin()
+			if e != nil {
+				db.Close()
+				return nil, e
+			}
+			for _, item := range batch {
+				if _, e = tx.Exec(`UPDATE recordings SET filename=? WHERE id=?`, filepath.Base(item.path), item.id); e != nil {
+					tx.Rollback()
+					db.Close()
+					return nil, e
+				}
+			}
+			if e = tx.Commit(); e != nil {
+				db.Close()
+				return nil, e
+			}
+		}
+	}
+	if _, err = db.Exec(`PRAGMA user_version=4`); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return &Store{db}, nil
 }
 func (s *Store) Cameras() ([]Camera, error) {
-	rows, e := s.Query(`SELECT id,name,folder,pattern,timezone,offset,format,prefix FROM cameras ORDER BY name`)
+	rows, e := s.Query(`SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern FROM cameras ORDER BY name`)
 	if e != nil {
 		return nil, e
 	}
@@ -116,7 +214,7 @@ func (s *Store) Cameras() ([]Camera, error) {
 	out := []Camera{}
 	for rows.Next() {
 		var c Camera
-		if e = rows.Scan(&c.ID, &c.Name, &c.Folder, &c.Pattern, &c.Timezone, &c.Offset, &c.Format, &c.Prefix); e != nil {
+		if e = rows.Scan(&c.ID, &c.Name, &c.Folder, &c.Pattern, &c.Timezone, &c.Offset, &c.Format, &c.Prefix, &c.IndexingMode, &c.DirectoryPattern); e != nil {
 			return nil, e
 		}
 		out = append(out, c)
@@ -125,36 +223,46 @@ func (s *Store) Cameras() ([]Camera, error) {
 }
 func (s *Store) Camera(id string) (Camera, error) {
 	var c Camera
-	e := s.QueryRow(`SELECT id,name,folder,pattern,timezone,offset,format,prefix FROM cameras WHERE id=?`, id).Scan(&c.ID, &c.Name, &c.Folder, &c.Pattern, &c.Timezone, &c.Offset, &c.Format, &c.Prefix)
+	e := s.QueryRow(`SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern FROM cameras WHERE id=?`, id).Scan(&c.ID, &c.Name, &c.Folder, &c.Pattern, &c.Timezone, &c.Offset, &c.Format, &c.Prefix, &c.IndexingMode, &c.DirectoryPattern)
 	return c, e
 }
 func (s *Store) SaveCamera(c Camera) error {
+	if c.IndexingMode == "" {
+		c.IndexingMode = "partitioned"
+	}
+	if c.DirectoryPattern == "" {
+		c.DirectoryPattern = "{YYYY}/{MM}/{DD}"
+	}
 	tx, e := s.Begin()
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
-	var folder, pattern, zone, format, prefix string
-	var offset int
-	e = tx.QueryRow(`SELECT folder,pattern,timezone,offset,format,prefix FROM cameras WHERE id=?`, c.ID).Scan(&folder, &pattern, &zone, &offset, &format, &prefix)
-	if e == nil && (folder != c.Folder || pattern != c.Pattern || zone != c.Timezone || offset != c.Offset || format != cameraFormat(c)) {
-		if _, e = tx.Exec(`DELETE FROM camera_days WHERE camera_id=?`, c.ID); e != nil {
-			return e
+	var old Camera
+	e = tx.QueryRow(`SELECT folder,pattern,timezone,offset,format,indexing_mode,directory_pattern FROM cameras WHERE id=?`, c.ID).Scan(&old.Folder, &old.Pattern, &old.Timezone, &old.Offset, &old.Format, &old.IndexingMode, &old.DirectoryPattern)
+	if e != nil && e != sql.ErrNoRows {
+		return e
+	}
+	changed := e == nil && (old.Folder != c.Folder || old.Pattern != c.Pattern || old.Timezone != c.Timezone || old.Format != cameraFormat(c) || old.IndexingMode != c.IndexingMode || old.DirectoryPattern != c.DirectoryPattern)
+	if changed {
+		for _, table := range []string{"camera_days", "camera_scans", "recordings", "scan_schedule"} {
+			if _, e = tx.Exec(`DELETE FROM `+table+` WHERE camera_id=?`, c.ID); e != nil {
+				return e
+			}
 		}
-		if _, e = tx.Exec(`DELETE FROM camera_scans WHERE camera_id=?`, c.ID); e != nil {
-			return e
-		}
-		if _, e = tx.Exec(`DELETE FROM recordings WHERE camera_id=?`, c.ID); e != nil {
+	} else if e == nil && old.Offset != c.Offset {
+		if _, e = tx.Exec(`UPDATE recordings SET start=start+? WHERE camera_id=?`, c.Offset-old.Offset, c.ID); e != nil {
 			return e
 		}
 	}
-	if _, e = tx.Exec(`INSERT INTO cameras(id,name,folder,pattern,timezone,offset,format,prefix) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,folder=excluded.folder,pattern=excluded.pattern,timezone=excluded.timezone,offset=excluded.offset,format=excluded.format,prefix=excluded.prefix`, c.ID, c.Name, c.Folder, c.Pattern, c.Timezone, c.Offset, cameraFormat(c), c.Prefix); e != nil {
+	_, e = tx.Exec(`INSERT INTO cameras(id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,folder=excluded.folder,pattern=excluded.pattern,timezone=excluded.timezone,offset=excluded.offset,format=excluded.format,prefix=excluded.prefix,indexing_mode=excluded.indexing_mode,directory_pattern=excluded.directory_pattern`, c.ID, c.Name, c.Folder, c.Pattern, c.Timezone, c.Offset, cameraFormat(c), c.Prefix, c.IndexingMode, c.DirectoryPattern)
+	if e != nil {
 		return e
 	}
 	return tx.Commit()
 }
 func (s *Store) Recordings(camera string, from, to float64) ([]Recording, error) {
-	rows, e := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE camera_id=? AND start<? AND (start+duration>? OR (codec='jpeg' AND start>=?)) ORDER BY start,id`, camera, to, from, from)
+	rows, e := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE camera_id=? AND start<? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, camera, to, from)
 	if e != nil {
 		return nil, e
 	}
@@ -176,7 +284,7 @@ func (s *Store) Recordings(camera string, from, to float64) ([]Recording, error)
 }
 func (s *Store) Recording(id string) (Recording, error) {
 	var r Recording
-	e := s.QueryRow(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE id=?`, id).Scan(&r.ID, &r.CameraID, &r.Path, &r.Start, &r.Duration, &r.Codec, &r.Size, &r.Mod)
+	e := s.QueryRow(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE id=? AND codec!='jpeg'`, id).Scan(&r.ID, &r.CameraID, &r.Path, &r.Start, &r.Duration, &r.Codec, &r.Size, &r.Mod)
 	r.Container = strings.ToLower(filepath.Ext(r.Path))
 	r.Kind = "video"
 	if r.Codec == "jpeg" {

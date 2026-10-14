@@ -3,9 +3,8 @@ package viewer
 import (
 	"errors"
 	"fmt"
-	"image/jpeg"
-	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path"
 	"regexp"
@@ -48,7 +47,7 @@ func patternRE(pattern string) (*regexp.Regexp, error) {
 	}
 	return regexp.Compile("^" + s + "$")
 }
-func ParseTimestamp(pattern, name, zone string, offset int) (time.Time, error) {
+func ParseTimestamp(pattern, name, zone string, offset float64) (time.Time, error) {
 	re, e := patternRE(pattern)
 	if e != nil {
 		return time.Time{}, e
@@ -80,13 +79,22 @@ func ParseTimestamp(pattern, name, zone string, offset int) (time.Time, error) {
 			return time.Time{}, errors.New("Uhrzeit ist wegen Winterzeitumstellung mehrdeutig")
 		}
 	}
-	return t.Add(time.Duration(offset) * time.Second).UTC(), nil
+	return t.Add(time.Duration(offset * float64(time.Second))).UTC(), nil
 }
 func validateCamera(c Camera, root *os.Root) error {
-	if strings.TrimSpace(c.Name) == "" || len(c.Name) > 100 || !validRelative(c.Folder) || c.Offset < -86400 || c.Offset > 86400 {
+	if strings.TrimSpace(c.Name) == "" || len(c.Name) > 100 || !validRelative(c.Folder) || c.Offset < -86400 || c.Offset > 86400 || math.IsNaN(c.Offset) || math.IsInf(c.Offset, 0) || math.Abs(c.Offset*10-math.Round(c.Offset*10)) > 0.000001 {
 		return errors.New("Name, Ordner oder Zeitversatz ungültig")
 	}
+	if c.IndexingMode != "" && c.IndexingMode != "partitioned" && c.IndexingMode != "full" {
+		return errors.New("Indexierungsmodus ungültig")
+	}
 	switch cameraFormat(c) {
+	case "automatic":
+		if c.IndexingMode != "full" {
+			if e := validateDirectoryPattern(c.DirectoryPattern); e != nil {
+				return e
+			}
+		}
 	case "reolink":
 		// The camera folder identifies the source; legacy prefixes are ignored.
 	case "custom":
@@ -111,6 +119,20 @@ func validateCamera(c Camera, root *os.Root) error {
 	return nil
 }
 func partition(c Camera, day time.Time) (string, error) {
+	if c.IndexingMode == "full" {
+		return c.Folder, nil
+	}
+	if cameraFormat(c) == "automatic" {
+		pattern := c.DirectoryPattern
+		if pattern == "" {
+			pattern = "{YYYY}/{MM}/{DD}"
+		}
+		p := path.Join(c.Folder, strings.NewReplacer("{YYYY}", day.Format("2006"), "{YY}", day.Format("06"), "{MM}", day.Format("01"), "{DD}", day.Format("02")).Replace(pattern))
+		if !validRelative(p) {
+			return "", errors.New("Tagespartition ungültig")
+		}
+		return p, nil
+	}
 	if cameraFormat(c) == "reolink" {
 		return path.Join(c.Folder, day.Format("2006/01/02")), nil
 	}
@@ -138,6 +160,14 @@ func cameraFormat(c Camera) string {
 	return c.Format
 }
 func cameraTimestamp(c Camera, name string) (time.Time, error) {
+	if cameraFormat(c) == "automatic" {
+		for _, re := range timestampPatterns {
+			if m := re.FindStringSubmatch(path.Base(name)); m != nil {
+				return ParseTimestamp("{YYYY}{MM}{DD}{hh}{mm}{ss}", strings.Join(m[1:], ""), c.Timezone, c.Offset)
+			}
+		}
+		return time.Time{}, errors.New("Kein Zeitstempel im Dateinamen")
+	}
 	if cameraFormat(c) != "reolink" {
 		pattern := c.Pattern
 		if ext := strings.ToLower(path.Ext(name)); ext == ".jpg" || ext == ".jpeg" {
@@ -158,20 +188,24 @@ func cameraTimestamp(c Camera, name string) (time.Time, error) {
 	return ParseTimestamp("{YYYY}{MM}{DD}{hh}{mm}{ss}", m[4], c.Timezone, c.Offset)
 }
 func supportedMedia(name string) bool {
-	return contains([]string{".mp4", ".mov", ".mkv", ".avi", ".ts", ".h264", ".h265", ".jpg", ".jpeg"}, strings.ToLower(path.Ext(name)))
+	return contains([]string{".mp4", ".mov", ".mkv", ".avi", ".ts", ".h264", ".h265", ".dav"}, strings.ToLower(path.Ext(name)))
 }
 
-func validateJPEG(f *os.File) error {
-	conf, e := jpeg.DecodeConfig(f)
-	if e != nil {
-		return e
+var timestampPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(\d{4})(\d{2})(\d{2})_?(\d{2})(\d{2})(\d{2})`),
+	regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})_?(\d{2})-?(\d{2})-?(\d{2})`),
+}
+
+func validateDirectoryPattern(p string) error {
+	if p == "" {
+		return nil
 	}
-	if conf.Width < 1 || conf.Height < 1 || int64(conf.Width)*int64(conf.Height) > 40000000 {
-		return errors.New("Bildgröße ungültig oder zu groß")
+	if !validRelative(p) || len(p) > 300 {
+		return errors.New("Verzeichnismuster ungültig")
 	}
-	if _, e = f.Seek(0, io.SeekStart); e != nil {
-		return e
+	stripped := strings.NewReplacer("{YYYY}", "", "{YY}", "", "{MM}", "", "{DD}", "").Replace(p)
+	if strings.ContainsAny(stripped, "{}") || (strings.Count(p, "{YYYY}")+strings.Count(p, "{YY}") != 1) || strings.Count(p, "{MM}") != 1 || strings.Count(p, "{DD}") != 1 {
+		return errors.New("Verzeichnismuster benötigt Jahr, Monat und Tag")
 	}
-	_, e = jpeg.Decode(f)
-	return e
+	return nil
 }

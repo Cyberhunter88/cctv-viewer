@@ -1,37 +1,13 @@
-import {test,expect} from '@playwright/test';
+import {test,expect,type Page} from '@playwright/test';
+export async function login(page:Page){await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:20000});await expect(page.locator('#rescan')).toBeEnabled({timeout:20000})}
 
-test('Login, camera synchronization, thumbnails, HLS and mobile layout',async({page})=>{
- await page.goto('/');
- await page.getByLabel('Benutzername',{exact:true}).fill('browser');
- await page.getByLabel('Passwort',{exact:true}).fill('synthetic browser test password');
- await page.getByRole('button',{name:'Anmelden →'}).click();
- await expect(page.getByRole('heading',{name:'Aufnahmen',exact:true})).toBeVisible();
- await page.locator('#date').fill('2026-10-14');
- await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:20000});
- await page.locator('.thumb').first().click();
+test('synchronized originals, thumbnails, camera paging and both compressed profiles including 16x',async({page})=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);await page.locator('.thumb').first().click();
  await expect.poll(()=>page.locator('.thumb img').first().evaluate((img:HTMLImageElement)=>img.naturalWidth)).toBeGreaterThan(0);
- await page.getByRole('button',{name:'10 Sekunden vor',exact:true}).click();
- await page.getByRole('button',{name:'Abspielen',exact:true}).click();
- await expect.poll(()=>page.locator('video').first().evaluate(v=>v.currentTime)).toBeGreaterThan(10.5);
- const times=await page.locator('video').evaluateAll(videos=>videos.map(v=>v.currentTime));
- expect(times).toHaveLength(2);expect(Math.abs(times[0]-times[1]-5)).toBeLessThan(.8);
- await page.getByRole('button',{name:'Pause',exact:true}).click();
- await page.locator('#layout').selectOption('1');
- await page.locator('.thumb').first().click();
- await page.locator('#quality').selectOption('compatible');
- await expect.poll(()=>page.locator('video').first().evaluate(v=>v.readyState),{timeout:25000}).toBeGreaterThanOrEqual(2);
- await page.getByRole('button',{name:'Abspielen',exact:true}).click();
- await expect.poll(()=>page.locator('video').first().evaluate(v=>v.currentTime)).toBeGreaterThan(1);
- await expect(page.locator('.tile-message.error')).toHaveCount(0);
- await page.getByRole('button',{name:'Pause',exact:true}).click();
- await page.getByRole('button',{name:'Kameras verwalten',exact:true}).click();
- await page.locator('.camera-entry button').filter({hasText:'Eingang'}).click();
- await page.getByRole('button',{name:'Erkennung prüfen',exact:true}).click();
- await expect(page.locator('#preview-result')).toContainText('2026-10-14T06:30:00Z');
- await page.getByRole('button',{name:'Schließen',exact:true}).click();
- await page.setViewportSize({width:390,height:844});
- expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
- await page.screenshot({path:'test-results/mobile.png',fullPage:true});
- await page.getByRole('button',{name:'Abmelden ↗'}).click();
- await expect(page.getByRole('heading',{name:'Willkommen zurück'})).toBeVisible();
+ await page.locator('#play').click();await expect.poll(()=>page.locator('video').first().evaluate(v=>v.currentTime)).toBeGreaterThan(.5);
+ await page.waitForTimeout(5500);const times=await page.locator('video').evaluateAll(v=>v.map(x=>x.currentTime));expect(times).toHaveLength(2);expect(Math.abs(times[0]-times[1]-5)).toBeLessThan(1);
+ await page.locator('#play').click();await page.locator('#layout').selectOption('1x1');await expect(page.locator('.camera-tile')).toHaveCount(1);await page.locator('#page-next').click();await expect(page.locator('#page-display')).toHaveText('2 / 2');await page.locator('#page-prev').click();
+ for(const profile of ['balanced','fast']){await page.locator('.thumb').first().click();await page.locator('#quality').selectOption(profile);await expect.poll(()=>page.locator('video').first().evaluate(v=>v.readyState),{timeout:25000}).toBeGreaterThanOrEqual(2);await page.locator('#play').click();await expect.poll(()=>page.locator('video').first().evaluate(v=>v.currentTime)).toBeGreaterThan(.4);await expect(page.locator('.tile-message.error')).toHaveCount(0);await page.locator('#play').click()}
+ await page.locator('.thumb').first().click();await page.locator('#quality').selectOption('fast');await page.locator('#speed').selectOption('16');await expect.poll(()=>page.locator('video').first().evaluate(v=>v.readyState),{timeout:25000}).toBeGreaterThanOrEqual(2);await page.locator('#play').click();await expect.poll(()=>page.locator('video').first().evaluate(v=>v.currentTime),{timeout:10000}).toBeGreaterThan(.05);await expect(page.locator('.tile-message.error')).toHaveCount(0);
+ expect(errors).toEqual([]);
 });

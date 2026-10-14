@@ -8,10 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"math"
 	"os"
 	"os/exec"
-	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -26,10 +27,17 @@ type ScanStatus struct {
 	Warnings []string `json:"warnings"`
 	Finished string   `json:"finished,omitempty"`
 }
+type scanJob struct {
+	date, camera     string
+	all, incremental bool
+}
 type indexer struct {
-	mu     sync.Mutex
-	status ScanStatus
-	last   map[string]time.Time
+	current   scanJob
+	queue     []scanJob
+	scheduled bool
+	mu        sync.Mutex
+	status    ScanStatus
+	last      map[string]time.Time
 }
 
 func (a *App) scanStatus() ScanStatus {
@@ -46,34 +54,105 @@ func (a *App) warn(s string) {
 		a.index.status.Warnings = append(a.index.status.Warnings, s)
 	}
 }
-func (a *App) startScan(date string, force bool) bool {
+func (a *App) startScan(date string, force bool) bool { return a.queueScan(scanJob{date: date}, force) }
+func (a *App) queueScan(job scanJob, force bool) bool {
 	if a.ctx.Err() != nil {
 		return false
 	}
 	a.index.mu.Lock()
 	defer a.index.mu.Unlock()
-	if a.index.status.Running || (!force && time.Since(a.index.last[date]) < time.Minute) {
+	key := job.date + "/" + job.camera
+	if !force && time.Since(a.index.last[key]) < time.Minute {
 		return false
 	}
-	a.index.status = ScanStatus{Running: true, Date: date, Warnings: []string{}}
+	if a.index.status.Running && a.index.current == job {
+		return false
+	}
+	for _, q := range a.index.queue {
+		if q == job {
+			return false
+		}
+	}
+	if len(a.index.queue) >= 32 {
+		return false
+	}
+	if a.index.status.Running {
+		a.index.queue = append(a.index.queue, job)
+		return true
+	}
+	a.index.current = job
+	a.index.status = ScanStatus{Running: true, Date: job.date, Warnings: []string{}}
 	a.work.Add(1)
 	go func() {
 		defer a.work.Done()
-		a.scanDay(date)
-		a.index.mu.Lock()
-		a.index.status.Running = false
-		a.index.status.Finished = time.Now().UTC().Format(time.RFC3339)
-		a.index.last[date] = time.Now()
-		if len(a.index.last) > 100 {
-			for k, v := range a.index.last {
-				if time.Since(v) > time.Hour {
-					delete(a.index.last, k)
+		current := job
+		for {
+			a.scanJob(current)
+			if current.incremental && a.ctx.Err() == nil {
+				a.db.Exec(`INSERT INTO scan_schedule VALUES(?,?) ON CONFLICT(camera_id) DO UPDATE SET next_run=excluded.next_run`, current.camera, time.Now().Add(time.Duration(a.config().AutoScanMinutes)*time.Minute).Unix())
+			}
+			a.index.mu.Lock()
+			if !current.incremental {
+				a.index.last[current.date+"/"+current.camera] = time.Now()
+			}
+			if len(a.index.last) > 1000 {
+				for k, v := range a.index.last {
+					if time.Since(v) > time.Hour {
+						delete(a.index.last, k)
+					}
 				}
 			}
+			if len(a.index.queue) == 0 || a.ctx.Err() != nil {
+				a.index.status.Running = false
+				a.index.status.Finished = time.Now().UTC().Format(time.RFC3339)
+				a.index.mu.Unlock()
+				return
+			}
+			current = a.index.queue[0]
+			a.index.current = current
+			a.index.queue = a.index.queue[1:]
+			a.index.status = ScanStatus{Running: true, Date: current.date, Warnings: []string{}}
+			a.index.mu.Unlock()
 		}
-		a.index.mu.Unlock()
 	}()
 	return true
+}
+func (a *App) runScheduledScan() {
+	cfg := a.config()
+	a.index.mu.Lock()
+	busy := a.index.status.Running || len(a.index.queue) > 0
+	wasEnabled := a.index.scheduled
+	a.index.scheduled = cfg.AutoScan
+	a.index.mu.Unlock()
+	if !cfg.AutoScan {
+		return
+	}
+	if !wasEnabled {
+		a.db.Exec(`DELETE FROM scan_schedule`)
+	}
+	if busy {
+		return
+	}
+	cams, e := a.db.Cameras()
+	if e != nil {
+		return
+	}
+	for _, c := range cams {
+		if c.IndexingMode == "full" {
+			continue
+		}
+		var next int64
+		a.db.QueryRow(`SELECT next_run FROM scan_schedule WHERE camera_id=?`, c.ID).Scan(&next)
+		if next > time.Now().Unix() {
+			continue
+		}
+		loc, e := time.LoadLocation(c.Timezone)
+		if e != nil {
+			continue
+		}
+		a.queueScan(scanJob{date: time.Now().In(loc).Format("2006-01-02"), camera: c.ID, incremental: true}, true)
+		return
+	}
 }
 func dayBounds(date string) (time.Time, time.Time, error) {
 	loc, _ := time.LoadLocation("Europe/Berlin")
@@ -83,7 +162,9 @@ func dayBounds(date string) (time.Time, time.Time, error) {
 	}
 	return from, from.AddDate(0, 0, 1), nil
 }
-func (a *App) scanDay(date string) {
+func (a *App) scanDay(date string) { a.scanJob(scanJob{date: date}) }
+func (a *App) scanJob(job scanJob) {
+	date := job.date
 	from, to, e := dayBounds(date)
 	if e != nil {
 		return
@@ -94,6 +175,9 @@ func (a *App) scanDay(date string) {
 		return
 	}
 	for _, c := range cams {
+		if job.camera != "" && job.camera != c.ID {
+			continue
+		}
 		if a.ctx.Err() != nil {
 			return
 		}
@@ -105,13 +189,21 @@ func (a *App) scanDay(date string) {
 			continue
 		}
 		// Include the preceding two local days to find recordings crossing midnight.
-		first := from.Add(-time.Duration(c.Offset) * time.Second).In(loc)
+		first := from.Add(-time.Duration(c.Offset * float64(time.Second))).In(loc)
 		first = time.Date(first.Year(), first.Month(), first.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -2)
-		end := to.Add(-time.Duration(c.Offset) * time.Second).In(loc)
+		end := to.Add(-time.Duration(c.Offset * float64(time.Second))).In(loc)
+		if job.incremental {
+			first = time.Date(time.Now().In(loc).Year(), time.Now().In(loc).Month(), time.Now().In(loc).Day(), 0, 0, 0, 0, loc)
+			end = first
+		}
 		complete := true
 		seen := map[string]bool{}
 		for d := first; !d.After(end); d = d.AddDate(0, 0, 1) {
 			p, e := partition(c, d)
+			if job.all {
+				p = c.Folder
+				e = nil
+			}
 			if e != nil {
 				a.warn(c.Name + ": " + e.Error())
 				complete = false
@@ -119,7 +211,11 @@ func (a *App) scanDay(date string) {
 			}
 			if !seen[p] {
 				seen[p] = true
-				complete = a.scanPartition(c, p, from.Unix(), to.Unix()) && complete
+				if c.IndexingMode == "full" || job.all || job.incremental {
+					complete = a.scanPartitionMode(c, p, 0, math.MaxInt64, job.incremental) && complete
+				} else {
+					complete = a.scanPartitionMode(c, p, from.Unix(), to.Unix(), job.incremental) && complete
+				}
 			}
 		}
 		if a.ctx.Err() == nil {
@@ -134,6 +230,28 @@ func (a *App) scanDay(date string) {
 	}
 }
 func (a *App) scanPartition(c Camera, p string, from, to int64) bool {
+	return a.scanPartitionMode(c, p, from, to, false)
+}
+func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental bool) bool {
+	began := time.Now()
+	inspected := 0
+	updated := 0
+	defer func() {
+		slog.Info("Indexierung", "camera", c.ID, "incremental", incremental, "inspected", inspected, "updated", updated, "elapsed", time.Since(began))
+	}()
+	settled := map[string]bool{}
+	if incremental {
+		rows, e := a.db.Query(`SELECT path FROM recordings WHERE camera_id=? AND settled=1`, c.ID)
+		if e != nil {
+			return false
+		}
+		for rows.Next() {
+			var name string
+			rows.Scan(&name)
+			settled[name] = true
+		}
+		rows.Close()
+	}
 	type candidate struct {
 		path string
 		info fs.FileInfo
@@ -148,8 +266,8 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) bool {
 			return walkErr
 		}
 		count++
-		if count > 200000 {
-			return errors.New("mehr als 200000 Einträge; Tagesordner verwenden")
+		if count > 2000000 {
+			return errors.New("mehr als 2000000 Einträge; Tagesordner verwenden")
 		}
 		if d.Type()&os.ModeSymlink != 0 {
 			return nil
@@ -160,6 +278,11 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) bool {
 		if !supportedMedia(name) {
 			return nil
 		}
+		if settled[name] {
+			candidates = append(candidates, candidate{path: name})
+			return nil
+		}
+		inspected++
 		st, e := d.Info()
 		if e != nil {
 			return e
@@ -168,7 +291,7 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) bool {
 		return nil
 	})
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) { // A removed partition is reconciled; an offline mount must remain mounted at the host.
+		if !incremental && errors.Is(err, fs.ErrNotExist) { // A removed partition is reconciled; an offline mount must remain mounted at the host.
 			if _, e := a.root.Stat(c.Folder); e == nil {
 				return a.reconcile(c.ID, p, map[string]bool{})
 			} else {
@@ -188,19 +311,26 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) bool {
 		}
 		seen[item.path] = true
 		relative := strings.TrimPrefix(item.path, c.Folder+"/")
+		if item.info == nil {
+			continue
+		}
 		start, e := cameraTimestamp(c, relative)
-		if e != nil {
+		fallback := e != nil && cameraFormat(c) == "automatic" && strings.Contains(e.Error(), "Kein Zeitstempel")
+		if e != nil && !fallback {
 			a.warn(c.Name + ": " + relative + ": " + e.Error())
 			continue
 		}
 		// Avoid probing historic files outside the requested window, except the preceding day.
-		if start.Unix() >= to || start.Unix() < from-48*3600 {
+		if !fallback && (start.Unix() >= to || start.Unix() < from-48*3600) {
 			continue
 		}
 		size, mod := item.info.Size(), item.info.ModTime().UnixNano()
 		var oldSize, oldMod int64
 		e = a.db.QueryRowContext(a.ctx, `SELECT size,mod FROM recordings WHERE camera_id=? AND path=?`, c.ID, item.path).Scan(&oldSize, &oldMod)
 		if e == nil && size == oldSize && mod == oldMod {
+			if incremental && time.Since(item.info.ModTime()) >= 120*time.Second {
+				a.db.ExecContext(a.ctx, `UPDATE recordings SET settled=1 WHERE camera_id=? AND path=?`, c.ID, item.path)
+			}
 			continue
 		}
 		// Growing and recently written files must settle before probing.
@@ -212,13 +342,12 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) bool {
 			a.warn(c.Name + ": Datei nicht lesbar")
 			continue
 		}
-		var duration float64
-		var codec string
-		if strings.EqualFold(path.Ext(item.path), ".jpg") || strings.EqualFold(path.Ext(item.path), ".jpeg") {
-			e = validateJPEG(file)
-			codec = "jpeg"
-		} else {
-			duration, codec, e = probe(a.ctx, file)
+		duration, codec, created, e := probeMedia(a.ctx, file)
+		if fallback {
+			if created.IsZero() {
+				created = item.info.ModTime()
+			}
+			start = created.Add(time.Duration(c.Offset * float64(time.Second)))
 		}
 		after, se := file.Stat()
 		file.Close()
@@ -228,7 +357,7 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) bool {
 		}
 		h := sha256.Sum256([]byte(c.ID + "\x00" + item.path))
 		id := hex.EncodeToString(h[:16])
-		_, e = a.db.ExecContext(a.ctx, `INSERT INTO recordings VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(camera_id,path) DO UPDATE SET start=excluded.start,duration=excluded.duration,codec=excluded.codec,size=excluded.size,mod=excluded.mod`, id, c.ID, item.path, float64(start.Unix()), duration, codec, size, mod)
+		_, e = a.db.ExecContext(a.ctx, `INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod,filename) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(camera_id,path) DO UPDATE SET start=excluded.start,duration=excluded.duration,codec=excluded.codec,size=excluded.size,mod=excluded.mod,filename=excluded.filename,settled=0`, id, c.ID, item.path, float64(start.UnixNano())/1e9, duration, codec, size, mod, filepath.Base(item.path))
 		if e != nil {
 			healthy = false
 			a.warn(c.Name + ": Index konnte nicht gespeichert werden")
@@ -236,12 +365,16 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) bool {
 		}
 		a.index.mu.Lock()
 		a.index.status.Indexed++
+		updated++
 		a.index.mu.Unlock()
+	}
+	if incremental {
+		return healthy
 	}
 	return a.reconcile(c.ID, p, seen) && healthy
 }
 func (a *App) reconcile(camera, p string, seen map[string]bool) bool {
-	rows, e := a.db.QueryContext(a.ctx, `SELECT id,path FROM recordings WHERE camera_id=?`, camera)
+	rows, e := a.db.QueryContext(a.ctx, `SELECT id,path FROM recordings WHERE camera_id=? AND path>=? AND path<?`, camera, p+"/", p+"0")
 	if e != nil {
 		return false
 	}
@@ -269,29 +402,35 @@ func (a *App) reconcile(camera, p string, seen map[string]bool) bool {
 	return true
 }
 
-const formats = "mov,matroska,webm,avi,mpegts,h264,hevc"
+const formats = "mov,matroska,webm,avi,mpegts,h264,hevc,dhav"
 
 func probe(ctx context.Context, f *os.File) (float64, string, error) {
+	duration, codec, _, e := probeMedia(ctx, f)
+	return duration, codec, e
+}
+func probeMedia(ctx context.Context, f *os.File) (float64, string, time.Time, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats, "-show_entries", "format=duration:stream=codec_type,codec_name,duration", "-of", "json", "/proc/self/fd/3")
+	cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats, "-show_entries", "format=duration:format_tags=creation_time:stream=codec_type,codec_name,duration:stream_tags=creation_time", "-of", "json", "/proc/self/fd/3")
 	cmd.ExtraFiles = []*os.File{f}
 	out, e := cmd.Output()
 	if e != nil {
-		return 0, "", e
+		return 0, "", time.Time{}, e
 	}
 	var info struct {
 		Format struct {
-			Duration string `json:"duration"`
+			Duration string            `json:"duration"`
+			Tags     map[string]string `json:"tags"`
 		} `json:"format"`
 		Streams []struct {
-			CodecType string `json:"codec_type"`
-			CodecName string `json:"codec_name"`
-			Duration  string `json:"duration"`
+			CodecType string            `json:"codec_type"`
+			CodecName string            `json:"codec_name"`
+			Duration  string            `json:"duration"`
+			Tags      map[string]string `json:"tags"`
 		} `json:"streams"`
 	}
 	if e = json.Unmarshal(out, &info); e != nil {
-		return 0, "", e
+		return 0, "", time.Time{}, e
 	}
 	var duration float64
 	fmt.Sscan(info.Format.Duration, &duration)
@@ -306,7 +445,16 @@ func probe(ctx context.Context, f *os.File) (float64, string, error) {
 		}
 	}
 	if codec == "" || math.IsNaN(duration) || math.IsInf(duration, 0) || duration <= 0 || duration > 48*3600 {
-		return 0, "", errors.New("ungültige Videodauer oder fehlende Videospur")
+		return 0, "", time.Time{}, errors.New("ungültige Videodauer oder fehlende Videospur")
 	}
-	return duration, codec, nil
+	created, _ := time.Parse(time.RFC3339Nano, info.Format.Tags["creation_time"])
+	if created.IsZero() {
+		for _, stream := range info.Streams {
+			if t, e := time.Parse(time.RFC3339Nano, stream.Tags["creation_time"]); e == nil {
+				created = t
+				break
+			}
+		}
+	}
+	return duration, codec, created, nil
 }

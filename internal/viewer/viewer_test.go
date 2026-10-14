@@ -240,9 +240,9 @@ func TestIndexAndMedia(t *testing.T) {
 	if w = request(a, "DELETE", "/api/streams/"+stream.ID, nil, cookie, s.CSRF); w.Code != 200 {
 		t.Fatal(w.Code)
 	}
-	a.slots <- struct{}{}
+	a.acquireEncoder()
 	w = request(a, "POST", "/api/streams", map[string]any{"recording": r.ID, "offset": 0}, cookie, s.CSRF)
-	<-a.slots
+	a.releaseEncoder()
 	if w.Code != 429 {
 		t.Fatal("transcode limit", w.Code)
 	}
@@ -308,7 +308,7 @@ func TestStorePersistenceAndCameraChange(t *testing.T) {
 	if e = s.SaveCamera(c); e != nil {
 		t.Fatal(e)
 	}
-	s.Exec(`INSERT INTO recordings VALUES('r','1','a/x',0,2,'h264',1,1)`)
+	s.Exec(`INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod) VALUES('r','1','a/x',0,2,'h264',1,1)`)
 	s.Close()
 	s, e = OpenStore(dir)
 	if e != nil {

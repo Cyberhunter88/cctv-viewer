@@ -30,8 +30,6 @@ type App struct {
 	pending         *oidcPending
 	testOIDC        bool
 	confirmOIDC     func(Session) error
-	exportMu        sync.Mutex
-	exports         map[string]*exportJob
 	db              *Store
 	root            *os.Root
 	ctx             context.Context
@@ -44,13 +42,14 @@ type App struct {
 	oauth           oauth2.Config
 	mediaMu         sync.Mutex
 	streams         map[string]*stream
-	slots           chan struct{}
+	encoderActive   int
 	cacheMu         sync.Mutex
 	thumbSlots      chan struct{}
 	assets          fs.FS
 }
 
 func New(ctx context.Context, cfg Config, assets fs.FS) (*App, error) {
+	cfg = viewerDefaults(cfg)
 	for _, bin := range []string{"ffprobe", "ffmpeg"} {
 		if _, e := exec.LookPath(bin); e != nil {
 			return nil, e
@@ -66,14 +65,14 @@ func New(ctx context.Context, cfg Config, assets fs.FS) (*App, error) {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	a := &App{cfg: cfg, db: db, root: root, ctx: ctx, cancel: cancel, index: indexer{last: map[string]time.Time{}, status: ScanStatus{Warnings: []string{}}}, limits: limiter{entries: map[string]attempt{}, active: make(chan struct{}, 2)}, streams: map[string]*stream{}, slots: make(chan struct{}, 16), thumbSlots: make(chan struct{}, 1), assets: assets}
+	a := &App{cfg: cfg, db: db, root: root, ctx: ctx, cancel: cancel, index: indexer{last: map[string]time.Time{}, status: ScanStatus{Warnings: []string{}}}, limits: limiter{entries: map[string]attempt{}, active: make(chan struct{}, 2)}, streams: map[string]*stream{}, thumbSlots: make(chan struct{}, 1), assets: assets}
 	a.envCfg = cfg
 	a.overrides = map[string]json.RawMessage{}
-	a.exports = map[string]*exportJob{}
 	if e = a.loadSettings(); e != nil {
 		a.Close()
 		return nil, e
 	}
+	a.index.scheduled = a.config().AutoScan
 	a.dummyHash, _ = HashPassword(token())
 	if e = os.MkdirAll(path.Join(cfg.DataDir, "cache"), 0700); e != nil {
 		a.Close()
@@ -108,22 +107,27 @@ func (a *App) Close() {
 }
 func (a *App) background() {
 	defer a.work.Done()
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
-	lastScan := time.Time{}
+	var lastSchedule, lastCleanup, lastCache time.Time
 	for {
 		select {
 		case <-a.ctx.Done():
 			return
 		case <-ticker.C:
-			a.db.Cleanup(a.ctx)
+			if time.Since(lastCleanup) >= 30*time.Second {
+				a.db.Cleanup(a.ctx)
+				lastCleanup = time.Now()
+			}
 			a.pruneStreams()
-			a.pruneExports()
-			a.pruneCache()
-			if time.Since(lastScan) >= a.config().ScanInterval {
-				loc, _ := time.LoadLocation("Europe/Berlin")
-				a.startScan(time.Now().In(loc).Format("2006-01-02"), false)
-				lastScan = time.Now()
+			a.enforceStreamBudget()
+			if time.Since(lastCache) >= 2*time.Second {
+				a.pruneCache()
+				lastCache = time.Now()
+			}
+			if time.Since(lastSchedule) >= 10*time.Second {
+				a.runScheduledScan()
+				lastSchedule = time.Now()
 			}
 		}
 	}
@@ -159,7 +163,7 @@ func (a *App) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /api/session", a.protect(false, func(w http.ResponseWriter, r *http.Request) {
 		s := r.Context().Value(sessionKey).(Session)
-		jsonOut(w, 200, map[string]any{"name": s.Name, "role": s.Role, "csrf": s.CSRF, "kind": s.Kind, "preferenceKey": bookmarkOwner(s)})
+		jsonOut(w, 200, map[string]any{"name": s.Name, "role": s.Role, "csrf": s.CSRF, "kind": s.Kind, "preferenceKey": preferenceOwner(s)})
 	}))
 	mux.HandleFunc("POST /api/logout", a.protect(false, a.logout))
 	mux.HandleFunc("GET /api/cameras", a.protect(false, func(w http.ResponseWriter, r *http.Request) {
@@ -167,6 +171,14 @@ func (a *App) Handler() http.Handler {
 		if e != nil {
 			fail(w, 500, "Kameras nicht lesbar")
 			return
+		}
+		for i := range cams {
+			cams[i].SourceStatus = "online"
+			if st, e := a.root.Stat(cams[i].Folder); e != nil || !st.IsDir() {
+				cams[i].SourceStatus = "offline"
+			}
+			a.db.QueryRowContext(r.Context(), `SELECT success FROM camera_scans WHERE camera_id=?`, cams[i].ID).Scan(&cams[i].LastScan)
+			a.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM recordings WHERE camera_id=? AND codec!='jpeg'`, cams[i].ID).Scan(&cams[i].IndexedVideos)
 		}
 		if r.Context().Value(sessionKey).(Session).Role != "admin" {
 			for i := range cams {
@@ -180,28 +192,11 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/cameras/preview", a.protect(true, a.preview))
 	mux.HandleFunc("DELETE /api/cameras/{id}", a.protect(true, a.deleteCamera))
 	a.registerManagement(mux)
-	a.registerExports(mux)
 	mux.HandleFunc("GET /api/cameras/folders", a.protect(true, a.cameraFolders))
-	a.registerArchiveRoutes(mux)
+	a.registerViewerRoutes(mux)
 	mux.HandleFunc("GET /api/day", a.protect(false, a.day))
 	mux.HandleFunc("GET /api/scan", a.protect(false, func(w http.ResponseWriter, r *http.Request) { jsonOut(w, 200, a.scanStatus()) }))
-	mux.HandleFunc("POST /api/scan", a.protect(true, func(w http.ResponseWriter, r *http.Request) {
-		var in struct {
-			Date string `json:"date"`
-		}
-		if !decode(w, r, &in) {
-			return
-		}
-		if _, _, e := dayBounds(in.Date); e != nil {
-			fail(w, 400, e.Error())
-			return
-		}
-		if !a.startScan(in.Date, true) {
-			fail(w, 409, "Indexierung läuft bereits")
-			return
-		}
-		jsonOut(w, 202, a.scanStatus())
-	}))
+
 	mux.HandleFunc("GET /api/recordings/{id}/file", a.protect(false, a.file))
 	mux.HandleFunc("GET /api/recordings/{id}/thumbnail", a.protect(false, a.thumbnail))
 	mux.HandleFunc("POST /api/streams", a.protect(false, a.createStream))
@@ -246,6 +241,12 @@ func (a *App) Handler() http.Handler {
 				fail(w, 500, "Interner Fehler")
 			}
 		}()
+		for _, retired := range []string{"/api/bookmarks", "/api/exports", "/api/calendar", "/api/recorded-day", "/api/camera-status"} {
+			if r.URL.Path == retired || strings.HasPrefix(r.URL.Path, retired+"/") {
+				http.NotFound(w, r)
+				return
+			}
+		}
 		mux.ServeHTTP(w, r)
 	})
 }
@@ -259,6 +260,9 @@ func (a *App) saveCamera(w http.ResponseWriter, r *http.Request) {
 	var c Camera
 	if !decode(w, r, &c) {
 		return
+	}
+	if c.ID == "" && c.Format == "" && c.Pattern == "" {
+		c.Format = "automatic"
 	}
 	if e := validateCamera(c, a.root); e != nil {
 		fail(w, 400, e.Error())
@@ -323,7 +327,7 @@ func (a *App) preview(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		relative := strings.TrimPrefix(name, c.Folder+"/")
-		t, e := cameraTimestamp(c, relative)
+		t, e := a.previewTimestamp(r.Context(), c, name, relative)
 		v := item{File: relative, Kind: "video"}
 		if strings.EqualFold(path.Ext(relative), ".jpg") || strings.EqualFold(path.Ext(relative), ".jpeg") {
 			v.Kind = "image"
@@ -336,11 +340,7 @@ func (a *App) preview(w http.ResponseWriter, r *http.Request) {
 			if openErr != nil {
 				v.Error = "Datei nicht lesbar"
 			} else {
-				if v.Kind == "image" {
-					openErr = validateJPEG(file)
-				} else {
-					_, _, openErr = probe(r.Context(), file)
-				}
+				_, _, openErr = probe(r.Context(), file)
 				file.Close()
 				if openErr != nil {
 					v.Error = "Bild oder Video beschädigt oder nicht lesbar"

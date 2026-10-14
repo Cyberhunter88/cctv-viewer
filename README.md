@@ -1,20 +1,24 @@
 # CCTV Viewer
 
-Ein schlanker, selbst gehosteter **deutscher Aufnahmeviewer**: mehrere Kameras,
-eine gemeinsame Zeitleiste, geschützte Anmeldung und ein Docker-Container.
+Ein selbst gehosteter deutscher Aufnahmeviewer mit synchronisierten Kameras,
+gemeinsamer Zeitleiste, Docker Compose und geschützter OIDC-/lokaler Anmeldung.
+Die Viewer-Funktionen orientieren sich an einem festen Stand des CCTV Timeline
+Viewers und sind eigenständig in Go/TypeScript umgesetzt. Unser Layout bleibt erhalten.
 
-- Synchronisierte Kameraansichten, Aufnahmekalender, Timeline-Zoom und Vorschaubilder
-- Persönliche Lesezeichen, geschützte Zeitlinks, Vollbild und digitaler Zoom
-- Exportauswahl direkt auf der Timeline und Touch-Navigation
-- Originalwiedergabe mit HTTP-Range und H.265 → H.264-HLS bei Bedarf
-- Reolink-Assistent mit Ordnerauswahl und JPG-Einzelbildern auf der Zeitleiste
-- MP4-Clip-Export über Dateigrenzen hinweg
-- Benutzer-, OIDC- und Betriebseinstellungen in der Weboberfläche
-- Aufnahmen ausschließlich lesend; SQLite und Cache in einem Datenverzeichnis
-- AMD64 und ARM64; Images automatisch beim Veröffentlichen eines GitHub-Releases
+- Datumsauswahl, Aufnahmegrenzen, Übersichtstimeline, Zoom und verstellbare Timeline-Höhe
+- Automatische und feste Raster bis 4 × 4, eigene Raster bis 8 × 8 und Kameraseiten
+- Kameraauswahl und Reihenfolge per Ziehen; manueller oder automatischer Hotspot
+- Original, Ausgewogen und Schnell; Wiedergabe von 0,25× bis 16×
+- Aufnahmesuche mit Kamera-, Zeitraum- und Mindestdauerfilter
+- Datumspartitionierte oder rekursive Indexierung; optionale automatische Tagesindexierung
+- OIDC/SSO, Rollen und lokale Administrator-Wiederherstellung
+- Aufnahmequellen nur lesend; SQLite, Vorschaubilder und temporäre Streams unter `/data`
 
-Kein NVR: Der Viewer zeichnet keine Livekameras auf. Er liest bereits vorhandene
-Videodateien und JPG-Einzelbilder. KI-Analyse und Home Assistant sind nicht Bestandteil.
+Kein NVR: Der Viewer verwendet vorhandene Videodateien. Home Assistant und
+Videoanalyse sind ausgeschlossen. Bilder, Clip-Export, Lesezeichen, Zeitlinks,
+digitaler Zoom, separate Vollbild- und Audiobedienung wurden entfernt.
+
+Die vollständige Zuordnung zur Referenz steht in [FEATURE_MATRIX.md](FEATURE_MATRIX.md).
 
 ## Mit Docker Compose starten
 
@@ -131,8 +135,7 @@ setzen: durch Komma getrennte, exakte `sub`-Werte des konfigurierten Issuers.
 E-Mail-Adressen werden nicht als Identität verwendet. Adminfreigaben implizieren
 Lesezugriff. Ohne passende Freigabe bleibt der Zugang gesperrt.
 
-Betrachter können alle eingerichteten Kameras und Bilder sehen sowie Clips
-exportieren; Administratoren zusätzlich Kameras, lokale Benutzer und Einstellungen
+Betrachter können alle eingerichteten Kameras ansehen, durchsuchen und synchronisiert abspielen; Administratoren zusätzlich Kameras, lokale Benutzer und Einstellungen
 verwalten und manuelle Scans starten. Es gibt keine Rechte pro Kamera.
 Nach erfolgreichem Test kann `CTV_LOCAL_ADMIN=false` die lokale Anmeldung
 vollständig abschalten, sofern kein Webwert diese Vorgabe überschreibt. Im Browser
@@ -158,8 +161,8 @@ zurückgesetzt werden. Passwort-, Rollen- und Sperränderungen widerrufen die
 zugehörigen Sitzungen. Der letzte aktive lokale Administrator bleibt geschützt.
 Eigene lokale Passwörter über „Passwort ändern“ ändern; SSO-Passwörter beim Provider.
 
-Scanintervall, Cachebudget, Umwandlungsplätze und Sitzungsdauer werden ohne
-Neustart übernommen. Bei weniger Umwandlungsplätzen dürfen laufende Aufträge
+Indexintervall, Streamingprofile, Ressourcenlimits und Sitzungsdauer werden ohne
+Neustart übernommen. Bei einem kleineren Streamlimit dürfen laufende Aufträge
 fertig werden. Docker-Mounts, Port, Basis-URL und vertrauenswürdige Proxys bleiben
 extern konfiguriert und werden nur angezeigt. Gleichzeitig bearbeitete
 Einstellungen werden mit Versionskonflikt abgewiesen statt überschrieben.
@@ -169,240 +172,145 @@ SQLite-Datenbank enthält jedoch gespeicherte Secrets: Datenordner und Sicherung
 entsprechend schützen. Vor dem ersten Upgrade den Datenordner sichern; neue
 Datenbankspalten und die Einstellungstabelle werden automatisch ergänzt.
 
-## Kamera und Zeitmuster
+## Kameraquellen und Indexierung
 
-Als Administrator die Kameraeinstellungen öffnen und **Ordner auswählen** nutzen.
-Der Assistent zeigt ausschließlich Ordner innerhalb des eingebundenen
-Aufnahmeverzeichnisses. Für dein Reolink-Archiv:
+In „Kameras verwalten“ einen relativen Ordner innerhalb des eingebundenen
+Aufnahmeverzeichnisses auswählen. SMB/NFS vorher auf dem Host mounten; der Viewer
+speichert keine Freigabe-Zugangsdaten. Symlinks werden beim Indexieren übersprungen.
+Ein nicht erreichbarer Kameraordner erhält seinen bisherigen Index. Ein leer
+erscheinendes, nicht mehr gemountetes NAS lässt sich von echten Löschungen nicht
+unterscheiden: Host-Mounts vor Containerstart prüfen.
 
-| Einstellung | Wert |
-|---|---|
-| Kameraordner | `Reolink/Eingang` |
-| Aufnahmeformat | Reolink |
-| Zeitzone | `Europe/Berlin` |
+Neue Kameras verwenden „Automatische Erkennung“. Unterstützte Videoendungen:
+MP4, MOV, MKV, AVI, TS, H264, H265 und DAV. Die tatsächliche Wiedergabefähigkeit
+hängt von Codec und gültiger Videodauer ab. JPG/JPEG werden ignoriert.
 
-`Reolink/Eingang/2026/10/14/Eingang_00_20261014061217.mp4` wird als Video ab
-14.10.2026, 06:12:17 Berliner Ortszeit erkannt. `.jpg` und `.jpeg` werden als
-punktuelle Bildereignisse erkannt. Andere numerische Kennungen wie `_01_` sind
-zulässig; Ordner- und Dateidatum müssen übereinstimmen. Der Teil des Dateinamens
-vor dieser Kennung darf beliebig sein: Die Zuordnung erfolgt über den Kameraordner,
-ein Kamerapräfix muss nicht eingestellt werden. Bereits gespeicherte Präfixe werden
-ignoriert. Dateien ohne diesen Zeitstempel werden ausgelassen. Der Assistent schlägt das
-Reolink-Format aus einer Beispieldatei vor; **Erkennung prüfen** zeigt Zeiten und Dateifehler.
-Die begrenzte Suche kann bei großen Archiven einen spezifischeren Ordner benötigen.
+Zeitstempel werden zuerst aus Dateinamen wie `CAM_00_20261014083005.mp4`,
+`20261014_083005.mp4` oder `camera_2026-10-14_08-30-05.mp4` gelesen. Ohne
+Dateizeitstempel folgen Medien-Erstellungszeit und Dateiänderungszeit.
+Dateinamen werden in der Kamera-Zeitzone interpretiert. Mehrdeutige oder nicht
+existierende lokale Uhrzeiten bei der Zeitumstellung werden mit Warnung ausgelassen.
+Die Timeline zeigt Europe/Berlin und berücksichtigt Tage mit 23 beziehungsweise 25 Stunden.
 
-JPGs auf der Zeitleiste oder unter **Einzelbilder** anklicken, um sie zu öffnen und
-herunterzuladen. Gleichnamige Bilder werden bevorzugt als MP4-Vorschau verwendet.
-Einzelbilder haben keine Videodauer und füllen keine Wiedergabe- oder Exportlücken.
-Beschädigte Bilder werden mit Warnung ausgelassen; Bildgröße maximal 40 Megapixel.
+„Nach Datum“ nutzt beispielsweise `{YYYY}/{MM}/{DD}`; `{YY}` ist ebenfalls
+möglich. Der geöffnete Tag und angrenzende Partitionen für über Mitternacht
+laufende Videos werden eingelesen. „Gesamter Ordner“ durchsucht rekursiv alle
+Unterordner. Bestehende eigene Dateimuster und Reolink-Konfigurationen werden intern
+weiter unterstützt und im Bearbeitungsformular erhalten.
 
-Für andere Archive weiterhin **Eigenes Dateimuster** wählen, beispielsweise:
+Zeitversatz unterstützt Zehntelsekunden. `-5,1` verschiebt den tatsächlichen Start
+um 5,1 Sekunden nach vorne. Änderungen verschieben vorhandene Indexeinträge,
+ohne Videos erneut zu untersuchen. Änderungen an Quelle, Muster oder Zeitzone
+verwerfen den abgeleiteten Kameraindex.
 
-| Einstellung | Wert |
-|---|---|
-| Name | Eingang |
-| Kameraordner | Eingang |
-| Muster | `{YYYY}/{MM}/{DD}/{hh}-{mm}-{ss}.mp4` |
-| Zeitzone | `Europe/Berlin` |
-| Zeitversatz | `0` |
+Manuelle Scans für einzelne oder alle Kameras lesen die gesamten Kameraordner und
+gleichen entfernte Dateien ab. „Index neu aufbauen“ entfernt abgeleitete Aufnahmen,
+Scanstände und Vorschaubilder; Kameras, Anmeldung und Originalvideos bleiben erhalten.
+Die Aktion ist während laufender oder wartender Indexaufträge gesperrt. Eine Quelle
+ist auf zwei Millionen Verzeichniseinträge pro Scan begrenzt; für große Archive
+Datumspartitionen verwenden.
 
-Dies erkennt `/recordings/Eingang/2026/10/14/08-30-00.mp4` als Aufnahme ab
-08:30 Uhr Berliner Zeit. „Erkennung prüfen“ zeigt Dateinamen und UTC-Zeit vor dem
-Speichern. Positive Zeitversätze verschieben den tatsächlichen Start nach hinten.
-Andere feste Muster, Trennzeichen und Dateiendungen sind möglich. Alle sechs
-Zeitplatzhalter müssen genau einmal vorkommen. Ein Kameraordner darf kein
-absoluter Pfad und nicht der Mount-Wurzelordner selbst sein.
+Automatische Tagesindexierung ist standardmäßig ausgeschaltet. Unter
+„Benutzer · Anmeldung · Betrieb → Betrieb“ aktivieren; Vorgabe 60 Minuten,
+zulässig 1–10080 Minuten. Sie läuft ohne geöffneten Browser, jeweils eine Kamera,
+ausschließlich für datumspartitionierte Quellen und den heutigen Tag in deren Zeitzone.
+Vergangene Tage werden nicht automatisch nachgeholt. Erfolgreiche und fehlgeschlagene
+Versuche warten vor dem nächsten Lauf das eingestellte Intervall. Der nächste
+Laufzeitpunkt bleibt in SQLite erhalten; ein unterbrochener Auftrag wird erneut fällig.
+Interaktive Aufträge werden vor dem nächsten Hintergrundscan bearbeitet.
 
-Aufnahmen werden anhand des **Dateinamens**, nicht des Änderungsdatums zugeordnet.
-Mehrdeutige Uhrzeiten bei der Winterzeitumstellung und nicht existierende Zeiten
-bei der Sommerzeitumstellung werden mit Warnung ausgelassen. Bei solchen Archiven
-Kameras möglichst auf UTC-Aufnahmen umstellen und `UTC` als Kamera-Zeitzone nutzen.
-Die Oberfläche zeigt grundsätzlich `Europe/Berlin` an; ein Tag kann 23/25 Stunden haben.
+Der Hintergrundscan listet Tagesdateien, prüft aber nur neue oder noch nicht stabile
+Dateien näher. Erst nach wiederholter Beobachtung unveränderter Größe/Änderungszeit,
+gültiger Dauer und mindestens zwei Minuten Alter gilt eine Datei als stabil.
+Der Hintergrundscan gleicht keine Löschungen oder Ersetzungen stabiler Dateien ab;
+dafür den Tag öffnen oder manuell scannen. Neu geschriebene Dateien müssen vor dem
+Probe-Lauf mindestens 30 Sekunden alt sein. Die Stabilitätserkennung ist eine Heuristik.
 
-Beim Öffnen eines Tages wird dessen Index asynchron aufgefrischt (höchstens einmal
-pro Minute); der aktuelle Tag zusätzlich alle fünf Minuten. Vorschaubilder entstehen
-bei Bedarf. Es läuft ein Scan gleichzeitig. Die UI zeigt Fortschritt und begrenzte
-Warnungen. Die Vorschau der Einrichtung ist auf 10.000 Einträge beschränkt; eine
-Tagespartition auf 200.000 Einträge. Tagesordner sparen bei großen Archiven Arbeit.
-Symlinks werden beim Indexieren nicht verfolgt. Entfernte Dateien verschwinden
-beim nächsten erfolgreichen Scan; ein nicht erreichbarer Kameraordner erhält den
-vorhandenen Index. Ein **leer erscheinendes, nicht mehr gemountetes NAS** ist nicht
-von echten Löschungen unterscheidbar: Host-Mounts vor Containerstart sicherstellen.
+## Ansicht, Suche und Wiedergabe
 
-Dateien müssen mindestens 30 Sekunden unverändert alt sein und eine gültige Dauer
-haben. Nach dem Probe-Lauf werden Größe und Änderungszeit erneut geprüft. Das ist
-eine Stabilitätsheuristik; ungewöhnliche Schreiber können später weiter schreiben.
-Aufnahmen dürfen bis zu 48 Stunden dauern; die beiden Vortage werden wegen über Mitternacht
-laufender Aufnahmen ebenfalls berücksichtigt. Konfigurationsänderungen an Pfad,
-Muster oder Zeitversatz verwerfen nur den abgeleiteten Index der Kamera.
+Kamerafilter per Ziehen umordnen. Gewählte Kameras bleiben über Seitenwechsel
+auch in kleinen Rastern erreichbar. Hotspot vergrößert eine Kamera. Im Automatikmodus
+gewinnt die zuletzt beginnende aktive Aufnahme; bei gleichen Startzeiten gilt die
+Kamerareihenfolge. Eine manuelle Kameraauswahl beendet den Automatikmodus.
 
-## Wiedergabe und Ressourcen
+Die Pfeile neben Abspielen springen zur vorherigen/nächsten Aufnahmegrenze.
+Timeline anklicken zum Springen, Mausrad zum Zoomen, Umschalt+Ziehen zum Verschieben;
+Touch unterstützt Verschieben und Zweifinger-Zoom. Die Tagesübersicht verschiebt
+den sichtbaren Bereich. Der Trenner darüber verändert die Timeline-Höhe, auch mit
+Pfeiltasten. „Ansicht einklappen“ lässt Wiedergabesteuerung weiterhin erreichbar.
+Raster, Filter, Reihenfolge, Vorladen und Timeline-Höhe werden je Benutzer im Browser gespeichert.
 
-Die gemeinsame Uhr steuert alle sichtbaren Kameras. Lücken werden je Kamera
-angezeigt; ohne Aufnahme in allen sichtbaren Kameras springt die Wiedergabe zur
-nächsten Aufnahme. Bei überlappenden Clips wird der zuletzt beginnende verwendet.
-Browserdecoder können geringfügig voneinander abweichen; Abweichungen über etwa
-650 ms werden korrigiert. Es wird keine framegenaue forensische Synchronität zugesagt.
+„Aufnahmen suchen“ durchsucht den bisherigen Index nach Dateiname oder Kameraname.
+Kamera, Berliner Zeitraum und Mindestdauer begrenzen die Ergebnisse (maximal 100
+über die Oberfläche). Treffer öffnen Kamera, Tag und Aufnahmezeitpunkt. Noch nicht
+indexierte Tage zuerst öffnen oder einen vollständigen manuellen Scan starten.
 
-„Automatisch“ bevorzugt H.264 in MP4/MOV sowie browserfähiges H.265. Bei eindeutigen Browser-
-Codecfehlern wird automatisch auf kompatible Wiedergabe gewechselt. Bei weiteren
-Problemen „Kompatibel“ auswählen. MKV/AVI/TS und inkompatible Codecs benötigen
-HLS-Konvertierung. Rohes H.264/H.265 ohne ermittelbare Dauer wird ausgelassen.
-Ton lässt sich je Kamera einschalten und in der Lautstärke regeln; jeweils eine
-Kamera ist hörbar. Beim Öffnen der Oberfläche bleibt der Ton zunächst stumm. Unterstützte Videoerweiterungen: MP4, MOV, MKV, AVI, TS, H264, H265.
-Zusätzlich JPG/JPEG als Einzelbilder. Bei eigenen Videomustern wird für Bilder
-dasselbe Zeitmuster mit JPG-/JPEG-Endung verwendet.
+Original liefert unterstützte MP4/MOV-Dateien unverändert mit HTTP-Range.
+Bei inkompatiblen Codecs oder Containern Ausgewogen oder Schnell wählen:
 
-- `CTV_MAX_TRANSCODERS=1`: gleichzeitige FFmpeg-Videoumwandlungen; zulässig 1–16.
-- `CTV_SCAN_INTERVAL_SECONDS=300`: Hintergrundscan des aktuellen Tages, 30–86400 Sekunden.
-- `CTV_CACHE_MB=512`: gemeinsames Budget für Thumbnails und temporäre HLS-Dateien.
-- HLS: maximal 1280 Pixel breit, ca. 2 Mbit/s, ein Encoderthread, AAC-Ton, sofern vorhanden.
-- Nach 90 Sekunden ohne Segmentabruf oder nach 30 Minuten werden Streams entfernt.
-  Lange Clips werden in bis zu 30-minütigen Teilen wiedergegeben.
-- Ein Watchdog prüft den Cache alle zwei Sekunden, entfernt alte Vorschaubilder und
-  beendet bei Überschreitung Streams. Kurzzeitige Überschreitungen sind möglich;
-  für eine harte Grenze zusätzlich ein Dateisystem-/Volume-Quota verwenden.
-- Pause hält den Stream kurz für erneute Wiedergabe bereit. Verlassen/Verbergen
-  der Seite pausiert und gibt Streams frei. Neue Streams können an Kapazitätsgrenzen
-  abgewiesen werden; Originalwiedergabe hat dieses Encoderlimit nicht.
+| Profil | Skalierung | FPS | Maximale Bitrate |
+|---|---:|---:|---:|
+| Ausgewogen | 50 % | 15 | 1200 kbit/s |
+| Schnell | 30 % | 8 | 450 kbit/s |
 
-Für mehrere gleichzeitige H.265-Kameras mehr Encoderplätze konfigurieren, sofern
-CPU und Arbeitsspeicher ausreichen. Hardwarebeschleunigung ist nicht integriert.
-Die App kopiert keine Originalvideos. Die Größe und der Speicherverbrauch des
-Images werden in den Release-/CI-Prüfungen ausgegeben; Laufzeitlast hängt stark
-von Auflösung, Codec, Kamerazahl und Transcoding ab.
+Die Profile sind administrativ einstellbar: Skalierung 20–100 %, FPS 2–30,
+Bitrate 100–8000 kbit/s. Sie erhalten das Seitenverhältnis. Ab 2× wird die
+beschleunigte Wiedergabe serverseitig kodiert. Desktopbrowser erhalten fragmentiertes
+MP4; Browser mit nativer HLS-Unterstützung erhalten HLS. Bei 4× wartet HLS auf zwei,
+bei 8×/16× auf vier Segmente oder auf Clipabschluss. Ton bleibt stumm.
 
-## Aufnahmen finden und prüfen
+Vorladen „Metadaten“ spart im pausierten Zustand Daten; „Automatisch“ erlaubt dem
+Browser stärkeres Vorladen. Bei Streamfehlern gibt es höchstens drei automatische
+Wiederherstellungsversuche mit einer begrenzten Wiederherstellungsdauer; betroffene
+Kameras zeigen anschließend einen Fehler. Gesunde Kameras und die Timeline laufen
+weiter. Pause/Abspielen oder Profilwechsel erlauben einen erneuten Versuch.
 
-**Aufnahmekalender** zeigt den gewählten Monat für die ausgewählten Kameras:
-`●` bedeutet vorhandene Videos oder JPGs, `✓` einen vollständig geprüften leeren
-Tag und `?` einen noch ungeprüften oder unvollständig lesbaren Tag. Bereits
-indexierte Aufnahmen können auch an einem mit `?` markierten Tag vorhanden sein.
-Solange der Kalender geöffnet ist, wird jeweils ein weiterer Tag asynchron
-geprüft. Es bleibt bei einem Scan gleichzeitig und den bestehenden Grenzen pro
-Partition. Versuche werden eine Stunde zwischengespeichert; fehlgeschlagene Tage
-bleiben als unvollständig markiert. Das Schließen beendet weitere Anfragen,
-ein bereits gestarteter Scan darf fertig werden.
-**Belegter Tag** springt zur vorherigen/nächsten Aufnahme im bisherigen Index;
-noch nicht geprüfte Monate zuerst im Kalender öffnen.
+Browserdecoder können geringfügig voneinander abweichen; framegenaue forensische
+Synchronität wird nicht zugesagt. Bei Aufnahmelücken springt die gemeinsame Uhr
+zur nächsten Aufnahme in den sichtbaren Kameras.
 
-**Lesezeichen** speichert einen Zeitpunkt, die Kameraauswahl und eine kurze Notiz.
-Markierungen sind persönlich, über Sitzungen hinweg verfügbar und werden nicht
-mit dem Aufnahmeindex gelöscht. Lokale Konten werden über ihren Benutzernamen,
-OIDC-Konten über Issuer und Subject zugeordnet. Andere Benutzer, auch
-Administratoren, können diese Lesezeichen nicht über die API lesen oder ändern.
-Beim Löschen eines lokalen Kontos werden dessen Lesezeichen entfernt. Maximal
-1000 Markierungen mit jeweils 1000 UTF-8-Bytes Notiz; fehlende Aufnahmen oder
-entfernte Kameras werden beim Öffnen angezeigt. Markierungen schützen keine
-Originaldateien vor externem Löschen.
+## Ressourcen und Diagnose
 
-**Zeitlink kopieren** erzeugt einen Link mit Datum, Zeitpunkt und Kameraauswahl.
-Er verlangt dieselbe Anmeldung wie der Viewer und gewährt keine zusätzlichen
-Rechte. Die Ansicht startet pausiert. Kameraauswahl, Raster, Geschwindigkeit und
-Qualitätsmodus werden pro Identität lokal im Browser gespeichert; gültige
-Linkparameter haben Vorrang. Browser-Speicher kann deaktiviert sein, dann entfällt
-das Merken. Nach einer OIDC-Anmeldung wird ein vorgemerkter Zeitlink im selben
-Browser-Tab wiederhergestellt.
+- `CTV_MAX_TRANSCODERS=0`: unbegrenzte Zahl gleichzeitiger Encoder. UI-Bereich 0–64;
+  ein kleineres Limit betrifft neue Aufträge, bestehende Encoder laufen weiter.
+- `CTV_HLS_TEMP_MB=256`: gemeinsames Budget für temporäre komprimierte Streams;
+  in der Oberfläche 16–4096 MiB. Ein Watchdog prüft alle 500 ms und entfernt ganze
+  Sitzungen, bevorzugt ältere abgeschlossene. Kurzzeitige Überschreitungen sind möglich.
+- `CTV_CACHE_MB=512`: Vorschaubild-Cachebudget. Vorschaubilder können neu erzeugt werden.
+- Automatische Indexierung wird über die Weboberfläche konfiguriert;
+  `CTV_SCAN_INTERVAL_SECONDS` bleibt ausschließlich zum Lesen alter Konfigurationen unterstützt.
 
-Jede Kamera bietet **Vergrößern**, Zoomtasten und **Zoom zurücksetzen**. Das
-Vollbild funktioniert auch als bildschirmfüllende Ansicht ohne Fullscreen-API.
-Mit Mausrad oder zwei Fingern zoomen, das vergrößerte Bild mit Maus/Finger
-verschieben. Tastatur: `+`/`-` zoomen, Pfeiltasten verschieben, `0` setzt den Zoom
-zurück und Escape schließt die vergrößerte Ansicht. Die Anzeigevergrößerung
-verändert weder Originaldateien noch Exportauflösung.
+Bei Pause werden unvollständige Streams nach zwei Sekunden freigegeben; fertige
+MP4-Puffer können weiterverwendet werden. Seitenwechsel/Verbergen gibt Streams frei
+und setzt die Wiedergabe nicht automatisch fort. Serverseitige Zeitlimits schützen
+vor verlorenen Abbruchanfragen. Lange Clips werden in bis zu 30-minütigen Teilen abgespielt.
 
-Auf der Timeline springt ein Fingertipp zur Uhrzeit; Ziehen verschiebt den
-sichtbaren Zeitbereich, zwei Finger zoomen. **Exportbereich auswählen** aktiviert
-einen eigenen Modus: A/B-Griffe ziehen oder fokussieren und mit Pfeiltasten um
-jeweils eine Sekunde verschieben, mit Umschalt um zehn Sekunden. **Auswahl
-exportieren** übernimmt den Bereich in den Exportdialog. Die Auswahl ist auf
-30 Minuten begrenzt; für Zeiträume über Mitternacht die Datumseingaben im Dialog
-nutzen. Escape oder **Auswahl beenden** kehrt zur Navigation zurück.
+„Wiedergabediagnose“ startet eine begrenzte Aufzeichnung mit maximal 20.000 Einträgen.
+Nach Stopp als JSON herunterladen. Der Bericht enthält Wiedergabeereignisse und
+Ressourcenzähler, keine Aufnahmeordner, Passwörter, Tokens oder Client-Secrets.
+Geschützte APIs: `/api/playback-status` und `/api/playback-sessions/{id}`;
+Sitzungsdetails sind nur für den Eigentümer erreichbar.
 
-**Kameraübersicht** zeigt Erreichbarkeit, letzte indexierte Aufnahme und letzten
-erfolgreichen Scan. Unvollständige/alte Scanstände werden markiert. Ein
-nicht erreichbarer Ordner behält seinen Index. Ein leerer, aber erreichbarer
-NAS-Mount bleibt weiterhin nicht von einem tatsächlich leeren Archiv unterscheidbar.
+## Upgrade und Rückkehr
 
-Im Wiedergabemodus **Automatisch** führt ein eindeutiger Decoder-/Formatfehler
-einmal je Versuch zur kompatiblen HLS-Wiedergabe, mit Hinweis und erhaltenem
-Zeitpunkt beziehungsweise Wiedergabestatus. Netzwerkfehler starten keine
-Konvertierung; ausgelastete Umwandlungsplätze werden als Fehler angezeigt.
-**Original** erzwingt weiterhin die Originalwiedergabe. Keine Ereignisfilter oder
-zusätzliche KI-Analyse.
+Vor dem Umbau wurde der Arbeitsstand als lokales Archiv gesichert:
+`.sync-conflicts/pre-replacement-20261014-120741.tar.gz` (bewusst nicht in Git).
+Beim ersten Öffnen einer vorhandenen Datenbank vor Schema 4 erzeugt die Anwendung
+`/data/viewer-before-v4.db` mit SQLite `VACUUM INTO`, einschließlich committed WAL-Daten.
+Die Sicherung wird nicht überschrieben. Konten, Passwort-Hashes, OIDC-Einstellungen,
+Kameras und alte Dateimuster bleiben erhalten. Alte Lesezeichendaten werden nicht gelöscht,
+sind aber über die Anwendung nicht mehr zugänglich. Neue Installationen erzeugen
+keine Lesezeichentabelle. Bestehende gespeicherte oder externe Ressourcenlimits gelten
+weiter; bei einem Upgrade ohne explizites Encoderlimit bleibt die frühere Vorgabe 1 erhalten.
 
-## Clips exportieren
+Für eine Rückkehr Container stoppen, den bisherigen Image-Tag wählen und die
+gesicherte Datenbank als `viewer.db` wiederherstellen. Dabei vorhandene `viewer.db-wal`
+und `viewer.db-shm` zusammen mit der aktuellen Datenbank separat sichern und entfernen,
+bevor die Sicherung eingesetzt wird. Eine vollständige Datenverzeichnis-Sicherung
+ist zusätzlich empfohlen. Neue Einstellungen seit dem Upgrade sind in der alten
+Sicherung nicht enthalten. Originalaufnahmen werden nicht verändert.
 
-**Clip exportieren** öffnen, eine Kamera und Start/Ende in `Europe/Berlin` wählen.
-Die Wiedergabeposition wird als Start vorgeschlagen. **Zeitraum prüfen** zeigt
-Videolücken; **Export starten** erzeugt asynchron eine MP4-Datei mit Fortschritt,
-Abbruch und Download. Administratoren und Betrachter dürfen exportieren.
-Noch nicht indexierte Tage des Zeitraums werden automatisch eingelesen; der
-Dialog zeigt die Vorbereitung und setzt danach die Prüfung oder Erstellung fort.
-Bei nicht erreichbaren Quellen wird kein vermeintlich lückenloser Export zugesagt.
-
-- Maximal 30 Minuten, über Dateigrenzen und Mitternacht hinweg; JPGs füllen keine Lücken.
-- H.264 mit vorhandener Audiospur als AAC (48 kHz, Stereo), erneute Komprimierung mit 30 Bildern pro Sekunde. Auflösung des
-  ersten Abschnitts; abweichende Auflösungen werden mit Randflächen angepasst.
-  Ungerade Bildabmessungen werden für H.264 auf gerade Pixelzahlen aufgerundet.
-- Bei überlappenden Videos gilt dieselbe Auswahl wie bei der Wiedergabe.
-- Bei gemischten Dateien mit und ohne Ton bleibt der Ton an den richtigen
-  Zeitpunkten: Abschnitte ohne Audiospur werden mit Stille ergänzt. Enthält der
-  gesamte Zeitraum keinen Ton, bleibt der Export ohne Audiospur.
-- Umwandlungsplätze und Cachebudget werden mit der Wiedergabe geteilt. Bei
-  Auslastung Wiedergabe pausieren und erneut versuchen. Sehr viele Dateigrenzen
-  erfordern einen kürzeren Exportzeitraum.
-- Exporte gehören zur aktuellen Sitzung. Abmelden oder Sitzungswiderruf beendet
-  den Zugriff; ein erneutes Login übernimmt die alten Aufträge nicht.
-- Temporäre Exporte verfallen eine Stunde nach Auftragserstellung und werden bei
-  Neustart entfernt. Unter Speicherdruck können sie früher entfernt werden.
-  Aktive Downloads werden vor Bereinigung geschützt. Für eine harte Speichergrenze
-  weiterhin Dateisystem-/Volume-Quota verwenden.
-- Mehrdeutige oder nicht existierende lokale Exportzeiten bei einer Zeitumstellung
-  werden abgewiesen. Es ist kein framegenauer forensischer Export zugesagt.
-
-## Releases und Updates
-
-In GitHub **Releases → Draft a new release** öffnen, z. B. Tag `v1.0.0` auf `main`
-anlegen und **Publish release** wählen. Der Workflow „Docker veröffentlichen“:
-
-1. Prüft Tag, TypeScript, Go, Authentifizierung, Video-Fixtures und Dockerstart.
-2. Baut und startet das Image auf nativen AMD64- und ARM64-Runnern.
-3. Veröffentlicht ein Multiarch-Image mit SBOM und Build-Provenienz in GHCR.
-4. Hängt Compose und eine zur Version passende Konfigurationsvorlage ans Release.
-5. Prüft anonymes Herunterladen und erneuten Containerstart.
-
-Image: `ghcr.io/cyberhunter88/cctv-viewer:1.0.0`. Stabile Versionen aktualisieren
-passende `1.0`-/`1`-Zeiger; nur die höchste veröffentlichte stabile Version erhält
-`latest`. `v1.1.0-beta.1` muss als GitHub-Vorabversion markiert sein und erhält nur
-`1.1.0-beta.1`. Entwürfe veröffentlichen nichts. Bestehende Versions-Tags werden
-nicht überschrieben; ein Retry muss auf denselben Commit zeigen. Alle fremden
-Actions sind auf Commit-SHAs fixiert. Ein Registry-Passwort ist nicht erforderlich;
-Actions verwendet das kurzlebige `GITHUB_TOKEN`.
-
-**Einmalig beim ersten Image:** GitHub legt neue GHCR-Pakete zunächst privat an.
-Unter Profil → Packages → cctv-viewer → Package settings → Change visibility
-„Public“ wählen. Die Repository-Sichtbarkeit allein genügt nicht. Danach den
-fehlgeschlagenen Prüfjob erneut ausführen oder den Workflow über „Run workflow“
-mit dem vorhandenen Release-Tag starten. Die Ersteinrichtung wird bei Übergabe
-soweit möglich bereits durchgeführt.
-
-Updates auf dem Server:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-Mit `CTV_VERSION=1.0.0` eine feste Version wählen; mit `latest` beim obigen Befehl
-auf die neueste stabile Version wechseln. Keine automatischen Serverupdates.
-Vor Updates `/data` sichern: Container stoppen und den Datenordner inklusive
-SQLite-Dateien kopieren; danach wieder starten. Zurückrollen durch Auswahl einer
-älteren Version und Wiederherstellung ihrer passenden Datensicherung.
-
-## Lokal entwickeln und prüfen
-
-Go 1.27, Node 24, FFmpeg/FFprobe und Linux (sichere FD-Übergabe über `/proc`):
+## Entwicklung und Prüfungen
 
 ```bash
 npm ci
@@ -411,28 +319,16 @@ npm test
 npm run build
 go vet ./...
 go test -race ./...
-python3 -m unittest discover -s scripts -p 'test_*.py'
 go build -o bin/cctv ./cmd/cctv
-npx playwright install chrome
-# Optional vorhandenen Chromium-Browser verwenden:
-# CTV_TEST_BROWSER=/pfad/zum/browser npm run test:browser
+npx playwright install chrome webkit
 npm run test:browser
-mkdir -p data recordings
-CTV_DATA_DIR=./data bin/cctv admin --username admin
-CTV_DEV_HTTP=true CTV_BASE_URL=http://localhost:8080 CTV_DATA_DIR=./data CTV_RECORDINGS_DIR=./recordings bin/cctv
-```
-
-`CTV_DEV_HTTP=true` ist ausschließlich für lokale Entwicklung vorgesehen;
-Sitzungscookies sind dann ohne Secure-Flag. Produktiv HTTPS verwenden.
-
-```bash
+CTV_TEST_ENGINE=webkit npm run test:browser
+python3 -m unittest discover -s scripts -p 'test_*.py'
 docker build -t cctv-viewer:test .
 ./scripts/smoke.sh cctv-viewer:test
 ```
 
-Die Tests verwenden ausschließlich temporäre Daten und synthetische Videos,
-keine echten Überwachungsaufnahmen oder produktiven OIDC-Zugangsdaten.
-
-## Lizenz
-
-Eigener Anwendungscode: MIT. Drittanbieterhinweise: [THIRD_PARTY.md](THIRD_PARTY.md).
+Die Browser- und Medientests verwenden ausschließlich synthetische Videos und
+temporäre SQLite-Datenbanken. `CTV_TEST_BROWSER` erlaubt einen installierten
+Chromium-Browser für lokale Tests. Die CI prüft Containerstart, Anmeldung,
+Neustart sowie schreibgeschützte Aufnahme-Mounts und erstellt AMD64/ARM64-Images.

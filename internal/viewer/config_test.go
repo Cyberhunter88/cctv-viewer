@@ -15,10 +15,10 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 	}
 	t.Setenv("CTV_BASE_URL", "https://cctv.example.org")
 	c, e := LoadConfig()
-	if e != nil || c.MaxTranscoders != 1 || c.CacheBytes != 512<<20 {
+	if e != nil || c.MaxTranscoders != 0 || c.CacheBytes != 512<<20 {
 		t.Fatal(c, e)
 	}
-	for _, entry := range []struct{ key, value string }{{"CTV_SESSION_MINUTES", "0"}, {"CTV_MAX_TRANSCODERS", "0"}, {"CTV_CACHE_MB", "1"}, {"CTV_SCAN_INTERVAL_SECONDS", "1"}, {"CTV_TRUSTED_PROXIES", "invalid"}, {"CTV_BASE_URL", "https://cctv.example.org/subpath"}, {"CTV_OIDC_ISSUER", "http://example.org"}} {
+	for _, entry := range []struct{ key, value string }{{"CTV_SESSION_MINUTES", "0"}, {"CTV_MAX_TRANSCODERS", "65"}, {"CTV_CACHE_MB", "1"}, {"CTV_SCAN_INTERVAL_SECONDS", "1"}, {"CTV_TRUSTED_PROXIES", "invalid"}, {"CTV_BASE_URL", "https://cctv.example.org/subpath"}, {"CTV_OIDC_ISSUER", "http://example.org"}} {
 		t.Run(entry.key, func(t *testing.T) {
 			t.Setenv(entry.key, entry.value)
 			if _, e := LoadConfig(); e == nil {

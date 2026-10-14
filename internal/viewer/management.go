@@ -144,10 +144,7 @@ func (a *App) deleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, e = tx.Exec(`DELETE FROM sessions WHERE kind='local' AND subject=?`, name); e == nil {
-		_, e = tx.Exec(`DELETE FROM bookmarks WHERE owner=?`, bookmarkOwner(Session{Kind: "local", Subject: name}))
-		if e == nil {
-			_, e = tx.Exec(`DELETE FROM admins WHERE username=?`, name)
-		}
+		_, e = tx.Exec(`DELETE FROM admins WHERE username=?`, name)
 	}
 	if e != nil || tx.Commit() != nil {
 		fail(w, 500, "Löschen fehlgeschlagen")
@@ -266,9 +263,10 @@ type settingsInput struct {
 }
 
 func settingsValues(c Config) map[string]any {
-	return map[string]any{"localLogin": c.LocalAdmin, "oidcIssuer": c.OIDCIssuer, "oidcClientId": c.OIDCClientID, "oidcGroupClaim": c.OIDCGroupClaim, "allowedSubjects": append([]string{}, c.AllowedUsers...), "allowedGroups": append([]string{}, c.AllowedGroups...), "adminSubjects": append([]string{}, c.AdminUsers...), "adminGroups": append([]string{}, c.AdminGroups...), "scanInterval": int(c.ScanInterval.Seconds()), "cacheMB": c.CacheBytes >> 20, "maxTranscoders": c.MaxTranscoders, "sessionMinutes": int(c.SessionTTL.Minutes())}
+	return map[string]any{"autoScan": c.AutoScan, "autoScanMinutes": c.AutoScanMinutes, "hlsTempMB": c.HLSTempBytes >> 20, "balanced": c.Balanced, "fast": c.Fast, "localLogin": c.LocalAdmin, "oidcIssuer": c.OIDCIssuer, "oidcClientId": c.OIDCClientID, "oidcGroupClaim": c.OIDCGroupClaim, "allowedSubjects": append([]string{}, c.AllowedUsers...), "allowedGroups": append([]string{}, c.AllowedGroups...), "adminSubjects": append([]string{}, c.AdminUsers...), "adminGroups": append([]string{}, c.AdminGroups...), "scanInterval": int(c.ScanInterval.Seconds()), "cacheMB": c.CacheBytes >> 20, "maxTranscoders": c.MaxTranscoders, "sessionMinutes": int(c.SessionTTL.Minutes())}
 }
 func configWithValues(c Config, v map[string]json.RawMessage) (Config, error) {
+	c = viewerDefaults(c)
 	// Unmarshal must not reuse backing arrays from the environment or live config.
 	c.AllowedUsers = append([]string(nil), c.AllowedUsers...)
 	c.AllowedGroups = append([]string(nil), c.AllowedGroups...)
@@ -281,6 +279,12 @@ func configWithValues(c Config, v map[string]json.RawMessage) (Config, error) {
 		}
 		var target any
 		switch k {
+		case "autoScan":
+			target = &c.AutoScan
+		case "balanced":
+			target = &c.Balanced
+		case "fast":
+			target = &c.Fast
 		case "localLogin":
 			target = &c.LocalAdmin
 		case "oidcIssuer":
@@ -299,12 +303,22 @@ func configWithValues(c Config, v map[string]json.RawMessage) (Config, error) {
 			target = &c.AdminUsers
 		case "adminGroups":
 			target = &c.AdminGroups
-		case "scanInterval", "cacheMB", "maxTranscoders", "sessionMinutes":
+		case "autoScanMinutes", "hlsTempMB", "scanInterval", "cacheMB", "maxTranscoders", "sessionMinutes":
 			var n int64
 			if e := json.Unmarshal(b, &n); e != nil {
 				return c, errors.New("Zahlenwert ungültig")
 			}
 			switch k {
+			case "autoScanMinutes":
+				if n < 1 || n > 10080 {
+					return c, errors.New("Indexintervall: 1–10080 Minuten")
+				}
+				c.AutoScanMinutes = int(n)
+			case "hlsTempMB":
+				if n < 16 || n > 4096 {
+					return c, errors.New("Temporärer Videospeicher: 16–4096 MiB")
+				}
+				c.HLSTempBytes = n << 20
 			case "scanInterval":
 				if n < 30 || n > 86400 {
 					return c, errors.New("Scanintervall: 30–86400 Sekunden")
@@ -316,8 +330,8 @@ func configWithValues(c Config, v map[string]json.RawMessage) (Config, error) {
 				}
 				c.CacheBytes = n << 20
 			case "maxTranscoders":
-				if n < 1 || n > 16 {
-					return c, errors.New("Umwandlungsplätze: 1–16")
+				if n < 0 || n > 64 {
+					return c, errors.New("Umwandlungsplätze: 0–64")
 				}
 				c.MaxTranscoders = int(n)
 			case "sessionMinutes":
@@ -332,6 +346,11 @@ func configWithValues(c Config, v map[string]json.RawMessage) (Config, error) {
 		}
 		if e := json.Unmarshal(b, target); e != nil {
 			return c, errors.New("Einstellungswert ungültig")
+		}
+	}
+	for _, p := range []StreamProfile{c.Balanced, c.Fast} {
+		if p.Scale < 20 || p.Scale > 100 || p.FPS < 2 || p.FPS > 30 || p.Bitrate < 100 || p.Bitrate > 8000 {
+			return c, errors.New("Streamingprofil: Skalierung 20–100 %, FPS 2–30, Bitrate 100–8000 kbit/s")
 		}
 	}
 	if !c.LocalAdmin && c.OIDCIssuer == "" {
@@ -525,13 +544,10 @@ func (a *App) acquireEncoder() bool {
 	limit := a.config().MaxTranscoders
 	a.mediaMu.Lock()
 	defer a.mediaMu.Unlock()
-	if len(a.slots) >= limit {
+	if limit > 0 && a.encoderActive >= limit {
 		return false
 	}
-	select {
-	case a.slots <- struct{}{}:
-		return true
-	default:
-		return false
-	}
+	a.encoderActive++
+	return true
 }
+func (a *App) releaseEncoder() { a.mediaMu.Lock(); a.encoderActive--; a.mediaMu.Unlock() }

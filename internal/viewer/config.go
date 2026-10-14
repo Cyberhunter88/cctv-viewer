@@ -11,7 +11,16 @@ import (
 	"time"
 )
 
+type StreamProfile struct {
+	Scale   int `json:"scale"`
+	FPS     int `json:"fps"`
+	Bitrate int `json:"bitrate"`
+}
 type Config struct {
+	AutoScan                                             bool
+	AutoScanMinutes                                      int
+	HLSTempBytes                                         int64
+	Balanced, Fast                                       StreamProfile
 	Address, DataDir, RecordingsDir, BaseURL             string
 	LocalAdmin                                           bool
 	OIDCIssuer, OIDCClientID, OIDCSecret, OIDCGroupClaim string
@@ -51,7 +60,7 @@ func Secret(name string) (string, error) {
 	return value, nil
 }
 func LoadConfig() (Config, error) {
-	c := Config{Address: env("CTV_ADDRESS", ":8080"), DataDir: env("CTV_DATA_DIR", "/data"), RecordingsDir: env("CTV_RECORDINGS_DIR", "/recordings"), BaseURL: env("CTV_BASE_URL", "http://localhost:8080"), LocalAdmin: env("CTV_LOCAL_ADMIN", "true") == "true", OIDCIssuer: os.Getenv("CTV_OIDC_ISSUER"), OIDCClientID: os.Getenv("CTV_OIDC_CLIENT_ID"), OIDCGroupClaim: env("CTV_OIDC_GROUP_CLAIM", "groups"), AllowedUsers: list(os.Getenv("CTV_OIDC_ALLOWED_SUBJECTS")), AllowedGroups: list(os.Getenv("CTV_OIDC_ALLOWED_GROUPS")), AdminUsers: list(os.Getenv("CTV_OIDC_ADMIN_SUBJECTS")), AdminGroups: list(os.Getenv("CTV_OIDC_ADMIN_GROUPS")), SessionTTL: 8 * time.Hour, ScanInterval: 5 * time.Minute, DevHTTP: env("CTV_DEV_HTTP", "false") == "true"}
+	c := Config{AutoScanMinutes: 60, HLSTempBytes: 256 << 20, Balanced: StreamProfile{50, 15, 1200}, Fast: StreamProfile{30, 8, 450}, Address: env("CTV_ADDRESS", ":8080"), DataDir: env("CTV_DATA_DIR", "/data"), RecordingsDir: env("CTV_RECORDINGS_DIR", "/recordings"), BaseURL: env("CTV_BASE_URL", "http://localhost:8080"), LocalAdmin: env("CTV_LOCAL_ADMIN", "true") == "true", OIDCIssuer: os.Getenv("CTV_OIDC_ISSUER"), OIDCClientID: os.Getenv("CTV_OIDC_CLIENT_ID"), OIDCGroupClaim: env("CTV_OIDC_GROUP_CLAIM", "groups"), AllowedUsers: list(os.Getenv("CTV_OIDC_ALLOWED_SUBJECTS")), AllowedGroups: list(os.Getenv("CTV_OIDC_ALLOWED_GROUPS")), AdminUsers: list(os.Getenv("CTV_OIDC_ADMIN_SUBJECTS")), AdminGroups: list(os.Getenv("CTV_OIDC_ADMIN_GROUPS")), SessionTTL: 8 * time.Hour, ScanInterval: 5 * time.Minute, DevHTTP: env("CTV_DEV_HTTP", "false") == "true"}
 	var err error
 	c.OIDCSecret, err = Secret("CTV_OIDC_CLIENT_SECRET")
 	if err != nil {
@@ -74,11 +83,16 @@ func LoadConfig() (Config, error) {
 		return c, errors.New("CTV_SCAN_INTERVAL_SECONDS muss zwischen 30 und 86400 liegen")
 	}
 	c.ScanInterval = time.Duration(seconds) * time.Second
-	n, err := strconv.Atoi(env("CTV_MAX_TRANSCODERS", "1"))
-	if err != nil || n < 1 || n > 16 {
-		return c, errors.New("CTV_MAX_TRANSCODERS muss zwischen 1 und 16 liegen")
+	n, err := strconv.Atoi(env("CTV_MAX_TRANSCODERS", "0"))
+	if err != nil || n < 0 || n > 64 {
+		return c, errors.New("CTV_MAX_TRANSCODERS muss zwischen 0 und 64 liegen")
 	}
 	c.MaxTranscoders = n
+	hlsMB, e := strconv.ParseInt(env("CTV_HLS_TEMP_MB", "256"), 10, 64)
+	if e != nil || hlsMB < 16 || hlsMB > 4096 {
+		return c, errors.New("CTV_HLS_TEMP_MB muss zwischen 16 und 4096 liegen")
+	}
+	c.HLSTempBytes = hlsMB << 20
 	mb, err := strconv.ParseInt(env("CTV_CACHE_MB", "512"), 10, 64)
 	if err != nil || mb < 32 || mb > 65536 {
 		return c, errors.New("CTV_CACHE_MB muss zwischen 32 und 65536 liegen")

@@ -1,7 +1,8 @@
 # Drittanbieter
 
 Diese Anwendung ist eine eigenständige Implementierung. Der CCTV Timeline Viewer
-von robertoamd90 diente als funktionale Anregung; Quellcode und Assets wurden nicht
+von robertoamd90 (Referenzstand 9c3128c756430529dc5c34c52d6bb4e8e5c18133)
+dient als funktionale Referenz; Quellcode und Assets wurden nicht
 übernommen.
 
 Die MIT-Lizenz dieses Repositorys betrifft unseren eigenen Code. Abhängigkeiten

@@ -1,31 +1,10 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readTimeLink,validView,selectionEdge,shouldFallback} from './view-state.ts';
-test('saved views reject invalid settings and remove missing cameras',()=>{
- assert.deepEqual(validView({cameras:['gone','a'],layout:'9',quality:'compatible',speed:'4'},['a']),{cameras:['a'],layout:'9',quality:'compatible',speed:'4'});
- assert.deepEqual(validView({cameras:[],layout:'100',quality:'bad',speed:'0'},['a']),{cameras:[]});
- assert.deepEqual(validView(null,[]),{});
-});
-test('valid time link overrides saved cameras; invalid dates and cross-day times are ignored',()=>{
- const time=Date.parse('2026-10-14T06:30:00Z')/1000;
- assert.deepEqual(readTimeLink('?date=2026-10-14&time='+time+'&cameras=a,gone', ['a']),{date:'2026-10-14',time,cameras:['a']});
- for(const date of ['2026-02-30','2026-03-99','bad','1969-12-31'])assert.equal(readTimeLink('?date='+date,[]).date,undefined);
- assert.equal(readTimeLink('?date=2026-10-13&time='+time,[]).time,undefined);
- assert.deepEqual(readTimeLink('?time=NaN&cameras=gone',['a']),{});
- const stored=validView({cameras:['b'],layout:'1'},['a','b']);assert.deepEqual({...stored,...readTimeLink('?cameras=a',['a','b'])},{cameras:['a'],layout:'1'});
-});
-test('range handles preserve order and 30-minute maximum at both ends',()=>{
- assert.deepEqual(selectionEdge('start',0,100,2000,0,86400),[200,2000]);
- assert.deepEqual(selectionEdge('end',9999,100,200,0,86400),[100,1900]);
- assert.deepEqual(selectionEdge('start',500,100,200,0,86400),[199,200]);
- assert.deepEqual(selectionEdge('end',100,100,200,0,86400),[100,101]);
- assert.deepEqual(selectionEdge('end',9999,100,200,0,400),[100,400]);
-});
-test('only an automatic original decoder/format failure permits one fallback',()=>{
- for(const code of [3,4])assert.equal(shouldFallback('auto',code,false,false),true);
- for(const code of [1,2])assert.equal(shouldFallback('auto',code,false,false),false);
- assert.equal(shouldFallback('native',3,false,false),false);
- assert.equal(shouldFallback('compatible',3,false,false),false);
- assert.equal(shouldFallback('auto',3,true,false),false);
- assert.equal(shouldFallback('auto',3,false,true),false);
-});
+import {validView,gridSize,hotspotCandidate,recordingBoundary,moveCamera} from './view-state.ts';
+const records=[{id:'a',cameraId:'a',start:100,duration:50,codec:'h264'},{id:'b',cameraId:'b',start:120,duration:20,codec:'h264'}];
+test('migrates old view preferences and sanitizes unknown cameras',()=>{assert.deepEqual(validView({cameras:['gone','a','a'],layout:'9',quality:'compatible',speed:'4'},['a']),{cameras:['a'],layout:'3x3',quality:'balanced',speed:'4'});assert.deepEqual(validView({cameras:[],layout:'100',quality:'bad',speed:'0',rows:99},['a']),{cameras:[]});assert.deepEqual(validView(null,[]),{})});
+test('fixed, custom and narrow automatic grids preserve capacity',()=>{assert.deepEqual(gridSize('3x2',2,2,20,1200),[3,2]);assert.deepEqual(gridSize('custom',8,8,100,1200),[8,8]);assert.deepEqual(gridSize('auto',2,2,8,390),[1,4]);assert.deepEqual(gridSize('hotspot',2,2,6,1200),[3,2])});
+test('hotspot chooses latest active start and camera order resolves ties',()=>{assert.equal(hotspotCandidate(records,['a','b'],119),'a');assert.equal(hotspotCandidate(records,['a','b'],120),'b');assert.equal(hotspotCandidate(records,['a','b'],150),undefined);assert.equal(hotspotCandidate([...records,{...records[1],id:'c',cameraId:'c'}],['c','b'],125),'c')});
+test('boundary navigation includes ends, respects selection and avoids staying put',()=>{assert.equal(recordingBoundary(records,['a','b'],120,1),140);assert.equal(recordingBoundary(records,['a','b'],120,-1),100);assert.equal(recordingBoundary(records,['a'],151,-1),150);assert.equal(recordingBoundary(records,['b'],140,1),undefined)});
+test('playing hotspot follows new starts, including short clips crossed between frames',()=>{assert.equal(hotspotCandidate(records,['a','b'],145,110),'b');assert.equal(hotspotCandidate(records,['a','b'],146,145),undefined)});
+test('camera dragging moves forward after target and backward before target',()=>{assert.deepEqual(moveCamera(['a','b','c'],'a','c'),['b','c','a']);assert.deepEqual(moveCamera(['a','b','c'],'c','a'),['c','a','b']);assert.deepEqual(moveCamera(['a','b'],'gone','b'),['a','b'])});
