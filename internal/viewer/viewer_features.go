@@ -131,17 +131,24 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 			args = append(args, n)
 		}
 	}
-	limit := 100
-	if raw := q.Get("limit"); raw != "" {
+	const limit = 100
+	offset := 0
+	if raw := q.Get("offset"); raw != "" {
 		n, e := strconv.Atoi(raw)
-		if e != nil || n < 1 || n > 1000 {
-			fail(w, 400, "Trefferlimit: 1–1000")
+		if e != nil || n < 0 {
+			fail(w, 400, "Suchoffset ungültig")
 			return
 		}
-		limit = n
+		offset = n
 	}
-	args = append(args, limit)
-	rows, e := a.db.QueryContext(r.Context(), `SELECT r.id,r.camera_id,c.name,r.path,`+effectiveStart+`,r.duration FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+strings.Join(conditions, " AND ")+` ORDER BY `+effectiveStart+` DESC,r.id LIMIT ?`, args...)
+	where := strings.Join(conditions, " AND ")
+	var total int
+	if e := a.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+where, args...).Scan(&total); e != nil {
+		fail(w, 500, "Suche nicht verfügbar")
+		return
+	}
+	queryArgs := append(append([]any{}, args...), limit, offset)
+	rows, e := a.db.QueryContext(r.Context(), `SELECT r.id,r.camera_id,c.name,r.path,`+effectiveStart+`,r.duration FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+where+` ORDER BY `+effectiveStart+` DESC,r.id LIMIT ? OFFSET ?`, queryArgs...)
 	if e != nil {
 		fail(w, 500, "Suche nicht verfügbar")
 		return
@@ -161,7 +168,13 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Suche fehlgeschlagen")
 		return
 	}
-	jsonOut(w, 200, out)
+	jsonOut(w, 200, map[string]any{
+		"results": out,
+		"total":   total,
+		"offset":  offset,
+		"limit":   limit,
+		"hasMore": offset+len(out) < total,
+	})
 }
 func (a *App) playbackStatus(w http.ResponseWriter, r *http.Request) {
 	cfg := a.config()

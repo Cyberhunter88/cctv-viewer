@@ -7,6 +7,7 @@ interface Camera {viewMode?:string;wideMarker?:string;zoomMarker?:string;zoomOff
 interface Session {preferenceKey:string;name:string;role:'admin'|'viewer';csrf:string;kind:'local'|'oidc'}
 interface Scan {active?:string[];completed?:number;total?:number;running:boolean;date:string;camera:string;indexed:number;warnings:string[]}
 interface Day {recordings:Recording[];from:number;to:number;scan:Scan}
+interface SearchPage {results:{id:string;cameraId:string;cameraName:string;filename:string;start:number;duration:number}[];total:number;offset:number;limit:number;hasMore:boolean}
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 let session:Session, cameras:Camera[]=[],records:Recording[]=[],playableRecords:Recording[]=[],selected=new Set<string>(),from=0,to=0,cursor=0,viewStart=0,viewEnd=0,playing=false,lastFrame=0,scanRunning=false,loadGeneration=0;
 let thumbGeneration=0;const thumbURLs:string[]=[];
@@ -15,12 +16,13 @@ const dateInput=$<HTMLInputElement>('date'),canvas=$<HTMLCanvasElement>('timelin
 const timelineLayer=document.createElement('canvas');let timelineKey='',timelineRecords:Recording[]|undefined;
 const speed=()=>Number($<HTMLSelectElement>('speed').value);
 let refreshRange=()=>{};let page=0,order:string[]=[],hotspot:string|undefined,lastHotspotCursor:number|undefined;
- const state:ViewState={cameras:[],order:[],layout:'auto',quality:'native',speed:'1',preload:'metadata',aspect:'4/3',columns:2,rows:2,autoHotspot:false,collapsed:false,timelineHeight:240};
+let toastTimer:ReturnType<typeof setTimeout>|undefined;
+ const state:ViewState={cameras:[],order:[],layout:'auto',quality:'native',speed:'1',preload:'metadata',aspect:'4/3',columns:2,rows:2,autoHotspot:false,collapsed:true,timelineHeight:240};
  let trace:{at:number;event:string;camera?:string;detail?:string}[]=[],tracing=false,traceStart=0;
  function log(event:string,camera?:string,detail?:string){if(tracing&&trace.length<20000)trace.push({at:Math.round(performance.now()-traceStart),event,camera,detail});}
 
 function saveView(){if(!session)return;state.cameras=[...selected];state.order=order;state.hotspot=hotspot;for(const id of ['layout','quality','speed','preload','aspect'] as const)state[id]=$<HTMLSelectElement>(id).value;try{localStorage.setItem('cctv-view:'+session.preferenceKey,JSON.stringify(state))}catch{}}
-function notify(message:string){$('toast').textContent=message;$('toast').hidden=false;setTimeout(()=>$('toast').hidden=true,6000)}
+function notify(message:string){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,6000)}
 async function api<T>(url:string,options:RequestInit={}):Promise<T>{
  const headers=new Headers(options.headers);if(options.body)headers.set('Content-Type','application/json');if(session)headers.set('X-CSRF-Token',session.csrf);
  const response=await fetch(url,{...options,headers});if(response.status===401){pause();location.reload();throw new Error('Anmeldung abgelaufen')}
@@ -30,8 +32,9 @@ async function api<T>(url:string,options:RequestInit={}):Promise<T>{
 function on(id:string,fn:()=>void|Promise<void>){$(id).addEventListener('click',()=>{Promise.resolve(fn()).catch(e=>notify(e.message))})}
 function element<K extends keyof HTMLElementTagNameMap>(tag:K,className='',text=''):HTMLElementTagNameMap[K]{const e=document.createElement(tag);e.className=className;e.textContent=text;return e}
 function ordered(){return order.map(id=>cameras.find(c=>c.id===id)).filter((c):c is Camera=>!!c&&selected.has(c.id))}
- function grid(){return gridSize($<HTMLSelectElement>('layout').value,state.columns,state.rows,selected.size,$('video-grid').clientWidth||innerWidth)}
- function visible():Camera[]{const all=ordered();const [cols,rows]=grid();const capacity=$<HTMLSelectElement>('layout').value==='hotspot'?Math.max(2,cols*rows-1):cols*rows;page=clamp(page,0,Math.max(0,Math.ceil(all.length/capacity)-1));return all.slice(page*capacity,(page+1)*capacity)}
+function grid(){return gridSize($<HTMLSelectElement>('layout').value,state.columns,state.rows,selected.size,$('video-grid').clientWidth||innerWidth)}
+function visiblePageCapacity(){const [cols,rows]=grid();return $<HTMLSelectElement>('layout').value==='hotspot'?Math.max(2,cols*rows-1):cols*rows}
+function visible():Camera[]{const all=ordered(),capacity=visiblePageCapacity();page=clamp(page,0,Math.max(0,Math.ceil(all.length/capacity)-1));return all.slice(page*capacity,(page+1)*capacity)}
 function setMessage(tile:Tile,message:string,error=false){if(tile.messageState===message&&tile.messageError===error)return;tile.messageState=message;tile.messageError=error;tile.message.replaceChildren();if(message){tile.message.append(element('span','symbol',error?'⚠':'▧'),element('span','',message))}tile.message.hidden=!message;tile.message.classList.toggle('error',error)}
 class Tile {
  messageState?:string;messageError=false;playPending=false;video=element('video');container=element('div','camera-tile');message=element('div','tile-message');timestamp=element('span');codec=element('small');stream?:string;record?:Recording;loading=false;failed=false;epoch=0;offset=0;factor=1;abort?:AbortController;hls?:Hls;loadedSpeed=1;attempts=0;recoveryStart=0;recoveryTimer?:ReturnType<typeof setTimeout>;stallTimer?:ReturnType<typeof setTimeout>;pauseTimer?:ReturnType<typeof setTimeout>;
@@ -97,7 +100,7 @@ function renderGrid(){
   gridElement.append(group);if(isHotspot&&c.id===hotspot)gridElement.prepend(group);
  }
  if(cameras.length>0&&selected.size===0)gridElement.append(element('div','empty-filter-hint','Keine Kameras ausgewählt. Wähle oben mindestens eine Kamera aus, um die Aufnahmen anzuzeigen.'));
- const capacity=isHotspot?Math.max(2,grid()[0]*grid()[1]-1):grid()[0]*grid()[1];$('page-display').textContent=`${page+1} / ${Math.max(1,Math.ceil(selected.size/capacity))}`;$<HTMLButtonElement>('page-prev').disabled=page===0;$<HTMLButtonElement>('page-next').disabled=(page+1)*capacity>=selected.size;
+ const capacity=visiblePageCapacity();$('page-display').textContent=`${page+1} / ${Math.max(1,Math.ceil(selected.size/capacity))}`;$<HTMLButtonElement>('page-prev').disabled=page===0;$<HTMLButtonElement>('page-next').disabled=(page+1)*capacity>=selected.size;
  $('custom-grid').hidden=$<HTMLSelectElement>('layout').value!=='custom';$('hotspot-control').hidden=!isHotspot;
 }
 function renderCameras(){
@@ -107,6 +110,21 @@ function renderCameras(){
 function setScan(scan:Scan){scanRunning=scan.running;$('scan-status').textContent=scan.running?`Indexierung · ${scan.completed||0}/${scan.total||0} Kameras · ${scan.camera||'wird vorbereitet'} · ${scan.indexed} Videos`:'Index bereit';$('index-dot').classList.toggle('busy',scan.running);for(const id of ['rescan','scan-all','rebuild-index'])$<HTMLButtonElement>(id).disabled=scan.running;$('warnings').hidden=!scan.warnings?.length;$('warnings').textContent=(scan.warnings||[]).join('\n')}
 async function loadDay(reset=true){const generation=++loadGeneration;if(reset){pause();tiles.forEach(t=>t.release())}const data=await api<Day>('/api/day?date='+encodeURIComponent(dateInput.value));if(generation!==loadGeneration)return;records=data.recordings;playableRecords=playbackRecordings(records,cameras);from=data.from;to=data.to;setScan(data.scan);if(reset){cursor=firstRecordingStart(playableRecords,from);viewStart=from;viewEnd=to}$('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;update();void thumbnails();refreshRange()}
 async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList()}
+function updateTimelineDescription(cams:Camera[]){
+ const description=$('timeline-description'),list=element('ul');
+ description.replaceChildren(element('p','',`Aufnahmebereiche zwischen ${clock(viewStart)} und ${clock(viewEnd)}:`));
+ for(const camera of cams){
+  const ranges=playableRecords.filter(r=>r.cameraId===camera.id&&r.start<viewEnd&&r.start+r.duration>viewStart);
+  if(!ranges.length){list.append(element('li','',`${camera.name}: keine Aufnahme in diesem Zeitfenster`));continue}
+  for(const record of ranges){
+   const start=Math.max(viewStart,record.start),end=Math.min(viewEnd,record.start+record.duration);
+   const view=record.view==='wide'?' · Weitwinkel':record.view==='zoom'?' · Zoom':'';
+   list.append(element('li','',`${camera.name}${view}: ${clock(start)} bis ${clock(end)}`));
+  }
+ }
+ if(!cams.length)list.append(element('li','','Keine Kameras sichtbar.'));
+ description.append(list);
+}
 function draw(){if(!from)return;const cams=visible(),width=canvas.parentElement!.clientWidth,height=48+Math.max(1,cams.length)*34,dpr=devicePixelRatio||1;
  if(width<=0)return;
  if(canvas.width!==Math.round(width*dpr)||canvas.height!==Math.round(height*dpr)){canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);canvas.style.height=height+'px'}
@@ -118,7 +136,7 @@ function draw(){if(!from)return;const cams=visible(),width=canvas.parentElement!
  cams.forEach((camera,i)=>{const y=39+i*34;ctx.fillStyle='#7d909c';ctx.textAlign='left';ctx.fillText(camera.name.length>11?camera.name.slice(0,10)+'…':camera.name,12,y+14);ctx.fillStyle='#1b2730';ctx.fillRect(left,y,area,23);
   ctx.save();ctx.beginPath();ctx.rect(left,y,area,23);ctx.clip();for(const r of playableRecords.filter(r=>r.cameraId===camera.id&&r.start<viewEnd&&(r.kind==='image'?r.start>=viewStart:r.start+r.duration>viewStart))){ctx.fillStyle=r.kind==='image'?'#e4b86c':'#709f80';ctx.fillRect(x(r.start),y+3,r.kind==='image'?4:Math.max(2,r.duration/span*area),17)}ctx.restore();
  });
- timelineLayer.width=canvas.width;timelineLayer.height=canvas.height;timelineLayer.getContext('2d')!.drawImage(canvas,0,0);timelineKey=key;timelineRecords=playableRecords;
+ timelineLayer.width=canvas.width;timelineLayer.height=canvas.height;timelineLayer.getContext('2d')!.drawImage(canvas,0,0);timelineKey=key;timelineRecords=playableRecords;updateTimelineDescription(cams);
  }else ctx.drawImage(timelineLayer,0,0,width,height);
  if(cursor>=viewStart&&cursor<=viewEnd){const p=x(cursor);ctx.strokeStyle='#c8f9d5';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(p,29);ctx.lineTo(p,height-8);ctx.stroke();ctx.fillStyle='#c8f9d5';ctx.beginPath();ctx.moveTo(p-4,27);ctx.lineTo(p+4,27);ctx.lineTo(p,33);ctx.fill()}
  drawOverview();
@@ -156,18 +174,31 @@ on('rescan',async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:JS
 on('logout',async()=>{pause();tiles.forEach(t=>t.release());await api('/api/logout',{method:'POST'});location.reload()});
 window.addEventListener('pagehide',()=>{pause();tiles.forEach(t=>t.release())});document.addEventListener('visibilitychange',()=>{if(document.hidden){pause();tiles.forEach(t=>t.release())}});
 const loginForm=$<HTMLFormElement>('login-form');loginForm.addEventListener('submit',async e=>{e.preventDefault();const button=loginForm.querySelector('button')!;button.disabled=true;try{const data=new FormData(loginForm);const res=await fetch('/auth/local',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(data))});const body=await res.json();if(!res.ok)throw new Error(body.error);location.reload()}catch(e){$('login-error').textContent=(e as Error).message}finally{button.disabled=false}});
-async function boot(){const response=await fetch('/api/session');if(!response.ok){$('login').hidden=false;const methods=await api<{local:boolean;oidc:boolean}>('/auth/methods');loginForm.hidden=!methods.local;$('oidc-login').hidden=!methods.oidc;$('login-divider').hidden=!(methods.local&&methods.oidc);return}
- session=await response.json();$('password-button').hidden=session.kind!=='local';initManagement({api,getSession:()=>session,getCameras:()=>cameras,getCursor:()=>cursor,notify});$('app').hidden=false;$('playback-diagnostics').hidden=false;$('user-name').textContent=session.name;$('avatar').textContent=session.name.slice(0,2).toUpperCase();$('settings-button').hidden=session.role!=='admin';$('rescan').hidden=session.role!=='admin';dateInput.value=berlinDate(new Date());await refreshCameras();
+let managementInitialized=false;
+async function boot(){
+ $('app').hidden=true;$('login').hidden=true;
+ const response=await fetch('/api/session');
+ if(response.status===401){
+  const methods=await api<{local:boolean;oidc:boolean}>('/auth/methods');
+  loginForm.hidden=!methods.local;$('oidc-login').hidden=!methods.oidc;$('login-divider').hidden=!(methods.local&&methods.oidc);$('boot-error').hidden=true;$('login').hidden=false;return;
+ }
+ if(!response.ok)throw new Error(`Sitzung konnte nicht geladen werden (${response.status})`);
+ session=await response.json();$('password-button').hidden=session.kind!=='local';
+ if(!managementInitialized){initManagement({api,getSession:()=>session,getCameras:()=>cameras,getCursor:()=>cursor,notify});managementInitialized=true}
+ $('user-name').textContent=session.name;$('avatar').textContent=session.name.slice(0,2).toUpperCase();$('settings-button').hidden=session.role!=='admin';$('rescan').hidden=session.role!=='admin';dateInput.value=berlinDate(new Date());await refreshCameras();
  let stored:unknown;try{stored=JSON.parse(localStorage.getItem('cctv-view:'+session.preferenceKey)||'null')}catch{}
  const saved=validView(stored,cameras.map(c=>c.id));for(const id of ['layout','quality','speed'] as const)if(saved[id])$<HTMLSelectElement>(id).value=saved[id]!;
- Object.assign(state,saved);hotspot=saved.hotspot;if(saved.cameras)selected=new Set(saved.cameras);if(saved.order)order=[...saved.order,...order.filter(id=>!saved.order!.includes(id))];for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).value=state[id];$<HTMLInputElement>('grid-columns').value=String(state.columns);$<HTMLInputElement>('grid-rows').value=String(state.rows);$<HTMLInputElement>('auto-hotspot').checked=state.autoHotspot;applyToolbar();$('timeline-viewport').style.height=state.timelineHeight+'px';renderCameras();await loadDay();
+ Object.assign(state,saved);hotspot=saved.hotspot;if(saved.cameras)selected=new Set(saved.cameras);if(saved.order)order=[...saved.order,...order.filter(id=>!saved.order!.includes(id))];for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).value=state[id];$<HTMLInputElement>('grid-columns').value=String(state.columns);$<HTMLInputElement>('grid-rows').value=String(state.rows);$<HTMLInputElement>('auto-hotspot').checked=state.autoHotspot;applyToolbar();setTimelineHeight(state.timelineHeight);renderCameras();await loadDay();
  refreshRange=attachTimelineControls(canvas,{bounds:()=>({from,to,cursor,viewStart,viewEnd}),seek,zoom,pan:(start,end)=>{viewStart=start;viewEnd=end;draw();refreshRange()}});
- requestAnimationFrame(frame);
+ $('boot-error').hidden=true;$('app').hidden=false;$('playback-diagnostics').hidden=false;requestAnimationFrame(frame);
  setInterval(async()=>{try{const scan=await api<Scan>('/api/scan');const wasRunning=scanRunning;setScan(scan);if(wasRunning&&!scan.running)await loadDay(false)}catch(e){notify((e as Error).message)}},4000);
 }
-void boot().catch(e=>notify(e.message));
+function showBootError(error:unknown){$('boot-error-message').textContent=(error as Error).message||'Unbekannter Fehler';$('boot-error').hidden=false}
+async function runBoot(){const button=$<HTMLButtonElement>('boot-retry');button.disabled=true;if(!$('boot-error').hidden)$('boot-error-message').textContent='Verbindung wird hergestellt …';try{await boot()}catch(error){showBootError(error)}finally{button.disabled=false}}
+$('boot-retry').addEventListener('click',()=>void runBoot());
+void runBoot();
 
-function applyToolbar(){document.body.classList.toggle('toolbar-collapsed',state.collapsed);$('mobile-toolbar').setAttribute('aria-expanded',String(!state.collapsed));$('mobile-toolbar').textContent=state.collapsed?'Ansicht ausklappen':'Ansicht einklappen'}
+function applyToolbar(){document.body.classList.toggle('mobile-options-collapsed',state.collapsed);$('mobile-toolbar').setAttribute('aria-expanded',String(!state.collapsed));$('mobile-toolbar').textContent=state.collapsed?'Ansicht anzeigen':'Ansicht einklappen'}
 on('mobile-toolbar',()=>{state.collapsed=!state.collapsed;applyToolbar();saveView()});
 for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).onchange=()=>{state[id]=$<HTMLSelectElement>(id).value;renderGrid();saveView()};
 for(const [id,key] of [['grid-columns','columns'],['grid-rows','rows']] as const)$<HTMLInputElement>(id).onchange=()=>{state[key]=clamp(Math.floor(Number($<HTMLInputElement>(id).value))||2,1,8);$<HTMLInputElement>(id).value=String(state[key]);page=0;renderCameras();saveView()};
@@ -182,12 +213,50 @@ function drawOverview(){if(!from)return;const width=Math.max(100,overview.parent
 overview.onpointerdown=e=>{overview.setPointerCapture(e.pointerId);seek(from+clamp((e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth,0,1)*(to-from));const span=viewEnd-viewStart;viewStart=clamp(cursor-span/2,from,to-span);viewEnd=viewStart+span;draw()};
 overview.onpointermove=e=>{if(e.buttons===1){const span=viewEnd-viewStart,start=clamp(from+(e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth*(to-from)-span/2,from,to-span);viewStart=start;viewEnd=start+span;draw()}};
 overview.onkeydown=e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();seek(cursor+(e.key==='ArrowRight'?60:-60))}};
-let resizeStart=0,resizeHeight=0;const resize=$('timeline-resize');resize.onpointerdown=e=>{resize.setPointerCapture(e.pointerId);resizeStart=e.clientY;resizeHeight=state.timelineHeight};resize.onpointermove=e=>{if(!resize.hasPointerCapture(e.pointerId))return;state.timelineHeight=clamp(resizeHeight+e.clientY-resizeStart,100,650);$('timeline-viewport').style.height=state.timelineHeight+'px';draw()};resize.onpointerup=()=>saveView();resize.onkeydown=e=>{if(['ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();state.timelineHeight=clamp(state.timelineHeight+(e.key==='ArrowDown'?20:-20),100,650);$('timeline-viewport').style.height=state.timelineHeight+'px';saveView()}};
+function setTimelineHeight(height:number){state.timelineHeight=Math.round(clamp(height,100,650));$('timeline-viewport').style.height=state.timelineHeight+'px';resize.setAttribute('aria-valuenow',String(state.timelineHeight));resize.setAttribute('aria-valuetext',`${state.timelineHeight} Pixel`);draw()}
+let resizeStart=0,resizeHeight=0;const resize=$('timeline-resize');resize.onpointerdown=e=>{resize.setPointerCapture(e.pointerId);resizeStart=e.clientY;resizeHeight=state.timelineHeight};resize.onpointermove=e=>{if(!resize.hasPointerCapture(e.pointerId))return;setTimelineHeight(resizeHeight+e.clientY-resizeStart)};resize.onpointerup=()=>saveView();resize.onkeydown=e=>{if(['ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();setTimelineHeight(state.timelineHeight+(e.key==='ArrowDown'?20:-20));saveView()}};
 let observedGridWidth=-1;
 new ResizeObserver(([entry])=>{const width=entry.contentRect.width;if(width===observedGridWidth)return;observedGridWidth=width;scheduleResize(true)}).observe($('video-grid'));
-on('search-button',()=>{const select=$<HTMLSelectElement>('search-camera');select.replaceChildren(new Option('Alle Kameras',''));for(const c of cameras)select.add(new Option(c.name,c.id));$('search-count').hidden=true;$('search-results').replaceChildren();$<HTMLDialogElement>('search-dialog').showModal()});on('search-close',()=>$<HTMLDialogElement>('search-dialog').close());
-let searchGeneration=0;
-$<HTMLFormElement>('search-form').onsubmit=e=>{e.preventDefault();const own=++searchGeneration;void(async()=>{try{$('search-error').textContent='';const data=new FormData(e.currentTarget as HTMLFormElement),params=new URLSearchParams();for(const[key,value]of data){if(!value)continue;params.set(key,(key==='from'||key==='to')?String(berlinEpoch(String(value).length===16?value+':00':String(value))):String(value))}const results=await api<{id:string;cameraId:string;cameraName:string;filename:string;start:number;duration:number}[]>('/api/search?'+params);if(own!==searchGeneration)return;const root=$('search-results');root.replaceChildren();$('search-count').hidden=!results.length;$('search-count').textContent=results.length?`${results.length} Aufnahme${results.length===1?'':'n'} gefunden`:'';if(!results.length)root.textContent='Keine Treffer im bisherigen Index. Weitere Tage öffnen oder Kameras scannen.';for(const r of results){const b=element('button','search-result',r.cameraName+' · '+berlinDate(new Date(r.start*1000))+' '+clock(r.start)+' · '+r.filename+' · '+Math.round(r.duration)+' s');b.onclick=()=>{void(async()=>{$<HTMLDialogElement>('search-dialog').close();selected.add(r.cameraId);dateInput.value=berlinDate(new Date(r.start*1000));page=0;renderCameras();await loadDay();seek(r.start);const active=ordered();const capacity=grid()[0]*grid()[1];page=Math.floor(active.findIndex(c=>c.id===r.cameraId)/capacity);renderCameras();saveView()})().catch(e=>notify(e.message))};root.append(b)}}catch(e){$('search-error').textContent=(e as Error).message}})()};
+on('search-button',()=>{searchGeneration++;const select=$<HTMLSelectElement>('search-camera');select.replaceChildren(new Option('Alle Kameras',''));for(const c of cameras)select.add(new Option(c.name,c.id));$('search-count').hidden=true;$('search-error').textContent='';$('search-results').replaceChildren();$<HTMLButtonElement>('search-more').hidden=true;$<HTMLButtonElement>('search-more').disabled=false;$<HTMLButtonElement>('search-submit').disabled=false;$<HTMLDialogElement>('search-dialog').showModal()});on('search-close',()=>{searchGeneration++;$<HTMLDialogElement>('search-dialog').close()});
+let searchGeneration=0,searchParams:URLSearchParams|undefined,searchOffset=0;
+async function loadSearchPage(append=false){
+ if(!searchParams)return;
+ const own=searchGeneration,params=new URLSearchParams(searchParams);
+ params.set('offset',String(searchOffset));
+ const more=$<HTMLButtonElement>('search-more');
+ more.disabled=true;
+ if(!append){$('search-error').textContent='';$<HTMLButtonElement>('search-submit').disabled=true}
+ try{
+  const data=await api<SearchPage>('/api/search?'+params);
+  if(own!==searchGeneration)return;
+  const root=$('search-results');if(!append)root.replaceChildren();
+  for(const r of data.results){
+   const button=element('button','search-result',`${r.cameraName} · ${berlinDate(new Date(r.start*1000))} ${clock(r.start)} · ${r.filename} · ${Math.round(r.duration)} s`);
+   button.onclick=()=>{void(async()=>{
+    $<HTMLDialogElement>('search-dialog').close();selected.add(r.cameraId);dateInput.value=berlinDate(new Date(r.start*1000));page=0;renderCameras();await loadDay();seek(r.start);
+    const cameraIndex=ordered().findIndex(c=>c.id===r.cameraId);if(cameraIndex>=0)page=Math.floor(cameraIndex/visiblePageCapacity());renderCameras();saveView();
+   })().catch(e=>notify((e as Error).message))};
+   root.append(button);
+  }
+  searchOffset=data.offset+data.results.length;
+  $('search-count').hidden=data.total===0;
+  $('search-count').textContent=data.total?`${searchOffset} von ${data.total} Treffern angezeigt`:'';
+  if(!data.total)root.textContent='Keine Treffer im bisherigen Index. Weitere Tage öffnen oder Kameras scannen.';
+  more.hidden=!data.hasMore;
+  more.textContent=`Weitere ${Math.min(data.limit,data.total-searchOffset)} laden`;
+ }catch(e){if(own===searchGeneration)$('search-error').textContent=(e as Error).message}
+ finally{if(own===searchGeneration){more.disabled=false;$<HTMLButtonElement>('search-submit').disabled=false}}
+}
+$<HTMLFormElement>('search-form').onsubmit=e=>{
+ e.preventDefault();searchGeneration++;searchOffset=0;
+ try{
+  const data=new FormData(e.currentTarget as HTMLFormElement);searchParams=new URLSearchParams();
+  for(const[key,value]of data){if(!value)continue;searchParams.set(key,(key==='from'||key==='to')?String(berlinEpoch(String(value).length===16?String(value)+':00':String(value))):String(value))}
+  $('search-results').replaceChildren();$('search-count').hidden=true;$<HTMLButtonElement>('search-more').hidden=true;
+  void loadSearchPage();
+ }catch(error){$('search-error').textContent=(error as Error).message}
+};
+on('search-more',()=>loadSearchPage(true));
 on('trace-stop',()=>{tracing=false;$<HTMLInputElement>('trace-enabled').checked=false;$<HTMLButtonElement>('trace-stop').disabled=true;$<HTMLButtonElement>('trace-download').disabled=trace.length===0;$('trace-status').textContent='Gestoppt · '+trace.length+' Einträge'});
 $<HTMLInputElement>('trace-enabled').onchange=()=>{tracing=$<HTMLInputElement>('trace-enabled').checked;if(tracing){trace=[];traceStart=performance.now();log('start')}else log('stop');$<HTMLButtonElement>('trace-stop').disabled=!tracing;$<HTMLButtonElement>('trace-download').disabled=tracing||trace.length===0;$('trace-status').textContent=tracing?'Aufzeichnung läuft (maximal 20.000 Einträge)':'Gestoppt'};
 on('trace-download',async()=>{const status=await api('/api/playback-status');const blob=new Blob([JSON.stringify({version:1,status,events:trace},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=element('a');a.href=url;a.download='wiedergabediagnose.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)});
@@ -195,8 +264,9 @@ on('trace-download',async()=>{const status=await api('/api/playback-status');con
 $<HTMLSelectElement>('view-mode').onchange=cameraFormatChanged;
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape')document.querySelectorAll('.camera-tile.expanded').forEach(t=>t.classList.remove('expanded'));
- const tag=(e.target as HTMLElement)?.tagName;
- if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA'||tag==='CANVAS'||(e.target as HTMLElement)?.isContentEditable)return;
+ const target=e.target instanceof HTMLElement?e.target:undefined;
+ const tag=target?.tagName;
+ if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA'||tag==='CANVAS'||target?.isContentEditable||target?.closest('button,a,summary,[role="button"],[role="link"]'))return;
  if(document.querySelector('dialog[open]'))return;
  if(e.key===' '||e.key==='Spacebar'||e.code==='Space'||e.key==='k'||e.key==='K'){
   e.preventDefault();
