@@ -154,6 +154,7 @@ func OpenStore(dir string) (*Store, error) {
 
 CREATE TABLE IF NOT EXISTS scan_schedule(camera_id TEXT PRIMARY KEY REFERENCES cameras(id) ON DELETE CASCADE,next_run INTEGER NOT NULL);
  CREATE INDEX IF NOT EXISTS recordings_path ON recordings(camera_id,path);
+ CREATE INDEX IF NOT EXISTS recordings_start ON recordings(start);
 `); err != nil {
 		db.Close()
 		return nil, err

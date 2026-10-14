@@ -13,7 +13,7 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Synchronisierte Kameras und gemeinsame Uhr | Erhalten, unabhängige Fehlerbehandlung | Browser: viewer |
 | Tag, Datum, Heute, Aufnahmelücken | Erhalten, Berliner 23-/25-Stunden-Tage | Go: Timestamps; Browser: viewer |
 | Aufnahmegrenzen, 0,25× bis 16× | Ergänzt | Frontend: view-state; Go: ProfilesSpeedTransport |
-| Timeline-Zoom, Verschieben, Vorschaubilder | Erhalten; Touch, Tastatur, Umschalt+Ziehen | Browser: viewer, archive |
+| Timeline-Zoom, Verschieben, Vorschaubilder | Erhalten; Touch, Tastatur (Space, Pfeile, J/K/L, F), Umschalt+Ziehen, Hover-Uhrzeit, paralleles Laden | Browser: viewer, archive |
 | Übersichtstimeline und verstellbare Höhe | Ergänzt | Browser: archive |
 | Automatische/feste/eigene Raster und Kameraseiten | Ergänzt, eigene Raster bis 8 × 8 | Frontend: view-state; Browser: viewer, archive |
 | Kameraauswahl und Zieh-Sortierung | Ergänzt; je Benutzer gespeichert | Browser: archive; Frontend: view-state |
@@ -31,7 +31,7 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Globale automatische Tagesindexierung | Aus/60 Minuten als Vorgabe, 1–10080 Minuten | Go: SchedulePersistsAndSkipsRecursiveCameras |
 | Persistente Scanplanung, inkrementelle stabile Dateien | Ergänzt; interaktive Warteschlange bevorzugt | Go: IncrementalScanAndReconciliation, SchedulePersists |
 | Offline-Quellen, Löschabgleich, große Verzeichnisse | Erhalten/erweitert, maximal 2 Mio. Einträge | Go: OfflineSourcePreservesIndex, IncrementalScan, LargeSyntheticPartition |
-| Suche mit Kamera, Zeitraum, Mindestdauer | Geschützte API und Dialog; Öffnen eines Treffers | Go: SearchRebuild; Browser: features |
+| Suche mit Kamera, Zeitraum, Mindestdauer | Geschützte API und Dialog; Öffnen eines Treffers, Trefferzähler, recordings(start)-Index | Go: SearchRebuild; Browser: features |
 | Original/Ausgewogen/Schnell, konfigurierbare Profile | Ergänzt; Original unverändert | Go: ProfilesSpeedTransport; Browser: viewer |
 | Metadaten-/automatisches Vorladen | Ergänzt und gespeichert | Browser: archive |
 | Serverseitige beschleunigte komprimierte Wiedergabe | Faktor bis 16×; hohe Geschwindigkeiten mit Keyframes am Clipbeginn | Go: ProfilesSpeedTransport |
