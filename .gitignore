@@ -1,0 +1,13 @@
+/data/
+/bin/
+node_modules/
+web/dist/app.js
+web/dist/app.js.map
+.env
+*.db
+*.db-shm
+*.db-wal
+coverage.out
+/secrets/
+__pycache__/
+*.pyc

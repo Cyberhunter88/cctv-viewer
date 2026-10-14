@@ -1,0 +1,18 @@
+{
+  "name": "cctv-viewer",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "esbuild web/src/app.ts --bundle --minify --target=es2022 --outfile=web/dist/app.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test web/src/timeline.test.ts"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "typescript": "5.9.3",
+    "@types/node": "24.10.0"
+  },
+  "dependencies": {
+    "hls.js": "1.6.15"
+  }
+}

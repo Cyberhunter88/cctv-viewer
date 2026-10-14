@@ -1,0 +1,9 @@
+.git
+node_modules
+bin
+data
+.env
+*.db*
+web/dist/app.js
+web/dist/app.js.map
+secrets

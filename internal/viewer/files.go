@@ -1,0 +1,120 @@
+package viewer
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path"
+	"regexp"
+	"strings"
+	"time"
+)
+
+// os.Root pins resolution to the mounted directory, including symlink targets.
+func validRelative(p string) bool {
+	return p != "" && p != "." && fs.ValidPath(p) && !strings.Contains(p, "\\")
+}
+func openSource(root *os.Root, p string) (*os.File, error) {
+	if !validRelative(p) {
+		return nil, errors.New("ungültiger Aufnahmepfad")
+	}
+	f, e := root.Open(p)
+	if e != nil {
+		return nil, e
+	}
+	st, e := f.Stat()
+	if e != nil || !st.Mode().IsRegular() {
+		f.Close()
+		return nil, errors.New("keine reguläre Datei")
+	}
+	return f, nil
+}
+
+var tokens = map[string]string{"YYYY": `(?P<year>\d{4})`, "MM": `(?P<month>\d{2})`, "DD": `(?P<day>\d{2})`, "hh": `(?P<hour>\d{2})`, "mm": `(?P<minute>\d{2})`, "ss": `(?P<second>\d{2})`}
+
+func patternRE(pattern string) (*regexp.Regexp, error) {
+	if !validRelative(pattern) || len(pattern) > 300 {
+		return nil, errors.New("ungültiges Dateimuster")
+	}
+	s := regexp.QuoteMeta(pattern)
+	for k, v := range tokens {
+		if strings.Count(pattern, "{"+k+"}") != 1 {
+			return nil, fmt.Errorf("Muster benötigt genau einmal {%s}", k)
+		}
+		s = strings.ReplaceAll(s, regexp.QuoteMeta("{"+k+"}"), v)
+	}
+	return regexp.Compile("^" + s + "$")
+}
+func ParseTimestamp(pattern, name, zone string, offset int) (time.Time, error) {
+	re, e := patternRE(pattern)
+	if e != nil {
+		return time.Time{}, e
+	}
+	match := re.FindStringSubmatch(name)
+	if match == nil {
+		return time.Time{}, errors.New("Dateiname passt nicht zum Muster")
+	}
+	parts := map[string]string{}
+	for i, key := range re.SubexpNames() {
+		if i > 0 {
+			parts[key] = match[i]
+		}
+	}
+	local := parts["year"] + "-" + parts["month"] + "-" + parts["day"] + " " + parts["hour"] + ":" + parts["minute"] + ":" + parts["second"]
+	loc, e := time.LoadLocation(zone)
+	if e != nil {
+		return time.Time{}, e
+	}
+	t, e := time.ParseInLocation("2006-01-02 15:04:05", local, loc)
+	if e != nil {
+		return t, e
+	}
+	if t.Format("2006-01-02 15:04:05") != local {
+		return time.Time{}, errors.New("Uhrzeit existiert wegen Zeitumstellung nicht")
+	}
+	for _, delta := range []time.Duration{-time.Hour, time.Hour} {
+		if t.Add(delta).In(loc).Format("2006-01-02 15:04:05") == local {
+			return time.Time{}, errors.New("Uhrzeit ist wegen Winterzeitumstellung mehrdeutig")
+		}
+	}
+	return t.Add(time.Duration(offset) * time.Second).UTC(), nil
+}
+func validateCamera(c Camera, root *os.Root) error {
+	if strings.TrimSpace(c.Name) == "" || len(c.Name) > 100 || !validRelative(c.Folder) || c.Offset < -86400 || c.Offset > 86400 {
+		return errors.New("Name, Ordner oder Zeitversatz ungültig")
+	}
+	if _, e := patternRE(c.Pattern); e != nil {
+		return e
+	}
+	if _, e := time.LoadLocation(c.Timezone); e != nil {
+		return errors.New("unbekannte Zeitzone")
+	}
+	f, e := root.Open(c.Folder)
+	if e != nil {
+		return errors.New("Kameraordner nicht erreichbar")
+	}
+	defer f.Close()
+	st, e := f.Stat()
+	if e != nil || !st.IsDir() {
+		return errors.New("Kameraquelle muss ein Ordner sein")
+	}
+	return nil
+}
+func partition(c Camera, day time.Time) (string, error) {
+	// Only use the prefix before the first filename component containing a clock token.
+	components := strings.Split(c.Pattern, "/")
+	var dirs []string
+	for _, component := range components[:len(components)-1] {
+		if strings.Contains(component, "{hh}") || strings.Contains(component, "{mm}") || strings.Contains(component, "{ss}") {
+			break
+		}
+		component = strings.NewReplacer("{YYYY}", day.Format("2006"), "{MM}", day.Format("01"), "{DD}", day.Format("02")).Replace(component)
+		dirs = append(dirs, component)
+	}
+	p := path.Join(append([]string{c.Folder}, dirs...)...)
+	if !validRelative(p) {
+		return "", errors.New("ungültige Tagespartition")
+	}
+	return p, nil
+}
