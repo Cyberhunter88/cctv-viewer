@@ -157,7 +157,10 @@ func (a *App) Handler() http.Handler {
 		}
 		a.oidcCallback(w, r)
 	})
-	mux.HandleFunc("GET /api/session", a.protect(false, func(w http.ResponseWriter, r *http.Request) { jsonOut(w, 200, r.Context().Value(sessionKey)) }))
+	mux.HandleFunc("GET /api/session", a.protect(false, func(w http.ResponseWriter, r *http.Request) {
+		s := r.Context().Value(sessionKey).(Session)
+		jsonOut(w, 200, map[string]any{"name": s.Name, "role": s.Role, "csrf": s.CSRF, "kind": s.Kind, "preferenceKey": bookmarkOwner(s)})
+	}))
 	mux.HandleFunc("POST /api/logout", a.protect(false, a.logout))
 	mux.HandleFunc("GET /api/cameras", a.protect(false, func(w http.ResponseWriter, r *http.Request) {
 		cams, e := a.db.Cameras()
@@ -179,6 +182,7 @@ func (a *App) Handler() http.Handler {
 	a.registerManagement(mux)
 	a.registerExports(mux)
 	mux.HandleFunc("GET /api/cameras/folders", a.protect(true, a.cameraFolders))
+	a.registerArchiveRoutes(mux)
 	mux.HandleFunc("GET /api/day", a.protect(false, a.day))
 	mux.HandleFunc("GET /api/scan", a.protect(false, func(w http.ResponseWriter, r *http.Request) { jsonOut(w, 200, a.scanStatus()) }))
 	mux.HandleFunc("POST /api/scan", a.protect(true, func(w http.ResponseWriter, r *http.Request) {

@@ -19,17 +19,85 @@ import (
 )
 
 func TestReolinkTimestamp(t *testing.T) {
-	c := Camera{Format: "reolink", Prefix: "Eingang", Timezone: "Europe/Berlin"}
-	for _, name := range []string{"2026/10/14/Eingang_00_20261014061217.mp4", "2026/10/14/Eingang_01_20261014061217.jpg"} {
-		got, e := cameraTimestamp(c, name)
-		if e != nil || got.Format(time.RFC3339) != "2026-10-14T04:12:17Z" {
-			t.Fatal(got, e)
+	for _, prefix := range []string{"", "Eingang"} {
+		c := Camera{Format: "reolink", Prefix: prefix, Timezone: "Europe/Berlin", Offset: 5}
+		for _, name := range []string{
+			"2026/10/14/Eingang_00_20261014061217.mp4",
+			"2026/10/14/Andere Kamera_01_20261014061217.MP4",
+			"2026/10/14/Eingang_01_20261014061217.jpg",
+			"2026/10/14/Bild_mit_Unterstrichen_12_20261014061217.JPG",
+			"2026/10/14/Other_00_20261014061217.JPEG",
+		} {
+			got, e := cameraTimestamp(c, name)
+			if e != nil || got.Format(time.RFC3339) != "2026-10-14T04:12:22Z" {
+				t.Fatalf("prefix %q, %s: %v, %v", prefix, name, got, e)
+			}
+		}
+		for _, name := range []string{
+			"2026/10/13/Eingang_00_20261014061217.mp4",
+			"2026/10/25/Eingang_00_20261025023000.mp4",
+			"2026/03/29/Eingang_00_20260329023000.jpg",
+			"2026/10/14/Other_00_20261014253000.mp4",
+			"2026/10/14/Other_00_20261014061217.mp4.bak",
+			"2026/10/14/Other_00_20261014061217.png",
+			"2026/10/14/Other.mp4",
+			"2026/10/14/Other_00_20261014061217/Other_00_20261014061217.mp4",
+		} {
+			if _, e := cameraTimestamp(c, name); e == nil {
+				t.Fatal("accepted", name)
+			}
 		}
 	}
-	for _, name := range []string{"2026/10/13/Eingang_00_20261014061217.mp4", "2026/10/25/Eingang_00_20261025023000.mp4", "2026/03/29/Eingang_00_20260329023000.jpg", "2026/10/14/Other_00_20261014061217.mp4"} {
-		if _, e := cameraTimestamp(c, name); e == nil {
-			t.Fatal("accepted", name)
-		}
+}
+
+func TestReolinkWithoutPrefix(t *testing.T) {
+	for _, prefix := range []string{"", "Old camera name"} {
+		t.Run("prefix="+prefix, func(t *testing.T) {
+			a := testApp(t)
+			cookie, session := login(t, a)
+			c := Camera{Name: "Eingang", Folder: "Reolink/Eingang", Format: "reolink", Prefix: prefix, Timezone: "Europe/Berlin"}
+			folder := filepath.Join(a.config().RecordingsDir, c.Folder, "2026/10/14")
+			testVideo(t, filepath.Join(folder, "Video_00_20261014061217.MP4"), false)
+			writeJPEG(t, filepath.Join(folder, "Anderer Name_01_20261014061217.JPG"))
+			writeJPEG(t, filepath.Join(folder, "Dritter_Name_02_20261014061217.JPEG"))
+			w := request(a, "POST", "/api/cameras", c, cookie, session.CSRF)
+			if w.Code != 200 {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			if e := json.Unmarshal(w.Body.Bytes(), &c); e != nil {
+				t.Fatal(e)
+			}
+			w = request(a, "POST", "/api/cameras/preview", c, cookie, session.CSRF)
+			if w.Code != 200 || strings.Count(w.Body.String(), "04:12:17Z") != 3 || strings.Contains(w.Body.String(), `"error"`) {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			a.scanDay("2026-10-14")
+			records, e := a.db.Recordings(c.ID, 1791936000, 1792022400)
+			if e != nil || len(records) != 3 {
+				t.Fatal(records, e)
+			}
+			images, videos := 0, 0
+			for _, record := range records {
+				if record.Kind == "image" {
+					images++
+				} else {
+					videos++
+				}
+			}
+			if images != 2 || videos != 1 {
+				t.Fatal("wrong media kinds", records)
+			}
+			// Saving the new form must not discard the index when clearing a legacy prefix.
+			c.Prefix = ""
+			w = request(a, "POST", "/api/cameras", c, cookie, session.CSRF)
+			if w.Code != 200 {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			records, e = a.db.Recordings(c.ID, 1791936000, 1792022400)
+			if e != nil || len(records) != 3 {
+				t.Fatal(records, e)
+			}
+		})
 	}
 }
 func writeJPEG(t *testing.T, file string) {

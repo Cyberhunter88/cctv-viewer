@@ -19,7 +19,7 @@ export function initManagement(c:Context){
  <section id="operation-panel" hidden><h3>Betrieb</h3><form id="operation-form"><label>Scanintervall in Sekunden<input name="scanInterval" type="number" min="30" max="86400" required></label><label>Cachebudget in MB<input name="cacheMB" type="number" min="32" max="65536" required></label><label>Gleichzeitige Umwandlungen<input name="maxTranscoders" type="number" min="1" max="16" required></label><label>Sitzungsdauer in Minuten<input name="sessionMinutes" type="number" min="15" max="1440" required></label><button type="submit" class="button primary">Betrieb speichern</button></form><h3>Extern konfigurierte Werte</h3><pre id="external-settings"></pre></section>
  <p id="settings-error" class="error" role="alert"></p><details><summary>Herkunft und Umgebungswerte</summary><div id="settings-sources"></div></details></dialog>
  <dialog id="password-dialog"><h2>Passwort ändern</h2><form id="password-form"><label>Bisheriges Passwort<input name="current" type="password" autocomplete="current-password" required maxlength="1024"></label><label>Neues Passwort<input name="password" type="password" autocomplete="new-password" required minlength="14" maxlength="1024"></label><button type="submit" class="button primary">Passwort ändern und abmelden</button></form><p id="password-error" class="error" role="alert"></p><button type="button" id="password-close" class="button secondary">Schließen</button></dialog>
- <dialog id="export-dialog"><div class="dialog-heading"><h2>Clip exportieren</h2><button type="button" id="export-close" class="icon-button" aria-label="Export schließen">✕</button></div><p>MP4 · H.264 · Originalauflösung · ohne Ton. Das Video wird erneut komprimiert. Maximal 30 Minuten, keine Videolücken.</p><form id="export-form"><label>Kamera<select name="camera" required></select></label><label>Start (Europe/Berlin)<input name="from" type="datetime-local" step="1" required></label><label>Ende (Europe/Berlin)<input name="to" type="datetime-local" step="1" required></label><div class="dialog-actions"><button id="export-preview" type="button" class="button secondary">Zeitraum prüfen</button><button type="submit" class="button primary">Export starten</button></div></form><p id="export-error" class="error" role="alert"></p><div id="export-jobs" aria-live="polite"></div></dialog>`;
+ <dialog id="export-dialog"><div class="dialog-heading"><h2>Clip exportieren</h2><button type="button" id="export-close" class="icon-button" aria-label="Export schließen">✕</button></div><p>MP4 · H.264 · Originalauflösung · Ton sofern vorhanden. Das Video wird erneut komprimiert. Maximal 30 Minuten, keine Videolücken.</p><form id="export-form"><label>Kamera<select name="camera" required></select></label><label>Start (Europe/Berlin)<input name="from" type="datetime-local" step="1" required></label><label>Ende (Europe/Berlin)<input name="to" type="datetime-local" step="1" required></label><div class="dialog-actions"><button id="export-preview" type="button" class="button secondary">Zeitraum prüfen</button><button type="submit" class="button primary">Export starten</button></div></form><p id="export-status" role="status" hidden></p><p id="export-error" class="error" role="alert"></p><div id="export-jobs" aria-live="polite"></div></dialog>`;
  document.body.append(root);
  const admin=$<HTMLDialogElement>('management-dialog'),password=$<HTMLDialogElement>('password-dialog'),exportDialog=$<HTMLDialogElement>('export-dialog');
  let settings:Settings;
@@ -41,10 +41,38 @@ export function initManagement(c:Context){
  $('password-button').onclick=()=>{password.showModal();$<HTMLFormElement>('password-form').reset();$('password-error').textContent=''};$('password-close').onclick=()=>password.close();
  $<HTMLFormElement>('password-form').onsubmit=e=>{e.preventDefault();const f=e.currentTarget as HTMLFormElement;void run('password-error',async()=>{await c.api('/api/password',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(f)))});location.reload()})};
  function exportValues(){const f=$<HTMLFormElement>('export-form');return {camera:input(f,'camera').value,from:berlinEpoch(input(f,'from').value.length===16?input(f,'from').value+':00':input(f,'from').value),to:berlinEpoch(input(f,'to').value.length===16?input(f,'to').value+':00':input(f,'to').value)}}
- $('export-button').onclick=()=>{exportDialog.showModal();const f=$<HTMLFormElement>('export-form'),select=input(f,'camera') as HTMLSelectElement;select.replaceChildren();for(const camera of c.getCameras()){const o=document.createElement('option');o.value=camera.id;o.textContent=camera.name;select.append(o)}const cursor=c.getCursor()||Date.now()/1000;input(f,'from').value=berlinLocal(cursor);input(f,'to').value=berlinLocal(cursor+60);$('export-error').textContent='';void refreshExports()};$('export-close').onclick=()=>exportDialog.close();
- $('export-preview').onclick=()=>void run('export-error',async()=>{await c.api('/api/exports/preview',{method:'POST',body:JSON.stringify(exportValues())});c.notify('Zeitraum ist lückenlos und kann exportiert werden.')});
- $<HTMLFormElement>('export-form').onsubmit=e=>{e.preventDefault();void run('export-error',async()=>{await c.api('/api/exports',{method:'POST',body:JSON.stringify(exportValues())});await refreshExports()})};
+ const openExport=(range?:{from:number;to:number;camera?:string})=>{exportDialog.showModal();const f=$<HTMLFormElement>('export-form'),select=input(f,'camera') as HTMLSelectElement;select.replaceChildren();for(const camera of c.getCameras()){const o=document.createElement('option');o.value=camera.id;o.textContent=camera.name;select.append(o)}const cursor=c.getCursor()||Date.now()/1000;input(f,'from').value=berlinLocal(range?.from??cursor);input(f,'to').value=berlinLocal(range?.to??cursor+60);if(range?.camera)select.value=range.camera;$('export-error').textContent='';void refreshExports()};$('export-button').onclick=()=>openExport();$('export-close').onclick=()=>exportDialog.close();
+ let exportPreparation:AbortController|undefined;
+ exportDialog.addEventListener('close',()=>exportPreparation?.abort());
+ async function prepareExport(preview:boolean){
+  if(exportPreparation)return;
+  const controller=new AbortController();exportPreparation=controller;
+  const controls=Array.from($<HTMLFormElement>('export-form').querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'));
+  try{
+   $('export-error').textContent='';const body=JSON.stringify(exportValues());
+   controls.forEach(e=>e.disabled=true);$('export-status').hidden=false;$('export-status').textContent='Zeitraum wird geprüft …';
+   const deadline=Date.now()+180000;
+   while(!controller.signal.aborted){
+    try{
+     await c.api(preview?'/api/exports/preview':'/api/exports',{method:'POST',body,signal:controller.signal});
+     if(controller.signal.aborted)return;
+     if(preview)c.notify('Zeitraum ist lückenlos und kann exportiert werden.');else await refreshExports();
+     return;
+    }catch(e){
+     if(controller.signal.aborted)return;
+     if(!(e as Error&{indexing?:boolean}).indexing)throw e;
+     if(Date.now()>=deadline)throw new Error('Indexierung läuft noch. Bitte nach Abschluss erneut prüfen.');
+     $('export-status').textContent='Aufnahmen für den Export werden eingelesen …';
+     await new Promise<void>(resolve=>{const finish=()=>{clearTimeout(timer);controller.signal.removeEventListener('abort',finish);resolve()};const timer=setTimeout(finish,800);controller.signal.addEventListener('abort',finish,{once:true});if(controller.signal.aborted)finish()});
+    }
+   }
+  }catch(e){if(!controller.signal.aborted)report('export-error',e)}
+  finally{controls.forEach(e=>e.disabled=false);$('export-status').hidden=true;exportPreparation=undefined}
+ }
+ $('export-preview').onclick=()=>void prepareExport(true);
+ $<HTMLFormElement>('export-form').onsubmit=e=>{e.preventDefault();void prepareExport(false)};
  async function refreshExports(){try{const jobs=await c.api<{id:string;status:string;progress:number;error:string}[]>('/api/exports');$('export-jobs').replaceChildren();for(const job of jobs){const row=document.createElement('div');row.className='export-job';const label=document.createElement('p');label.textContent=job.status==='ready'?'Export bereit':job.status==='failed'?job.error:'Export läuft · '+Math.round(job.progress)+' %';row.append(label);if(job.status==='ready'){const a=document.createElement('a');a.className='button primary';a.href='/api/exports/'+job.id+'/file';a.textContent='MP4 herunterladen';row.append(a)}row.append(button(job.status==='running'?'Abbrechen':'Entfernen',async()=>{await c.api('/api/exports/'+job.id,{method:'DELETE'});await refreshExports()}));$('export-jobs').append(row)}}catch(e){report('export-error',e)}}
  setInterval(()=>{if(exportDialog.open)void refreshExports()},2000);
  if(location.search==='?settings=confirmed'){c.notify('OIDC-Test erfolgreich. Einstellungen aktiviert.');history.replaceState(null,'','/')}
+ return openExport;
 }

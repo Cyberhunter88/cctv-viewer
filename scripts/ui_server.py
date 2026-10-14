@@ -1,5 +1,7 @@
 """Disposable server with synthetic camera recordings for browser regression tests."""
 import os
+import datetime
+import shutil
 import pathlib
 import signal
 import sqlite3
@@ -28,15 +30,38 @@ with tempfile.TemporaryDirectory(prefix='cctv-ui-') as directory:
     reolink = root/'recordings/Reolink/Eingang/2026/10/14'
     reolink.mkdir(parents=True)
     for stamp in ['061217', '061220']:
-        video = reolink/('Eingang_00_20261014'+stamp+'.mp4')
+        video = reolink/('Eingang_00_20261014'+stamp+'.mp4' if stamp == '061217' else 'Andere Kamera_01_20261014'+stamp+'.MP4')
         subprocess.run(['ffmpeg','-nostdin','-v','error','-f','lavfi','-i',
                         'testsrc2=size=160x90:rate=10','-t','3','-c:v','libx264',
                         '-threads','1','-pix_fmt','yuv420p','-y',str(video)],check=True)
-        image = video.with_suffix('.jpg')
+        image = video.with_suffix('.jpg' if stamp == '061217' else '.JPEG')
         subprocess.run(['ffmpeg','-nostdin','-v','error','-i',str(video),
                         '-frames:v','1','-threads','1','-y',str(image)],check=True)
         for file in [video,image]:
             os.utime(file,(time.time()-120,time.time()-120))
+    many = root/'recordings/Reolink/Bilder/2026/10/14'
+    many.mkdir(parents=True)
+    for i in range(105):
+        stamp = (datetime.datetime(2026,10,14,7,0)+datetime.timedelta(seconds=i)).strftime('%Y%m%d%H%M%S')
+        file = many/('Bilder_00_'+stamp+'.jpg')
+        shutil.copyfile(reolink/'Eingang_00_20261014061217.jpg',file)
+        os.utime(file,(time.time()-120,time.time()-120))
+    for day,name in [('2026/10/14','23-59-57'),('2026/10/15','00-00-00'),('2026/10/17','23-59-57'),('2026/10/18','00-00-00')]:
+        file = root/'recordings/Mitternacht'/day/(name+'.mp4')
+        file.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(reolink/'Eingang_00_20261014061217.mp4',file)
+        os.utime(file,(time.time()-120,time.time()-120))
+    audio = root/'recordings/Audio/Eingang/2026/10/14/08-30-00.mp4'
+    audio.parent.mkdir(parents=True,exist_ok=True)
+    subprocess.run(['ffmpeg','-nostdin','-v','error','-f','lavfi','-i',
+                    'testsrc2=size=160x90:rate=10','-f','lavfi','-i',
+                    'sine=frequency=880:sample_rate=44100','-t','30',
+                    '-c:v','libx264','-threads','1','-c:a','aac','-y',str(audio)],check=True)
+    os.utime(audio,(time.time()-120,time.time()-120))
+    second = root/'recordings/Audio/Garten/2026/10/14/08-30-00.mp4'
+    second.parent.mkdir(parents=True,exist_ok=True)
+    shutil.copyfile(audio,second)
+    os.utime(second,(time.time()-120,time.time()-120))
     connection.commit()
     connection.close()
     server = subprocess.Popen(['bin/cctv'],env=env)

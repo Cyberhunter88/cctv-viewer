@@ -108,21 +108,32 @@ func (a *App) scanDay(date string) {
 		first := from.Add(-time.Duration(c.Offset) * time.Second).In(loc)
 		first = time.Date(first.Year(), first.Month(), first.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -2)
 		end := to.Add(-time.Duration(c.Offset) * time.Second).In(loc)
+		complete := true
 		seen := map[string]bool{}
 		for d := first; !d.After(end); d = d.AddDate(0, 0, 1) {
 			p, e := partition(c, d)
 			if e != nil {
 				a.warn(c.Name + ": " + e.Error())
+				complete = false
 				continue
 			}
 			if !seen[p] {
 				seen[p] = true
-				a.scanPartition(c, p, from.Unix(), to.Unix())
+				complete = a.scanPartition(c, p, from.Unix(), to.Unix()) && complete
 			}
+		}
+		if a.ctx.Err() == nil {
+			now := time.Now().Unix()
+			success := int64(0)
+			if complete {
+				success = now
+			}
+			a.db.ExecContext(a.ctx, `INSERT INTO camera_days VALUES(?,?,?,?) ON CONFLICT(camera_id,date) DO UPDATE SET checked=excluded.checked,complete=excluded.complete`, c.ID, date, now, complete)
+			a.db.ExecContext(a.ctx, `INSERT INTO camera_scans(camera_id,attempt,success,complete) VALUES(?,?,?,?) ON CONFLICT(camera_id) DO UPDATE SET attempt=excluded.attempt,complete=excluded.complete,success=CASE WHEN excluded.success>0 THEN excluded.success ELSE camera_scans.success END`, c.ID, now, success, complete)
 		}
 	}
 }
-func (a *App) scanPartition(c Camera, p string, from, to int64) {
+func (a *App) scanPartition(c Camera, p string, from, to int64) bool {
 	type candidate struct {
 		path string
 		info fs.FileInfo
@@ -159,20 +170,21 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) {
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) { // A removed partition is reconciled; an offline mount must remain mounted at the host.
 			if _, e := a.root.Stat(c.Folder); e == nil {
-				a.reconcile(c.ID, p, map[string]bool{})
+				return a.reconcile(c.ID, p, map[string]bool{})
 			} else {
 				a.warn(c.Name + ": Quelle nicht erreichbar")
 			}
-			return
+			return false
 		}
 		a.warn(c.Name + ": Ordner nicht vollständig lesbar")
-		return
+		return false
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].path < candidates[j].path })
+	healthy := true
 	seen := map[string]bool{}
 	for _, item := range candidates {
 		if a.ctx.Err() != nil {
-			return
+			return false
 		}
 		seen[item.path] = true
 		relative := strings.TrimPrefix(item.path, c.Folder+"/")
@@ -218,6 +230,7 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) {
 		id := hex.EncodeToString(h[:16])
 		_, e = a.db.ExecContext(a.ctx, `INSERT INTO recordings VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(camera_id,path) DO UPDATE SET start=excluded.start,duration=excluded.duration,codec=excluded.codec,size=excluded.size,mod=excluded.mod`, id, c.ID, item.path, float64(start.Unix()), duration, codec, size, mod)
 		if e != nil {
+			healthy = false
 			a.warn(c.Name + ": Index konnte nicht gespeichert werden")
 			continue
 		}
@@ -225,24 +238,35 @@ func (a *App) scanPartition(c Camera, p string, from, to int64) {
 		a.index.status.Indexed++
 		a.index.mu.Unlock()
 	}
-	a.reconcile(c.ID, p, seen)
+	return a.reconcile(c.ID, p, seen) && healthy
 }
-func (a *App) reconcile(camera, p string, seen map[string]bool) {
+func (a *App) reconcile(camera, p string, seen map[string]bool) bool {
 	rows, e := a.db.QueryContext(a.ctx, `SELECT id,path FROM recordings WHERE camera_id=?`, camera)
 	if e != nil {
-		return
+		return false
 	}
 	ids := []string{}
 	for rows.Next() {
 		var id, name string
-		if rows.Scan(&id, &name) == nil && (strings.HasPrefix(name, p+"/")) && !seen[name] {
+		if err := rows.Scan(&id, &name); err != nil {
+			rows.Close()
+			return false
+		}
+		if (strings.HasPrefix(name, p+"/")) && !seen[name] {
 			ids = append(ids, id)
 		}
 	}
+	readErr := rows.Err()
 	rows.Close()
-	for _, id := range ids {
-		a.db.ExecContext(a.ctx, `DELETE FROM recordings WHERE id=?`, id)
+	if readErr != nil {
+		return false
 	}
+	for _, id := range ids {
+		if _, e := a.db.ExecContext(a.ctx, `DELETE FROM recordings WHERE id=?`, id); e != nil {
+			return false
+		}
+	}
+	return true
 }
 
 const formats = "mov,matroska,webm,avi,mpegts,h264,hevc"

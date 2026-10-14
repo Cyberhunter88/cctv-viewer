@@ -56,6 +56,7 @@ func OpenStore(dir string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS cameras(id TEXT PRIMARY KEY,name TEXT NOT NULL,folder TEXT NOT NULL,pattern TEXT NOT NULL,timezone TEXT NOT NULL,offset INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS recordings(id TEXT PRIMARY KEY,camera_id TEXT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,path TEXT NOT NULL,start REAL NOT NULL,duration REAL NOT NULL,codec TEXT NOT NULL,size INTEGER NOT NULL,mod INTEGER NOT NULL,UNIQUE(camera_id,path));
  CREATE INDEX IF NOT EXISTS recordings_time ON recordings(camera_id,start);
+ CREATE TABLE IF NOT EXISTS camera_scans(camera_id TEXT PRIMARY KEY REFERENCES cameras(id) ON DELETE CASCADE,attempt INTEGER NOT NULL,success INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS admins(username TEXT PRIMARY KEY,hash TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY,subject TEXT NOT NULL,name TEXT NOT NULL,role TEXT NOT NULL,kind TEXT NOT NULL,csrf TEXT NOT NULL,expires INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS oidc_flows(hash TEXT PRIMARY KEY,nonce TEXT NOT NULL,verifier TEXT NOT NULL,expires INTEGER NOT NULL);
@@ -66,6 +67,7 @@ func OpenStore(dir string) (*Store, error) {
 	}
 	// Additive migrations preserve existing accounts and cameras.
 	for _, migration := range []struct{ table, column, ddl string }{
+		{"camera_scans", "complete", "ALTER TABLE camera_scans ADD COLUMN complete INTEGER NOT NULL DEFAULT 0"},
 		{"cameras", "format", "ALTER TABLE cameras ADD COLUMN format TEXT NOT NULL DEFAULT 'custom'"},
 		{"cameras", "prefix", "ALTER TABLE cameras ADD COLUMN prefix TEXT NOT NULL DEFAULT ''"},
 		{"admins", "role", "ALTER TABLE admins ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'"},
@@ -96,7 +98,10 @@ func OpenStore(dir string) (*Store, error) {
 			}
 		}
 	}
-	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL,payload TEXT NOT NULL); PRAGMA user_version=2;`); err != nil {
+	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS camera_days(camera_id TEXT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,date TEXT NOT NULL,checked INTEGER NOT NULL,complete INTEGER NOT NULL,PRIMARY KEY(camera_id,date));
+ CREATE TABLE IF NOT EXISTS bookmarks(id TEXT PRIMARY KEY,owner TEXT NOT NULL,time REAL NOT NULL,cameras TEXT NOT NULL,note TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS bookmarks_owner ON bookmarks(owner,time);
+ PRAGMA user_version=3;`); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -132,7 +137,13 @@ func (s *Store) SaveCamera(c Camera) error {
 	var folder, pattern, zone, format, prefix string
 	var offset int
 	e = tx.QueryRow(`SELECT folder,pattern,timezone,offset,format,prefix FROM cameras WHERE id=?`, c.ID).Scan(&folder, &pattern, &zone, &offset, &format, &prefix)
-	if e == nil && (folder != c.Folder || pattern != c.Pattern || zone != c.Timezone || offset != c.Offset || format != cameraFormat(c) || prefix != c.Prefix) {
+	if e == nil && (folder != c.Folder || pattern != c.Pattern || zone != c.Timezone || offset != c.Offset || format != cameraFormat(c)) {
+		if _, e = tx.Exec(`DELETE FROM camera_days WHERE camera_id=?`, c.ID); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(`DELETE FROM camera_scans WHERE camera_id=?`, c.ID); e != nil {
+			return e
+		}
 		if _, e = tx.Exec(`DELETE FROM recordings WHERE camera_id=?`, c.ID); e != nil {
 			return e
 		}

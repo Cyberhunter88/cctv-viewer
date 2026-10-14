@@ -3,6 +3,7 @@ package viewer
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,6 +95,64 @@ func exportParts(records []Recording, from, to float64) ([]exportPart, [][2]floa
 	}
 	return parts, gaps
 }
+
+// The end is exclusive: an export ending at midnight needs only the previous
+// day. Day boundaries must follow Berlin's calendar, including 23/25-hour days.
+func exportDates(from, to float64) ([]string, error) {
+	if from < 0 || to <= from || to >= 7289650800 {
+		return nil, errors.New("Exportdatum ungültig")
+	}
+	loc, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		return nil, err
+	}
+	first := time.Unix(int64(math.Floor(from)), 0).In(loc).Format("2006-01-02")
+	last := time.Unix(int64(math.Floor(math.Nextafter(to, math.Inf(-1)))), 0).In(loc).Format("2006-01-02")
+	day, _, err := dayBounds(first)
+	if err != nil {
+		return nil, err
+	}
+	dates := []string{}
+	for ; day.Format("2006-01-02") <= last; day = day.AddDate(0, 0, 1) {
+		dates = append(dates, day.Format("2006-01-02"))
+	}
+	return dates, nil
+}
+
+// A missing day in the index is unknown, not a recording gap. Reuse the shared
+// asynchronous scanner; callers retry after indexing rather than holding an
+// HTTP request open while a large archive is probed.
+func (a *App) exportIndexReady(w http.ResponseWriter, r *http.Request, c Camera, dates []string) bool {
+	if _, err := a.root.Stat(c.Folder); err != nil {
+		fail(w, 503, "Kameraquelle nicht erreichbar. Export kann noch nicht geprüft werden.")
+		return false
+	}
+	for _, date := range dates {
+		var checked int64
+		var complete bool
+		err := a.db.QueryRowContext(r.Context(), `SELECT checked,complete FROM camera_days WHERE camera_id=? AND date=?`, c.ID, date).Scan(&checked, &complete)
+		if err != nil && err != sql.ErrNoRows {
+			fail(w, 500, "Exportindex nicht lesbar")
+			return false
+		}
+		if err == nil && checked > 0 {
+			if !complete {
+				if a.scanStatus().Running {
+					jsonOut(w, 409, map[string]any{"error": "Aufnahmen für den Export werden eingelesen. Bitte warten.", "indexing": true})
+				} else {
+					fail(w, 503, "Kameraquelle nicht vollständig lesbar. Indexierung prüfen und erneut starten.")
+				}
+				return false
+			}
+			continue
+		}
+		a.startScan(date, true)
+		jsonOut(w, 409, map[string]any{"error": "Aufnahmen für den Export werden eingelesen. Bitte warten.", "indexing": true})
+		return false
+	}
+	return true
+}
+
 func (a *App) exportPlan(w http.ResponseWriter, r *http.Request) (exportInput, []exportPart, bool) {
 	var in exportInput
 	if !decode(w, r, &in) {
@@ -103,8 +162,17 @@ func (a *App) exportPlan(w http.ResponseWriter, r *http.Request) (exportInput, [
 		fail(w, 400, "Zeitraum muss zwischen 0 und 30 Minuten liegen")
 		return in, nil, false
 	}
-	if _, e := a.db.Camera(in.Camera); e != nil {
+	c, e := a.db.Camera(in.Camera)
+	if e != nil {
 		fail(w, 404, "Kamera nicht gefunden")
+		return in, nil, false
+	}
+	dates, e := exportDates(in.From, in.To)
+	if e != nil {
+		fail(w, 400, e.Error())
+		return in, nil, false
+	}
+	if !a.exportIndexReady(w, r, c, dates) {
 		return in, nil, false
 	}
 	records, e := a.db.Recordings(in.Camera, in.From, in.To)
@@ -298,27 +366,68 @@ func (a *App) trimExports() {
 		a.exportMu.Unlock()
 	}
 }
-func exportDimensions(ctx context.Context, f *os.File) (int, int, error) {
+
+type exportMedia struct {
+	width, height int
+	audio         bool
+}
+
+func exportMediaInfo(ctx context.Context, f *os.File) (exportMedia, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats, "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", "/proc/self/fd/3")
+	cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats, "-show_entries", "stream=codec_type,width,height", "-of", "json", "/proc/self/fd/3")
 	cmd.ExtraFiles = []*os.File{f}
 	out, e := cmd.Output()
 	if e != nil {
-		return 0, 0, e
+		return exportMedia{}, e
 	}
-	var info struct{ Streams []struct{ Width, Height int } }
-	if e = json.Unmarshal(out, &info); e != nil || len(info.Streams) != 1 {
-		return 0, 0, errors.New("Videogröße fehlt")
+	var info struct {
+		Streams []struct {
+			Width, Height int
+			CodecType     string `json:"codec_type"`
+		}
 	}
-	w, h := info.Streams[0].Width, info.Streams[0].Height
-	if w < 2 || h < 2 || w > 16384 || h > 16384 {
-		return 0, 0, errors.New("Videogröße ungültig")
+	if e = json.Unmarshal(out, &info); e != nil {
+		return exportMedia{}, e
 	}
-	return (w + 1) / 2 * 2, (h + 1) / 2 * 2, nil
+	media := exportMedia{}
+	for _, stream := range info.Streams {
+		if stream.CodecType == "video" && media.width == 0 {
+			media.width, media.height = stream.Width, stream.Height
+		}
+		media.audio = media.audio || stream.CodecType == "audio"
+	}
+	if media.width < 2 || media.height < 2 || media.width > 16384 || media.height > 16384 {
+		return exportMedia{}, errors.New("Videogröße ungültig")
+	}
+	media.width, media.height = (media.width+1)/2*2, (media.height+1)/2*2
+	return media, nil
+}
+func exportDimensions(ctx context.Context, f *os.File) (int, int, error) {
+	media, err := exportMediaInfo(ctx, f)
+	return media.width, media.height, err
 }
 func (a *App) encodeExport(ctx context.Context, j *exportJob, parts []exportPart, total float64) error {
-	width, height := 0, 0
+	media := map[string]exportMedia{}
+	withAudio := false
+	for _, part := range parts {
+		if _, exists := media[part.record.ID]; exists {
+			continue
+		}
+		_, f, err := a.source(part.record.ID)
+		if err != nil {
+			return err
+		}
+		info, err := exportMediaInfo(ctx, f)
+		f.Close()
+		if err != nil {
+			return err
+		}
+		media[part.record.ID] = info
+		withAudio = withAudio || info.audio
+	}
+	first := media[parts[0].record.ID]
+	width, height := first.width, first.height
 	elapsed := 0.0
 	var list strings.Builder
 	for i, p := range parts {
@@ -329,18 +438,25 @@ func (a *App) encodeExport(ctx context.Context, j *exportJob, parts []exportPart
 		if e != nil {
 			return e
 		}
-		if i == 0 {
-			width, height, e = exportDimensions(ctx, f)
-			if e != nil {
-				f.Close()
-				return e
-			}
-			f.Seek(0, 0)
-		}
 		filename := fmt.Sprintf("part-%04d.ts", i)
 		output := filepath.Join(j.dir, filename)
 		filter := fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30", width, height, width, height)
-		cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-threads", "1", "-ss", fmt.Sprintf("%.6f", p.start-p.record.Start), "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats, "-i", "/proc/self/fd/3", "-t", fmt.Sprintf("%.6f", p.end-p.start), "-map", "0:v:0", "-an", "-vf", filter, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-threads", "1", "-progress", "pipe:1", "-f", "mpegts", output)
+		args := []string{"-nostdin", "-v", "error", "-threads", "1", "-ss", fmt.Sprintf("%.6f", p.start-p.record.Start), "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats, "-i", "/proc/self/fd/3"}
+		if withAudio && !media[p.record.ID].audio {
+			args = append(args, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo")
+		}
+		args = append(args, "-t", fmt.Sprintf("%.6f", p.end-p.start), "-map", "0:v:0")
+		if withAudio {
+			audioInput := "0:a:0"
+			if !media[p.record.ID].audio {
+				audioInput = "1:a:0"
+			}
+			args = append(args, "-map", audioInput, "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-af", "aresample=async=1:first_pts=0,apad", "-shortest")
+		} else {
+			args = append(args, "-an")
+		}
+		args = append(args, "-vf", filter, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-threads", "1", "-progress", "pipe:1", "-f", "mpegts", output)
+		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 		cmd.ExtraFiles = []*os.File{f}
 		pipe, e := cmd.StdoutPipe()
 		if e != nil {
@@ -367,7 +483,7 @@ func (a *App) encodeExport(ctx context.Context, j *exportJob, parts []exportPart
 			return e
 		}
 		elapsed += p.end - p.start
-		fmt.Fprintf(&list, "file '%s'\n", filename)
+		fmt.Fprintf(&list, "file '%s'\nduration %.6f\n", filename, p.end-p.start)
 		if a.cacheUsage() >= a.config().CacheBytes {
 			return errors.New("Cachebudget überschritten")
 		}
@@ -375,7 +491,7 @@ func (a *App) encodeExport(ctx context.Context, j *exportJob, parts []exportPart
 	if e := os.WriteFile(filepath.Join(j.dir, "parts.txt"), []byte(list.String()), 0600); e != nil {
 		return e
 	}
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-f", "concat", "-safe", "1", "-i", filepath.Join(j.dir, "parts.txt"), "-map", "0:v:0", "-an", "-c", "copy", "-movflags", "+faststart", filepath.Join(j.dir, "clip.mp4"))
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-f", "concat", "-safe", "1", "-i", filepath.Join(j.dir, "parts.txt"), "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart", filepath.Join(j.dir, "clip.mp4"))
 	if e := cmd.Run(); e != nil {
 		return e
 	}

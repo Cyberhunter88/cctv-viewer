@@ -86,14 +86,15 @@ func validateCamera(c Camera, root *os.Root) error {
 	if strings.TrimSpace(c.Name) == "" || len(c.Name) > 100 || !validRelative(c.Folder) || c.Offset < -86400 || c.Offset > 86400 {
 		return errors.New("Name, Ordner oder Zeitversatz ungültig")
 	}
-	if cameraFormat(c) == "reolink" {
-		if strings.TrimSpace(c.Prefix) == "" || len(c.Prefix) > 100 || strings.ContainsAny(c.Prefix, "/\\") {
-			return errors.New("Reolink-Kamerapräfix ungültig")
+	switch cameraFormat(c) {
+	case "reolink":
+		// The camera folder identifies the source; legacy prefixes are ignored.
+	case "custom":
+		if _, e := patternRE(c.Pattern); e != nil {
+			return e
 		}
-	} else if cameraFormat(c) != "custom" {
+	default:
 		return errors.New("Unbekanntes Aufnahmeformat")
-	} else if _, e := patternRE(c.Pattern); e != nil {
-		return e
 	}
 	if _, e := time.LoadLocation(c.Timezone); e != nil {
 		return errors.New("unbekannte Zeitzone")
@@ -146,7 +147,7 @@ func cameraTimestamp(c Camera, name string) (time.Time, error) {
 		}
 		return ParseTimestamp(pattern, name, c.Timezone, c.Offset)
 	}
-	re := regexp.MustCompile(`^(\d{4})/(\d{2})/(\d{2})/` + regexp.QuoteMeta(c.Prefix) + `_[0-9]+_([0-9]{14})\.(?i:mp4|jpg|jpeg)$`)
+	re := regexp.MustCompile(`^(\d{4})/(\d{2})/(\d{2})/[^/]+_[0-9]+_([0-9]{14})\.(?i:mp4|jpg|jpeg)$`)
 	m := re.FindStringSubmatch(name)
 	if m == nil {
 		return time.Time{}, errors.New("Dateiname passt nicht zum Reolink-Format")

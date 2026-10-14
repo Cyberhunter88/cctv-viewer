@@ -3,7 +3,9 @@
 Ein schlanker, selbst gehosteter **deutscher Aufnahmeviewer**: mehrere Kameras,
 eine gemeinsame Zeitleiste, geschützte Anmeldung und ein Docker-Container.
 
-- Synchronisierte Kameraansichten, Datumsauswahl, Timeline-Zoom und Vorschaubilder
+- Synchronisierte Kameraansichten, Aufnahmekalender, Timeline-Zoom und Vorschaubilder
+- Persönliche Lesezeichen, geschützte Zeitlinks, Vollbild und digitaler Zoom
+- Exportauswahl direkt auf der Timeline und Touch-Navigation
 - Originalwiedergabe mit HTTP-Range und H.265 → H.264-HLS bei Bedarf
 - Reolink-Assistent mit Ordnerauswahl und JPG-Einzelbildern auf der Zeitleiste
 - MP4-Clip-Export über Dateigrenzen hinweg
@@ -177,14 +179,16 @@ Aufnahmeverzeichnisses. Für dein Reolink-Archiv:
 |---|---|
 | Kameraordner | `Reolink/Eingang` |
 | Aufnahmeformat | Reolink |
-| Kamerapräfix | `Eingang` |
 | Zeitzone | `Europe/Berlin` |
 
 `Reolink/Eingang/2026/10/14/Eingang_00_20261014061217.mp4` wird als Video ab
 14.10.2026, 06:12:17 Berliner Ortszeit erkannt. `.jpg` und `.jpeg` werden als
 punktuelle Bildereignisse erkannt. Andere numerische Kennungen wie `_01_` sind
-zulässig; Ordner- und Dateidatum müssen übereinstimmen. Der Assistent schlägt den
-Präfix aus einer Beispieldatei vor; **Erkennung prüfen** zeigt Zeiten und Dateifehler.
+zulässig; Ordner- und Dateidatum müssen übereinstimmen. Der Teil des Dateinamens
+vor dieser Kennung darf beliebig sein: Die Zuordnung erfolgt über den Kameraordner,
+ein Kamerapräfix muss nicht eingestellt werden. Bereits gespeicherte Präfixe werden
+ignoriert. Dateien ohne diesen Zeitstempel werden ausgelassen. Der Assistent schlägt das
+Reolink-Format aus einer Beispieldatei vor; **Erkennung prüfen** zeigt Zeiten und Dateifehler.
 Die begrenzte Suche kann bei großen Archiven einen spezifischeren Ordner benötigen.
 
 JPGs auf der Zeitleiste oder unter **Einzelbilder** anklicken, um sie zu öffnen und
@@ -240,17 +244,19 @@ nächsten Aufnahme. Bei überlappenden Clips wird der zuletzt beginnende verwend
 Browserdecoder können geringfügig voneinander abweichen; Abweichungen über etwa
 650 ms werden korrigiert. Es wird keine framegenaue forensische Synchronität zugesagt.
 
-„Automatisch“ bevorzugt H.264 in MP4/MOV sowie browserfähiges H.265. Bei Browser-
-Codecfehlern „Kompatibel“ auswählen. MKV/AVI/TS und inkompatible Codecs benötigen
+„Automatisch“ bevorzugt H.264 in MP4/MOV sowie browserfähiges H.265. Bei eindeutigen Browser-
+Codecfehlern wird automatisch auf kompatible Wiedergabe gewechselt. Bei weiteren
+Problemen „Kompatibel“ auswählen. MKV/AVI/TS und inkompatible Codecs benötigen
 HLS-Konvertierung. Rohes H.264/H.265 ohne ermittelbare Dauer wird ausgelassen.
-Keine Audioausgabe. Unterstützte Videoerweiterungen: MP4, MOV, MKV, AVI, TS, H264, H265.
+Ton lässt sich je Kamera einschalten und in der Lautstärke regeln; jeweils eine
+Kamera ist hörbar. Beim Öffnen der Oberfläche bleibt der Ton zunächst stumm. Unterstützte Videoerweiterungen: MP4, MOV, MKV, AVI, TS, H264, H265.
 Zusätzlich JPG/JPEG als Einzelbilder. Bei eigenen Videomustern wird für Bilder
 dasselbe Zeitmuster mit JPG-/JPEG-Endung verwendet.
 
 - `CTV_MAX_TRANSCODERS=1`: gleichzeitige FFmpeg-Videoumwandlungen; zulässig 1–16.
 - `CTV_SCAN_INTERVAL_SECONDS=300`: Hintergrundscan des aktuellen Tages, 30–86400 Sekunden.
 - `CTV_CACHE_MB=512`: gemeinsames Budget für Thumbnails und temporäre HLS-Dateien.
-- HLS: maximal 1280 Pixel breit, ca. 2 Mbit/s, ein Encoderthread, kein Audio.
+- HLS: maximal 1280 Pixel breit, ca. 2 Mbit/s, ein Encoderthread, AAC-Ton, sofern vorhanden.
 - Nach 90 Sekunden ohne Segmentabruf oder nach 30 Minuten werden Streams entfernt.
   Lange Clips werden in bis zu 30-minütigen Teilen wiedergegeben.
 - Ein Watchdog prüft den Cache alle zwei Sekunden, entfernt alte Vorschaubilder und
@@ -266,18 +272,83 @@ Die App kopiert keine Originalvideos. Die Größe und der Speicherverbrauch des
 Images werden in den Release-/CI-Prüfungen ausgegeben; Laufzeitlast hängt stark
 von Auflösung, Codec, Kamerazahl und Transcoding ab.
 
+## Aufnahmen finden und prüfen
+
+**Aufnahmekalender** zeigt den gewählten Monat für die ausgewählten Kameras:
+`●` bedeutet vorhandene Videos oder JPGs, `✓` einen vollständig geprüften leeren
+Tag und `?` einen noch ungeprüften oder unvollständig lesbaren Tag. Bereits
+indexierte Aufnahmen können auch an einem mit `?` markierten Tag vorhanden sein.
+Solange der Kalender geöffnet ist, wird jeweils ein weiterer Tag asynchron
+geprüft. Es bleibt bei einem Scan gleichzeitig und den bestehenden Grenzen pro
+Partition. Versuche werden eine Stunde zwischengespeichert; fehlgeschlagene Tage
+bleiben als unvollständig markiert. Das Schließen beendet weitere Anfragen,
+ein bereits gestarteter Scan darf fertig werden.
+**Belegter Tag** springt zur vorherigen/nächsten Aufnahme im bisherigen Index;
+noch nicht geprüfte Monate zuerst im Kalender öffnen.
+
+**Lesezeichen** speichert einen Zeitpunkt, die Kameraauswahl und eine kurze Notiz.
+Markierungen sind persönlich, über Sitzungen hinweg verfügbar und werden nicht
+mit dem Aufnahmeindex gelöscht. Lokale Konten werden über ihren Benutzernamen,
+OIDC-Konten über Issuer und Subject zugeordnet. Andere Benutzer, auch
+Administratoren, können diese Lesezeichen nicht über die API lesen oder ändern.
+Beim Löschen eines lokalen Kontos werden dessen Lesezeichen entfernt. Maximal
+1000 Markierungen mit jeweils 1000 UTF-8-Bytes Notiz; fehlende Aufnahmen oder
+entfernte Kameras werden beim Öffnen angezeigt. Markierungen schützen keine
+Originaldateien vor externem Löschen.
+
+**Zeitlink kopieren** erzeugt einen Link mit Datum, Zeitpunkt und Kameraauswahl.
+Er verlangt dieselbe Anmeldung wie der Viewer und gewährt keine zusätzlichen
+Rechte. Die Ansicht startet pausiert. Kameraauswahl, Raster, Geschwindigkeit und
+Qualitätsmodus werden pro Identität lokal im Browser gespeichert; gültige
+Linkparameter haben Vorrang. Browser-Speicher kann deaktiviert sein, dann entfällt
+das Merken. Nach einer OIDC-Anmeldung wird ein vorgemerkter Zeitlink im selben
+Browser-Tab wiederhergestellt.
+
+Jede Kamera bietet **Vergrößern**, Zoomtasten und **Zoom zurücksetzen**. Das
+Vollbild funktioniert auch als bildschirmfüllende Ansicht ohne Fullscreen-API.
+Mit Mausrad oder zwei Fingern zoomen, das vergrößerte Bild mit Maus/Finger
+verschieben. Tastatur: `+`/`-` zoomen, Pfeiltasten verschieben, `0` setzt den Zoom
+zurück und Escape schließt die vergrößerte Ansicht. Die Anzeigevergrößerung
+verändert weder Originaldateien noch Exportauflösung.
+
+Auf der Timeline springt ein Fingertipp zur Uhrzeit; Ziehen verschiebt den
+sichtbaren Zeitbereich, zwei Finger zoomen. **Exportbereich auswählen** aktiviert
+einen eigenen Modus: A/B-Griffe ziehen oder fokussieren und mit Pfeiltasten um
+jeweils eine Sekunde verschieben, mit Umschalt um zehn Sekunden. **Auswahl
+exportieren** übernimmt den Bereich in den Exportdialog. Die Auswahl ist auf
+30 Minuten begrenzt; für Zeiträume über Mitternacht die Datumseingaben im Dialog
+nutzen. Escape oder **Auswahl beenden** kehrt zur Navigation zurück.
+
+**Kameraübersicht** zeigt Erreichbarkeit, letzte indexierte Aufnahme und letzten
+erfolgreichen Scan. Unvollständige/alte Scanstände werden markiert. Ein
+nicht erreichbarer Ordner behält seinen Index. Ein leerer, aber erreichbarer
+NAS-Mount bleibt weiterhin nicht von einem tatsächlich leeren Archiv unterscheidbar.
+
+Im Wiedergabemodus **Automatisch** führt ein eindeutiger Decoder-/Formatfehler
+einmal je Versuch zur kompatiblen HLS-Wiedergabe, mit Hinweis und erhaltenem
+Zeitpunkt beziehungsweise Wiedergabestatus. Netzwerkfehler starten keine
+Konvertierung; ausgelastete Umwandlungsplätze werden als Fehler angezeigt.
+**Original** erzwingt weiterhin die Originalwiedergabe. Keine Ereignisfilter oder
+zusätzliche KI-Analyse.
+
 ## Clips exportieren
 
 **Clip exportieren** öffnen, eine Kamera und Start/Ende in `Europe/Berlin` wählen.
 Die Wiedergabeposition wird als Start vorgeschlagen. **Zeitraum prüfen** zeigt
 Videolücken; **Export starten** erzeugt asynchron eine MP4-Datei mit Fortschritt,
 Abbruch und Download. Administratoren und Betrachter dürfen exportieren.
+Noch nicht indexierte Tage des Zeitraums werden automatisch eingelesen; der
+Dialog zeigt die Vorbereitung und setzt danach die Prüfung oder Erstellung fort.
+Bei nicht erreichbaren Quellen wird kein vermeintlich lückenloser Export zugesagt.
 
 - Maximal 30 Minuten, über Dateigrenzen und Mitternacht hinweg; JPGs füllen keine Lücken.
-- H.264, ohne Ton, erneute Komprimierung mit 30 Bildern pro Sekunde. Auflösung des
+- H.264 mit vorhandener Audiospur als AAC (48 kHz, Stereo), erneute Komprimierung mit 30 Bildern pro Sekunde. Auflösung des
   ersten Abschnitts; abweichende Auflösungen werden mit Randflächen angepasst.
   Ungerade Bildabmessungen werden für H.264 auf gerade Pixelzahlen aufgerundet.
 - Bei überlappenden Videos gilt dieselbe Auswahl wie bei der Wiedergabe.
+- Bei gemischten Dateien mit und ohne Ton bleibt der Ton an den richtigen
+  Zeitpunkten: Abschnitte ohne Audiospur werden mit Stille ergänzt. Enthält der
+  gesamte Zeitraum keinen Ton, bleibt der Export ohne Audiospur.
 - Umwandlungsplätze und Cachebudget werden mit der Wiedergabe geteilt. Bei
   Auslastung Wiedergabe pausieren und erneut versuchen. Sehr viele Dateigrenzen
   erfordern einen kürzeren Exportzeitraum.
