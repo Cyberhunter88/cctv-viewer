@@ -26,6 +26,12 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  await page.locator('#play').click();await page.locator('.camera-group.dual video').first().dblclick();await expect(page.locator('.camera-tile.expanded')).toHaveCount(1);await page.keyboard.press('Escape');await expect(page.locator('.camera-tile.expanded')).toHaveCount(0);
  await page.screenshot({path:'/tmp/cctv-dual-ui.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:'/tmp/cctv-dual-mobile.png',fullPage:true});
+ for(const width of [980,1440,390]){
+  await page.setViewportSize({width,height:844});
+  await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+  await expect(page.locator('.camera-group.dual')).toHaveCount(2);
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
  await page.evaluate(async()=>{const session=await(await fetch('/api/session')).json();const cameras=await(await fetch('/api/cameras')).json();for(const c of cameras.filter((c:{name:string})=>c.name==='DualFront'||c.name==='DualBack')){const r=await fetch('/api/cameras/'+c.id,{method:'DELETE',headers:{'X-CSRF-Token':session.csrf}});if(!r.ok)throw new Error('cleanup failed')}});
  expect(errors).toEqual([]);
 });
