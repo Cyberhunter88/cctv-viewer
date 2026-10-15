@@ -380,7 +380,17 @@ Image-Digest wie das Commit-Image; SBOM und Provenienz bleiben erhalten.
 ältere Releases verschieben `latest` nicht. Bereits belegte Versions-Tags werden
 nur akzeptiert, wenn ihr Digest exakt übereinstimmt. Release-Konfiguration und
 öffentlicher Containerstart werden weiterhin geprüft. Bei Bedarf lässt sich der
-Workflow „Docker veröffentlichen“ mit einem bestehenden Release-Tag erneut starten.
+Workflow „Release und Docker veröffentlichen“ mit einem bestehenden Release-Tag erneut starten.
+
+Releases werden nicht automatisch beim Merge erstellt. Zum manuellen Start auf
+GitHub **Actions → Release und Docker veröffentlichen → Run workflow** öffnen
+und den Branch `main` auswählen. Der optionale Tag ist beispielsweise `v0.6.0`;
+ohne Eingabe wird die Version aus `package.json` verwendet. Für ein neues Release
+zuerst die Anwendungsversion samt Lockdatei erhöhen und nach `main` mergen.
+Der Workflow wartet auf die erfolgreiche Main-CI, erstellt das GitHub-Release
+und setzt die Docker-Tags auf dessen bereits gebautes Image. Ein vorhandener
+Release-Tag wird erneut verarbeitet. Alternativ kann weiterhin manuell ein
+GitHub-Release veröffentlicht werden, das denselben Workflow auslöst.
 
 ## Entwicklung und Prüfungen
 
