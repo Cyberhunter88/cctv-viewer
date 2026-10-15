@@ -355,13 +355,16 @@ Sicherung nicht enthalten. Originalaufnahmen werden nicht verändert.
 ## Commit-Images und Releases
 
 Pull Requests durchlaufen ausschließlich die Anwendungs- und Browser-Prüfungen.
+Chrome und WebKit laufen parallel und verwenden denselben gebauten Testserver.
+Veraltete PR-Läufe werden bei neuen Commits abgebrochen.
 Die dafür benötigten Frontend-Dateien und Test-Binärdateien werden kompiliert;
 Docker-Images werden dabei weder gebaut noch veröffentlicht. Pushes auf
 Feature-Branches starten keinen zusätzlichen CI-Lauf; bei einem offenen
 Pull Request aktualisieren sie dessen Prüfungen.
 
 Nach dem Merge löst der Push auf `main` die Prüfungen und nativen Docker-Builds
-für AMD64 und ARM64 für den zusammengeführten Commit aus. Nach erfolgreichen Smoke-Tests veröffentlicht die
+für AMD64 und ARM64 für den zusammengeführten Commit aus. Jedes Architektur-Image
+wird einmal gebaut und genau dessen Digest per Smoke-Test geprüft. Nach erfolgreichen Smoke-Tests veröffentlicht die
 CI das gemeinsame Image als
 `ghcr.io/cyberhunter88/cctv-viewer:sha-<vollständiger Commit-SHA>`.
 Das gilt auch für direkte Pushes auf `main`. Wiederholte CI-Läufe überschreiben
@@ -380,7 +383,22 @@ Image-Digest wie das Commit-Image; SBOM und Provenienz bleiben erhalten.
 ältere Releases verschieben `latest` nicht. Bereits belegte Versions-Tags werden
 nur akzeptiert, wenn ihr Digest exakt übereinstimmt. Release-Konfiguration und
 öffentlicher Containerstart werden weiterhin geprüft. Bei Bedarf lässt sich der
-Workflow „Docker veröffentlichen“ mit einem bestehenden Release-Tag erneut starten.
+Workflow „Release und Docker veröffentlichen“ mit einem bestehenden Release-Tag erneut starten.
+
+Releases werden nicht automatisch nach dem Merge erstellt. `main` veröffentlicht
+nach erfolgreichen Prüfungen nur das getestete Commit-Image. Den Zeitpunkt der
+Release-Veröffentlichung und des Setzens der Docker-Versions-Tags bestimmst du.
+
+Zum manuellen Start oder zur Wiederholung auf GitHub **Actions → Release und Docker veröffentlichen → Run workflow** öffnen
+und den Branch `main` auswählen. Der optionale Tag ist beispielsweise `v0.6.0`;
+ohne Eingabe wird die Version aus `package.json` verwendet. Für ein neues Release
+zuerst die Anwendungsversion samt Lockdatei erhöhen und nach `main` mergen.
+Der Workflow wartet auf die erfolgreiche Main-CI, erstellt das GitHub-Release
+und setzt die Docker-Tags auf dessen bereits gebautes Image. Ein vorhandener
+Release-Tag wird erneut verarbeitet. Alternativ kann weiterhin manuell ein
+GitHub-Release veröffentlicht werden, das denselben Workflow auslöst.
+Der erforderliche Branch-Schutz-Check „Anwendung prüfen“ wird nur erfolgreich,
+wenn Code-Prüfungen und beide Browser-Prüfungen erfolgreich sind.
 
 ## Entwicklung und Prüfungen
 
