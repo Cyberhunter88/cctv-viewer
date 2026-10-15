@@ -354,13 +354,14 @@ Sicherung nicht enthalten. Originalaufnahmen werden nicht verändert.
 
 ## Commit-Images und Releases
 
-Pull Requests durchlaufen die Anwendungs- und Browser-Tests sowie native
-Docker-Testbuilds mit Smoke-Tests für AMD64 und ARM64. Dabei werden keine Images
-veröffentlicht. Pushes auf Feature-Branches starten keinen zusätzlichen CI-Lauf;
-bei einem offenen Pull Request aktualisieren sie dessen Prüfungen.
+Pull Requests durchlaufen ausschließlich die Anwendungs- und Browser-Prüfungen.
+Die dafür benötigten Frontend-Dateien und Test-Binärdateien werden kompiliert;
+Docker-Images werden dabei weder gebaut noch veröffentlicht. Pushes auf
+Feature-Branches starten keinen zusätzlichen CI-Lauf; bei einem offenen
+Pull Request aktualisieren sie dessen Prüfungen.
 
-Nach dem Merge löst der Push auf `main` die Prüfungen und Docker-Builds für den
-zusammengeführten Commit aus. Nach erfolgreichen Smoke-Tests veröffentlicht die
+Nach dem Merge löst der Push auf `main` die Prüfungen und nativen Docker-Builds
+für AMD64 und ARM64 für den zusammengeführten Commit aus. Nach erfolgreichen Smoke-Tests veröffentlicht die
 CI das gemeinsame Image als
 `ghcr.io/cyberhunter88/cctv-viewer:sha-<vollständiger Commit-SHA>`.
 Das gilt auch für direkte Pushes auf `main`. Wiederholte CI-Läufe überschreiben
