@@ -112,6 +112,18 @@ func TestBatchAtomicAndParallelCameraScan(t *testing.T) {
 }
 
 // The two perspectives belong to the same camera even with unequal timestamps.
+func TestDualMarkersFollowCameraConfiguration(t *testing.T) {
+	c := Camera{ViewMode: "dual", WideMarker: "_01_", ZoomMarker: "_00_"}
+	for filename, want := range map[string]string{
+		"Kamera/CAM_01_20261015061313.mp4": "wide",
+		"Kamera/CAM_00_20261015061312.mp4": "zoom",
+	} {
+		if got := recordingView(c, filename); got != want {
+			t.Errorf("%s: got %s, want %s", filename, got, want)
+		}
+	}
+}
+
 func TestReolinkGardenUnequalStarts(t *testing.T) {
 	a := testApp(t)
 	c := Camera{ID: "garden", IndexingMode: "full", Name: "Reolink Garten", Folder: "Reolink Garten", Format: "automatic", Timezone: "Europe/Berlin", ViewMode: "dual", WideMarker: "_00_", ZoomMarker: "_01_"}

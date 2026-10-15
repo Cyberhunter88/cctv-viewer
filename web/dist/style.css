@@ -1099,9 +1099,12 @@ input[type=checkbox] {
   gap: 8px
 }
 .camera-group.dual {
-  grid-template-columns: repeat(2,minmax(0,1fr));
+  grid-template-columns: minmax(0,1fr);
   align-self: start
 }
+.camera-group.dual.zoom-open { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.zoom-toggle { grid-column:1/-1; justify-self:end; min-height:36px; padding:6px 12px; border:1px solid var(--line); border-radius:7px; background:var(--panel); color:var(--text); cursor:pointer; }
+.zoom-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .camera-group.hotspot-primary {
   grid-column: span 2;
   grid-row: span 2
@@ -1325,7 +1328,8 @@ input[type=checkbox] {
 }/* Kacheln always fit their group; dual views stack at the group's own width. */
 
 .camera-group { container-type:inline-size; align-content:start; }
-.camera-group.dual { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.camera-group.dual { grid-template-columns:minmax(0,1fr); }
+.camera-group.dual.zoom-open { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .camera-group .camera-tile { width:100%; height:auto; max-height:none; }
 @container (max-width:487px) {
 .camera-group.dual > .camera-tile { grid-column:1 / -1; } }

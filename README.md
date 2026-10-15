@@ -244,7 +244,8 @@ im selben Kameraordner oder dessen Unterordnern. Zwei einstellbare Kennungen
 identifizieren die Ansicht anhand des relativen Pfads, ohne Beachtung der
 Großschreibung. „Erkennung prüfen“ zeigt die Zuordnung und Aufnahmezeit.
 Dateien ohne Kennung oder mit beiden Kennungen bleiben unklar und werden keiner
-Ansicht zugeordnet. Eine Kennung wie `_00_` hat keine fest vorgegebene Bedeutung.
+Ansicht zugeordnet. Eine Kennung wie `_00_` hat keine fest vorgegebene Bedeutung;
+vor dem Speichern je eine Datei beider Perspektiven mit „Erkennung prüfen“ kontrollieren.
 Unklare Aufnahmen bleiben im Index und in der Erkennungsprüfung erhalten, füllen
 aber keine Wiedergabelücken und erscheinen nicht als Vorschaubild oder Sprungziel.
 Der Kameraordner bestimmt die Kamera; die Aufnahmezeiten synchronisieren die
@@ -254,8 +255,12 @@ keine Bildanalyse. Unterschiedliche Dateizeitstempel verhindern die gemeinsame A
 `Reolink Garten_01_20261015061312.mp4` (Zoom) gehören bei passenden Kennungen
 zu derselben Kamera. Um 06:13:13 läuft Zoom bereits eine Sekunde.
 Ein zusätzlicher Zoom-Zeitversatz korrigiert dessen Uhr in
-Zehntelsekunden; negative Werte verschieben früher. Fehlt eine Ansicht, zeigt sie
-eine Aufnahmelücke. Weitwinkel steht links, Zoom rechts; das Raster zählt Kamerapaare.
+Zehntelsekunden; negative Werte verschieben früher. Zunächst erscheint nur Weitwinkel.
+Der Schalter „Zoom anzeigen“ öffnet die zweite Ansicht daneben; „Zoom schließen“
+gibt deren Wiedergabe wieder frei. Nach einem Neuladen ist Zoom geschlossen.
+Fehlt Weitwinkel, bleibt seine Kachel als Aufnahmelücke sichtbar; Zoom ersetzt sie
+nicht automatisch. Bei geöffnetem Zoom steht Weitwinkel links und Zoom rechts;
+auf schmalen Kacheln stehen beide untereinander. Das Raster zählt Kameras.
 Eine fehlende oder fehlerhafte Ansicht stoppt die andere Ansicht nicht.
 Doppelklick oder die Vergrößern-Schaltfläche öffnet eine Ansicht groß; Escape
 stellt die Rasteransicht wieder her. Browserdecoder können geringfügig abweichen.

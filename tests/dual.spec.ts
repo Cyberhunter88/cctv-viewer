@@ -18,11 +18,16 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  await expect(page.locator('#recording-count')).toContainText('6 Aufnahmen',{timeout:20000});await expect(page.locator('#rescan')).toBeEnabled({timeout:20000});
  await expect(page.locator('.camera-group.dual')).toHaveCount(2);
  for(const group of await page.locator('.camera-group.dual').all()){
-  await expect(group.locator('video')).toHaveCount(2);await expect(group.locator('.tile-title').first()).toContainText('Weitwinkel');await expect(group.locator('.tile-title').last()).toContainText('Zoom');
+  await expect(group.locator('video')).toHaveCount(1);await expect(group.locator('.tile-title')).toContainText('Weitwinkel');
+  await expect(group.getByRole('button',{name:/Zoom anzeigen/})).toHaveAttribute('aria-expanded','false');
  }
+ await page.locator('.camera-group.dual .zoom-toggle').first().click();
+ const firstGroup=page.locator('.camera-group.dual').first();
+ await expect(firstGroup.locator('video')).toHaveCount(2);await expect(firstGroup.locator('.tile-title').last()).toContainText('Zoom');
+ await expect(firstGroup.locator('.zoom-toggle')).toBeFocused();
  await page.locator('.thumb').first().click();await page.locator('#play').click();
  await expect.poll(()=>page.locator('.camera-group.dual video').first().evaluate(v=>v.currentTime)).toBeGreaterThan(1);
- const times=await page.locator('.camera-group.dual video').evaluateAll(v=>v.map(x=>x.currentTime));expect(Math.abs(times[0]-times[1])).toBeLessThan(1);
+ const times=await firstGroup.locator('video').evaluateAll(v=>v.map(x=>x.currentTime));expect(Math.abs(times[0]-times[1])).toBeLessThan(1);
  await page.locator('#play').click();await page.locator('.camera-group.dual video').first().dblclick();await expect(page.locator('.camera-tile.expanded')).toHaveCount(1);await page.keyboard.press('Escape');await expect(page.locator('.camera-tile.expanded')).toHaveCount(0);
  await page.screenshot({path:'/tmp/cctv-dual-ui.png',fullPage:true});
  // On phones only two camera groups fit per page. Keep this check focused on paired views.
@@ -34,6 +39,9 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
   await expect(page.locator('.camera-group.dual')).toHaveCount(2);
   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  }
+ await firstGroup.locator('.zoom-toggle').click();await expect(firstGroup.locator('video')).toHaveCount(1);
+ await expect(firstGroup.locator('.zoom-toggle')).toBeFocused();
+ await page.reload();await expect(page.locator('.camera-group.dual video')).toHaveCount(2);
  await page.evaluate(async()=>{const session=await(await fetch('/api/session')).json();const cameras=await(await fetch('/api/cameras')).json();for(const c of cameras.filter((c:{name:string})=>c.name==='DualFront'||c.name==='DualBack')){const r=await fetch('/api/cameras/'+c.id,{method:'DELETE',headers:{'X-CSRF-Token':session.csrf}});if(!r.ok)throw new Error('cleanup failed')}});
  expect(errors).toEqual([]);
 });
@@ -52,7 +60,8 @@ test('a failed or missing zoom leaves wide playback running without repeated req
   await page.reload();await page.locator('#date').fill('2026-10-14');
   await expect(page.locator('#recording-count')).toContainText('4 Aufnahmen',{timeout:20000});
   for(const name of await page.locator('#camera-filters .filter.selected').allTextContents())if(name!=='Dual isolation')await page.locator('#camera-filters').getByRole('button',{name,exact:true}).click();
-  const group=page.locator('.camera-group.dual'),wide=group.locator('.camera-tile').first(),zoom=group.locator('.camera-tile').last();
+  const group=page.locator('.camera-group.dual');await expect(group.locator('video')).toHaveCount(1);
+  await group.locator('.zoom-toggle').click();const wide=group.locator('.camera-tile').first(),zoom=group.locator('.camera-tile').last();
   const day=await(await page.request.get('/api/day?date=2026-10-14')).json();
   const zoomRecord=day.recordings.find((r:{cameraId:string;view:string})=>r.cameraId===camera.id&&r.view==='zoom');
   let zoomRequests=0;
@@ -83,6 +92,16 @@ test('a failed or missing zoom leaves wide playback running without repeated req
   await page.locator('#play').click();await expect.poll(()=>wide.locator('video').evaluate(v=>v.currentTime)).toBeGreaterThan(1);
   expect(await wide.locator('video').evaluate(v=>(v as any).testPlayCalls||0)-playCalls).toBeLessThanOrEqual(2);
   expect(await page.evaluate(()=>(window as any).zoomMessageMutations)).toBe(0);
+  await page.locator('#play').click();await page.unroute('**/api/day?*');
+  await page.route('**/api/day?*',async route=>{
+   const response=await route.fetch(),data=await response.json();
+   data.recordings=data.recordings.filter((r:{cameraId:string;view:string})=>r.cameraId!==camera.id||r.view!=='wide');
+   await route.fulfill({response,json:data});
+  });
+  await page.locator('#date').dispatchEvent('change');
+  await expect(wide.locator('.tile-message')).toHaveText('▧Keine Aufnahme zu diesem Zeitpunkt');
+  await expect(zoom.locator('.tile-message')).not.toHaveText('▧Keine Aufnahme zu diesem Zeitpunkt');
+  await expect(group.locator('.camera-tile')).toHaveCount(2);
   expect(errors).toEqual([]);
  }finally{
   if(!page.isClosed())await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));
