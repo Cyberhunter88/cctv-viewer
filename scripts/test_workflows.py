@@ -21,10 +21,19 @@ class WorkflowContractTest(unittest.TestCase):
         triggers = self.release.split("on:\n", 1)[1].split("permissions:\n", 1)[0]
         self.assertRegex(triggers, r"(?m)^  workflow_dispatch:")
         self.assertNotRegex(triggers, r"(?m)^  (release|push|pull_request|workflow_run):")
-        self.assertIn('test "$GITHUB_REF" = refs/heads/main', self.release)
+        self.assertIn('[ "$GITHUB_REF" != refs/heads/main ]', self.release)
         self.assertIn('      version:\n', triggers)
         self.assertIn('required: true', triggers)
         self.assertNotIn('inputs.tag', self.release)
+
+    def test_release_guard_rejects_non_dispatch_and_non_main_invocations(self):
+        shell = self.release.split('      - name: Nur manuell auf main ausführen\n', 1)[1]
+        shell = shell.split('        run: |\n', 1)[1].split('      - uses:', 1)[0]
+        shell = "\n".join(line[10:] for line in shell.splitlines())
+        for event, ref in itertools.product(('workflow_dispatch', 'release', 'push'), ('refs/heads/main', 'refs/heads/feature', 'refs/tags/v1.2.3')):
+            env = dict(os.environ, GITHUB_EVENT_NAME=event, GITHUB_REF=ref)
+            result = subprocess.run(['bash', '-e', '-c', shell], env=env, capture_output=True)
+            self.assertEqual(result.returncode == 0, event == 'workflow_dispatch' and ref == 'refs/heads/main')
 
     def test_pr_and_main_run_ci_but_only_main_push_may_write_images(self):
         self.assertIn('  push:\n    branches: [main]', self.ci)
