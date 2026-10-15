@@ -13,6 +13,7 @@ const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(
 let session:Session, cameras:Camera[]=[],records:Recording[]=[],playableRecords:Recording[]=[],selected=new Set<string>(),from=0,to=0,cursor=0,viewStart=0,viewEnd=0,playing=false,lastFrame=0,scanRunning=false,loadGeneration=0;
 let thumbGeneration=0;const thumbURLs:string[]=[];
 const tiles=new Map<string,Tile>();
+const openZoom=new Set<string>();
 let audioTile:Tile|undefined;
 const dateInput=$<HTMLInputElement>('date'),canvas=$<HTMLCanvasElement>('timeline');
 const timelineLayer=document.createElement('canvas');let timelineKey='',timelineRecords:Recording[]|undefined;
@@ -35,7 +36,7 @@ async function api<T>(url:string,options:RequestInit={}):Promise<T>{
 function on(id:string,fn:()=>void|Promise<void>){$(id).addEventListener('click',()=>{Promise.resolve(fn()).catch(e=>notify(e.message))})}
 function element<K extends keyof HTMLElementTagNameMap>(tag:K,className='',text=''):HTMLElementTagNameMap[K]{const e=document.createElement(tag);e.className=className;e.textContent=text;return e}
 function ordered(){return order.map(id=>cameras.find(c=>c.id===id)).filter((c):c is Camera=>!!c&&selected.has(c.id))}
-function grid(){return gridSize($<HTMLSelectElement>('layout').value,state.columns,state.rows,selected.size,$('video-grid').clientWidth||innerWidth,ordered().some(c=>c.viewMode==='dual'))}
+function grid(){return gridSize($<HTMLSelectElement>('layout').value,state.columns,state.rows,selected.size,$('video-grid').clientWidth||innerWidth,ordered().some(c=>c.viewMode==='dual'&&openZoom.has(c.id)))}
 function visiblePageCapacity(){const [cols,rows]=grid();return pageCapacity($<HTMLSelectElement>('layout').value,cols,rows)}
 function visible():Camera[]{const all=ordered(),capacity=visiblePageCapacity();page=clamp(page,0,Math.max(0,Math.ceil(all.length/capacity)-1));return all.slice(page*capacity,(page+1)*capacity)}
 function setMessage(tile:Tile,message:string,error=false){if(tile.messageState===message&&tile.messageError===error)return;tile.messageState=message;tile.messageError=error;tile.message.replaceChildren();if(message){tile.message.append(element('span','symbol',error?'⚠':'▧'),element('span','',message))}tile.message.hidden=!message;tile.message.classList.toggle('error',error);if(error){const retry=element('button','tile-retry','Erneut versuchen');retry.type='button';retry.onclick=()=>tile.retry();tile.message.append(retry)}}
@@ -99,13 +100,17 @@ function seek(time:number){lastHotspotCursor=undefined;log('seek',undefined,Stri
 function update(){if(!from)return;const timestamp=clock(cursor);if($('clock').textContent!==timestamp)$('clock').textContent=timestamp;if(state.autoHotspot&&$<HTMLSelectElement>('layout').value==='hotspot'){const candidate=hotspotCandidate(playableRecords,visible().map(c=>c.id),cursor,playing&&lastHotspotCursor!==undefined&&cursor>=lastHotspotCursor?lastHotspotCursor:undefined);if(candidate&&candidate!==hotspot){hotspot=candidate;renderGrid()}}lastHotspotCursor=cursor;tiles.forEach(t=>t.update(timestamp));draw();refreshRange()}
 function frame(now:number){const matching=[...tiles.values()].filter(t=>t.current());const advancing=matching.length===0||matching.some(t=>t.failed||!t.loading&&t.video.readyState>=2);if(playing&&advancing){cursor+=(now-lastFrame)/1000*speed();if(cursor>=to){cursor=to-.001;pause()}else if(!visible().some(c=>recordingAt(playableRecords,c.id,cursor))){const next=nextRecording(playableRecords,visible().map(c=>c.id),cursor);if(next===undefined)pause();else cursor=next}if(cursor>viewEnd&&viewEnd-viewStart<to-from){const width=viewEnd-viewStart;viewStart=clamp(cursor-width/4,from,to-width);viewEnd=viewStart+width}update()}lastFrame=now;requestAnimationFrame(frame)}
 function renderGrid(){
- const active=visible();for(const[id,t]of tiles)if(!active.some(c=>c.id===t.camera.id&& (c.viewMode==='dual'?['wide','zoom'].includes(t.view||''):!t.view))){t.destroy();tiles.delete(id)}
+ const active=visible();for(const[id,t]of tiles)if(!active.some(c=>c.id===t.camera.id&& (c.viewMode==='dual'?(t.view==='wide'||t.view==='zoom'&&openZoom.has(c.id)):!t.view))){t.destroy();tiles.delete(id)}
  const gridElement=$('video-grid'),[cols]=grid();gridElement.className='video-grid';gridElement.style.gridTemplateColumns=`repeat(${cols},minmax(0,1fr))`;
  gridElement.replaceChildren();
  const isHotspot=$<HTMLSelectElement>('layout').value==='hotspot';if(!active.some(c=>c.id===hotspot))hotspot=active[0]?.id;
  for(const c of active){
-  const group=element('div','camera-group');group.classList.toggle('dual',c.viewMode==='dual');group.classList.toggle('hotspot-primary',isHotspot&&c.id===hotspot&&cols>1&&grid()[1]>1);
-  for(const view of c.viewMode==='dual'?['wide','zoom']:[undefined]){
+  const group=element('div','camera-group');group.id='camera-group-'+c.id;group.classList.toggle('dual',c.viewMode==='dual');group.classList.toggle('zoom-open',openZoom.has(c.id));group.classList.toggle('hotspot-primary',isHotspot&&c.id===hotspot&&cols>1&&grid()[1]>1);
+  if(c.viewMode==='dual'){
+   const toggle=element('button','zoom-toggle',openZoom.has(c.id)?'Zoom schließen':'Zoom anzeigen');toggle.type='button';toggle.id='zoom-toggle-'+c.id;toggle.setAttribute('aria-label',`${c.name}: ${toggle.textContent}`);toggle.setAttribute('aria-expanded',String(openZoom.has(c.id)));toggle.setAttribute('aria-controls',group.id);
+   toggle.onclick=()=>{if(openZoom.has(c.id))openZoom.delete(c.id);else openZoom.add(c.id);page=Math.floor(ordered().findIndex(camera=>camera.id===c.id)/visiblePageCapacity());renderGrid();update();$(toggle.id).focus()};group.append(toggle);
+  }
+  for(const view of c.viewMode==='dual'?(openZoom.has(c.id)?['wide','zoom']:['wide']):[undefined]){
    const key=c.id+':'+(view||'single');if(!tiles.has(key))tiles.set(key,new Tile(c,view));const tile=tiles.get(key)!;tile.camera=c;group.append(tile.container);tile.applyAspect();tile.video.preload=state.preload as 'metadata'|'auto';
   }
   gridElement.append(group);if(isHotspot&&c.id===hotspot)gridElement.prepend(group);
@@ -128,7 +133,7 @@ function setScan(scan:Scan){
  $('warnings').hidden=!scan.warnings?.length;$('warnings').textContent=(scan.warnings||[]).join('\n');
 }
 async function loadDay(reset=true){const generation=++loadGeneration;if(reset){pause();tiles.forEach(t=>t.release())}const data=await api<Day>('/api/day?date='+encodeURIComponent(dateInput.value));if(generation!==loadGeneration)return;records=data.recordings;playableRecords=playbackRecordings(records,cameras);from=data.from;to=data.to;setScan(data.scan);if(reset){cursor=firstRecordingStart(playableRecords,from);viewStart=from;viewEnd=to}$('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;update();void thumbnails();refreshRange()}
-async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList()}
+async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');for(const id of openZoom)if(!cameras.some(c=>c.id===id&&c.viewMode==='dual'))openZoom.delete(id);order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList()}
 function updateTimelineDescription(cams:Camera[]){
  const description=$('timeline-description'),list=element('ul');
  description.replaceChildren(element('p','',`Aufnahmebereiche zwischen ${clock(viewStart)} und ${clock(viewEnd)}:`));
