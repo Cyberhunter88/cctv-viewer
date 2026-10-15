@@ -385,14 +385,9 @@ nur akzeptiert, wenn ihr Digest exakt übereinstimmt. Release-Konfiguration und
 öffentlicher Containerstart werden weiterhin geprüft. Bei Bedarf lässt sich der
 Workflow „Release und Docker veröffentlichen“ mit einem bestehenden Release-Tag erneut starten.
 
-Nach erfolgreicher Main-CI einschließlich Image-Veröffentlichung wird für eine
-neue Anwendungsversion automatisch ein GitHub-Release erstellt und das getestete
-Image mit den Release-Tags veröffentlicht. Dazu die Version in `package.json`
-und der Lockdatei erhöhen und nach `main` mergen. Ist diese Version bereits für
-einen anderen Commit veröffentlicht, wird sie übersprungen, statt überschrieben.
-Der automatische Aufruf übergibt den exakten getesteten Commit; ein inzwischen
-weitergelaufener `main` wird nicht versehentlich veröffentlicht. Vorabversionen
-bleiben von `latest` ausgeschlossen.
+Releases werden nicht automatisch nach dem Merge erstellt. `main` veröffentlicht
+nach erfolgreichen Prüfungen nur das getestete Commit-Image. Den Zeitpunkt der
+Release-Veröffentlichung und des Setzens der Docker-Versions-Tags bestimmst du.
 
 Zum manuellen Start oder zur Wiederholung auf GitHub **Actions → Release und Docker veröffentlichen → Run workflow** öffnen
 und den Branch `main` auswählen. Der optionale Tag ist beispielsweise `v0.6.0`;
