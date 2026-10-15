@@ -9,7 +9,7 @@ SHA = "a" * 40
 
 
 def run(status="completed", conclusion="success", **kwargs):
-    return dict(id=42, event="push", head_sha=SHA, status=status,
+    return dict(id=42, event="push", head_branch="main", head_sha=SHA, status=status,
                 conclusion=conclusion, html_url="https://github.com/example/repo/actions/runs/42",
                 **kwargs)
 
@@ -26,12 +26,15 @@ class CommitCITest(unittest.TestCase):
         other["head_sha"] = "b" * 40
         pr = run()
         pr["event"] = "pull_request"
-        gh.side_effect = [response([other, pr]), response([run("in_progress", None)]),
+        branch = run()
+        branch["head_branch"] = "feature/example"
+        gh.side_effect = [response([other, pr, branch]), response([run("in_progress", None)]),
                           response([run()])]
         wait_for_ci("example/repo", SHA)
         self.assertEqual(gh.call_count, 3)
         self.assertEqual(sleep.call_count, 2)
         self.assertIn(f"head_sha={SHA}", gh.call_args.args[0][2])
+        self.assertIn("branch=main", gh.call_args.args[0][2])
 
     @patch("wait_for_commit_ci.subprocess.run")
     def test_failed_or_cancelled_ci_blocks_release(self, gh):
@@ -52,7 +55,7 @@ class CommitCITest(unittest.TestCase):
     @patch("wait_for_commit_ci.time.monotonic", side_effect=[0, 0, 91])
     @patch("wait_for_commit_ci.subprocess.run", return_value=response([]))
     def test_missing_ci_has_actionable_error(self, gh, monotonic):
-        with self.assertRaisesRegex(RuntimeError, "Branch pushen"):
+        with self.assertRaisesRegex(RuntimeError, "nach main"):
             wait_for_ci("example/repo", SHA)
 
     @patch("wait_for_commit_ci.time.sleep")

@@ -354,17 +354,22 @@ Sicherung nicht enthalten. Originalaufnahmen werden nicht verändert.
 
 ## Commit-Images und Releases
 
-Nach jedem Push auf einen Branch prüft die CI die Anwendung einschließlich der
-Browser-Tests. Anschließend baut sie native Images für AMD64 und ARM64 und führt
-auf beiden Architekturen den Docker-Smoke-Test aus. Erst danach veröffentlicht sie
-das gemeinsame Image als `ghcr.io/cyberhunter88/cctv-viewer:sha-<vollständiger Commit-SHA>`.
-Pull Requests durchlaufen ebenfalls Tests, Builds und Smoke-Tests, veröffentlichen
-aber keine Images. Wiederholte CI-Läufe überschreiben ein vorhandenes Commit-Image
-nicht. Die im Image angezeigte Anwendungsversion stammt aus `package.json`.
+Pull Requests durchlaufen die Anwendungs- und Browser-Tests sowie native
+Docker-Testbuilds mit Smoke-Tests für AMD64 und ARM64. Dabei werden keine Images
+veröffentlicht. Pushes auf Feature-Branches starten keinen zusätzlichen CI-Lauf;
+bei einem offenen Pull Request aktualisieren sie dessen Prüfungen.
+
+Nach dem Merge löst der Push auf `main` die Prüfungen und Docker-Builds für den
+zusammengeführten Commit aus. Nach erfolgreichen Smoke-Tests veröffentlicht die
+CI das gemeinsame Image als
+`ghcr.io/cyberhunter88/cctv-viewer:sha-<vollständiger Commit-SHA>`.
+Das gilt auch für direkte Pushes auf `main`. Wiederholte CI-Läufe überschreiben
+ein vorhandenes Commit-Image nicht. Die im Image angezeigte Anwendungsversion
+stammt aus `package.json`.
 
 Ein veröffentlichtes GitHub-Release mit Tag `vX.Y.Z` übernimmt das Image seines
 Tag-Commits, ohne es neu zu bauen. Der Release-Workflow wartet bis zu 30 Minuten
-auf dessen erfolgreiche Push-CI. Fehlt diese oder schlägt sie fehl, wird kein
+auf dessen erfolgreiche Push-CI auf `main`. Fehlt diese oder schlägt sie fehl, wird kein
 Release-Image freigegeben. Ältere Commits benötigen ebenfalls einen erfolgreichen
 Lauf der neuen CI mit veröffentlichtem Commit-Image.
 

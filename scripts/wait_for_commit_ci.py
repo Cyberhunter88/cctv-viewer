@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wait for the push CI of the exact release commit, including image publication."""
+"""Wait for the main-branch push CI of the exact release commit, including image publication."""
 import json
 import re
 import subprocess
@@ -15,11 +15,12 @@ def wait_for_ci(repository, commit, timeout=1800, interval=15):
     while time.monotonic() < deadline:
         result = subprocess.run(
             ["gh", "api", f"repos/{repository}/actions/workflows/ci.yml/runs"
-             f"?event=push&head_sha={commit}&per_page=100"],
+             f"?event=push&branch=main&head_sha={commit}&per_page=100"],
             check=True, capture_output=True, text=True,
         )
         runs = [run for run in json.loads(result.stdout)["workflow_runs"]
-                if run["head_sha"] == commit and run["event"] == "push"]
+                if run["head_sha"] == commit and run["event"] == "push"
+                and run["head_branch"] == "main"]
         if runs:
             run = max(runs, key=lambda item: item["id"])
             if run["status"] == "completed":
@@ -29,8 +30,8 @@ def wait_for_ci(repository, commit, timeout=1800, interval=15):
                 return
             print(f"Warte auf Commit-CI: {run['html_url']}", flush=True)
         elif time.monotonic() - started >= 90:
-            raise RuntimeError("Keine Push-CI für diesen Commit gefunden. Commit auf einen "
-                               "Branch pushen und die CI mit Image-Veröffentlichung ausführen.")
+            raise RuntimeError("Keine Push-CI auf main für diesen Commit gefunden. Commit nach main "
+                               "mergen und die CI mit Image-Veröffentlichung ausführen.")
         time.sleep(min(interval, max(0, deadline - time.monotonic())))
     raise TimeoutError("Commit-CI nach 30 Minuten noch nicht abgeschlossen. "
                        "Release-Workflow nach erfolgreicher CI erneut starten.")
