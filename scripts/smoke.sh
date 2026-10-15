@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 image=${1:?Docker image required}
+# In CI also verify the native architecture, OCI labels and the running binary version.
+if [ "$#" -ge 4 ]; then
+  expected_version=$2 expected_commit=$3 expected_arch=$4
+  test "$(docker image inspect --format '{{.Architecture}}' "$image")" = "$expected_arch" || { echo "Image-Architektur stimmt nicht mit $expected_arch überein."; exit 1; }
+  test "$(docker image inspect --format '{{.Os}}' "$image")" = linux || { echo 'Image ist kein Linux-Image.'; exit 1; }
+  test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")" = "$expected_version" || { echo 'OCI-Versionslabel stimmt nicht mit der getesteten Projektversion überein.'; exit 1; }
+  test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")" = "$expected_commit" || { echo 'OCI-Commitlabel stimmt nicht mit dem getesteten Commit überein.'; exit 1; }
+  test "$(docker run --rm "$image" version)" = "$expected_version" || { echo 'Anwendungsversion und Release-Version stimmen nicht überein.'; exit 1; }
+fi
 name="cctv-smoke-${RANDOM}"
 volume="${name}-data"
 tmp=$(mktemp -d)
@@ -13,7 +22,7 @@ docker volume create "$volume" >/dev/null
 docker run --rm --mount "source=$volume,target=/data" -e CTV_ADMIN_PASSWORD='synthetic smoke test password' "$image" admin --username smoke
 docker run -d --name "$name" --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,size=32m -p 127.0.0.1::8080 -e CTV_DEV_HTTP=true -e CTV_BASE_URL=http://localhost:8080 --mount "source=$volume,target=/data" --mount "type=bind,source=$tmp/recordings,target=/recordings,readonly" "$image"
 port=$(docker port "$name" 8080/tcp | head -1 | cut -d: -f2)
-for i in $(seq 1 40); do if curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null; then break; fi; sleep 1; done
+for _ in $(seq 1 40); do if curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null; then break; fi; sleep 1; done
 curl -fsS "http://127.0.0.1:$port/" | grep -q 'lang="de"'
 code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/api/cameras")
 test "$code" = 401
@@ -21,7 +30,7 @@ curl -fsS -c "$tmp/cookies" -H 'Origin: http://localhost:8080' -H 'Content-Type:
 curl -fsS -b "$tmp/cookies" "http://127.0.0.1:$port/api/session" | grep -q '"role":"admin"'
 docker restart "$name" >/dev/null
 port=$(docker port "$name" 8080/tcp | head -1 | cut -d: -f2)
-for i in $(seq 1 40); do if curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null; then break; fi; sleep 1; done
+for _ in $(seq 1 40); do if curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null; then break; fi; sleep 1; done
 curl -fsS -b "$tmp/cookies" "http://127.0.0.1:$port/api/session" | grep -q '"role":"admin"'
 docker exec "$name" /usr/local/bin/cctv healthcheck
 # Read-only originals and non-root runtime are mandatory.

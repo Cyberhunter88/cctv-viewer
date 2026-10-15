@@ -354,51 +354,28 @@ Sicherung nicht enthalten. Originalaufnahmen werden nicht verändert.
 
 ## Commit-Images und Releases
 
-Pull Requests durchlaufen ausschließlich die Anwendungs- und Browser-Prüfungen.
-Chrome und WebKit laufen parallel und verwenden denselben gebauten Testserver.
-Veraltete PR-Läufe werden bei neuen Commits abgebrochen.
-Die dafür benötigten Frontend-Dateien und Test-Binärdateien werden kompiliert;
-Docker-Images werden dabei weder gebaut noch veröffentlicht. Pushes auf
-Feature-Branches starten keinen zusätzlichen CI-Lauf; bei einem offenen
-Pull Request aktualisieren sie dessen Prüfungen.
+Der vollständige Ablauf steht in [CI/CD und manuelle Releases](docs/CI-CD.md).
+PRs gegen `main` führen Code- und Browser-Prüfungen aus. Nach dem manuellen Merge
+prüft die CI den tatsächlichen Main-Commit erneut und veröffentlicht nach nativen
+AMD64-/ARM64-Smoke-Tests ausschließlich `ghcr.io/cyberhunter88/cctv-viewer:sha-<Commit-SHA>`.
+Der geschützte Statuscheck bleibt „Anwendung prüfen“.
 
-Nach dem Merge löst der Push auf `main` die Prüfungen und nativen Docker-Builds
-für AMD64 und ARM64 für den zusammengeführten Commit aus. Jedes Architektur-Image
-wird einmal gebaut und genau dessen Digest per Smoke-Test geprüft. Nach erfolgreichen Smoke-Tests veröffentlicht die
-CI das gemeinsame Image als
-`ghcr.io/cyberhunter88/cctv-viewer:sha-<vollständiger Commit-SHA>`.
-Das gilt auch für direkte Pushes auf `main`. Wiederholte CI-Läufe überschreiben
-ein vorhandenes Commit-Image nicht. Die im Image angezeigte Anwendungsversion
-stammt aus `package.json`.
+Offizielle Releases und Docker-Versionstags entstehen ausschließlich über
+**Actions → Release und Docker veröffentlichen → Run workflow** auf Branch `main`.
+Pflichtfeld `version` enthält zum Beispiel `v0.6.0`, das optionale Feld `commit`
+einen vollständigen Main-SHA; leer bedeutet den aktuellen HEAD von `main`.
+Die Version muss bereits im getesteten Commit in `package.json`, Lockdatei und
+Image übereinstimmen. Der Workflow verändert `main` nicht und baut kein Image neu.
+Ein grüner PR-Lauf genügt nicht: Die vollständige Push-CI des exakten Commits,
+beide Architektur-Digests und deren Buildnachweis werden geprüft.
 
-Ein veröffentlichtes GitHub-Release mit Tag `vX.Y.Z` übernimmt das Image seines
-Tag-Commits, ohne es neu zu bauen. Der Release-Workflow wartet bis zu 30 Minuten
-auf dessen erfolgreiche Push-CI auf `main`. Fehlt diese oder schlägt sie fehl, wird kein
-Release-Image freigegeben. Ältere Commits benötigen ebenfalls einen erfolgreichen
-Lauf der neuen CI mit veröffentlichtem Commit-Image.
-
-Der Docker-Tag `X.Y.Z` und die passenden Versionszeiger verweisen auf denselben
-Image-Digest wie das Commit-Image; SBOM und Provenienz bleiben erhalten.
-`latest` erhält die höchste veröffentlichte stabile Version. Vorabversionen und
-ältere Releases verschieben `latest` nicht. Bereits belegte Versions-Tags werden
-nur akzeptiert, wenn ihr Digest exakt übereinstimmt. Release-Konfiguration und
-öffentlicher Containerstart werden weiterhin geprüft. Bei Bedarf lässt sich der
-Workflow „Release und Docker veröffentlichen“ mit einem bestehenden Release-Tag erneut starten.
-
-Releases werden nicht automatisch nach dem Merge erstellt. `main` veröffentlicht
-nach erfolgreichen Prüfungen nur das getestete Commit-Image. Den Zeitpunkt der
-Release-Veröffentlichung und des Setzens der Docker-Versions-Tags bestimmst du.
-
-Zum manuellen Start oder zur Wiederholung auf GitHub **Actions → Release und Docker veröffentlichen → Run workflow** öffnen
-und den Branch `main` auswählen. Der optionale Tag ist beispielsweise `v0.6.0`;
-ohne Eingabe wird die Version aus `package.json` verwendet. Für ein neues Release
-zuerst die Anwendungsversion samt Lockdatei erhöhen und nach `main` mergen.
-Der Workflow wartet auf die erfolgreiche Main-CI, erstellt das GitHub-Release
-und setzt die Docker-Tags auf dessen bereits gebautes Image. Ein vorhandener
-Release-Tag wird erneut verarbeitet. Alternativ kann weiterhin manuell ein
-GitHub-Release veröffentlicht werden, das denselben Workflow auslöst.
-Der erforderliche Branch-Schutz-Check „Anwendung prüfen“ wird nur erfolgreich,
-wenn Code-Prüfungen und beide Browser-Prüfungen erfolgreich sind.
+Ältere Releases und Vorabversionen verschieben `latest` nicht. Wiederholungen
+mit derselben Version und demselben SHA verwenden korrekte Artefakte weiter;
+widersprüchliche Tags werden abgelehnt. Release Notes werden automatisch generiert;
+Compose, Beispielkonfiguration und `release-proof.json` werden als Assets angehängt.
+Ein in der GitHub-Releases-Oberfläche manuell angelegtes Release löst keine
+Docker-Promotion aus. Die Paket-Sichtbarkeit für anonyme GHCR-Pulls muss einmalig
+auf **Public** gestellt werden. Laufende Server werden nicht automatisch aktualisiert.
 
 ## Entwicklung und Prüfungen
 
