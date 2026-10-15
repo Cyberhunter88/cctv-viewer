@@ -8,6 +8,10 @@ on:
         description: 'Release-Tag (vX.Y.Z), leer = Version aus package.json; bestehende Releases erneut veröffentlichen'
         required: false
         type: string
+      commit:
+        description: 'Getesteter Main-Commit (leer = aktueller Stand des ausgewählten Branches)'
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -34,9 +38,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REQUESTED_TAG: ${{ inputs.tag }}
+          REQUESTED_COMMIT: ${{ inputs.commit }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            python3 scripts/manual_release.py "$GITHUB_REPOSITORY" "$REQUESTED_TAG" "$RUNNER_TEMP/event.json" "$GITHUB_OUTPUT"
+            python3 scripts/manual_release.py "$GITHUB_REPOSITORY" "$REQUESTED_TAG" "$RUNNER_TEMP/event.json" "$GITHUB_OUTPUT" "$REQUESTED_COMMIT"
             export GITHUB_EVENT_PATH="$RUNNER_TEMP/event.json"
           else
             tag=$(python3 -c 'import json,os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"]))["release"]["tag_name"])')
@@ -58,6 +63,7 @@ jobs:
   publish:
     needs: prepare
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
       packages: write

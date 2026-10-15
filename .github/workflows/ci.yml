@@ -11,10 +11,18 @@ on:
         default: ""
 permissions:
   contents: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  test:
-    name: Anwendung prüfen
+  checks:
+    name: Code prüfen und Testserver bauen
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      commit: ${{ steps.meta.outputs.commit }}
+      image: ${{ steps.meta.outputs.image }}
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -30,36 +38,72 @@ jobs:
       - run: npm ci && npm run typecheck && npm test && npm run build
       - run: go vet ./... && go test -race ./...
       - run: go build -o bin/cctv ./cmd/cctv
-      - run: npx playwright install --with-deps chrome webkit
-      - run: npm run test:browser
-      - run: CTV_TEST_ENGINE=webkit npm run test:browser
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with:
-          name: browser-test-results
-          path: test-results/
-          retention-days: 7
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
-  image-meta:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: test
-    runs-on: ubuntu-24.04
-    outputs:
-      commit: ${{ steps.meta.outputs.commit }}
-      image: ${{ steps.meta.outputs.image }}
-      version: ${{ steps.meta.outputs.version }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ inputs.ref || github.sha }}
       - id: meta
         run: |
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
           echo "version=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-test-server
+          path: bin/cctv
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 1
+  browser:
+    name: Browser prüfen (${{ matrix.browser }})
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chrome
+            engine: chromium
+          - browser: webkit
+            engine: webkit
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.checks.outputs.commit }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.10.0'
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: browser-test-server
+          path: bin
+      - run: chmod +x bin/cctv
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: npm run test:browser
+        env:
+          CTV_TEST_ENGINE: ${{ matrix.engine }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: browser-test-results-${{ matrix.browser }}
+          path: test-results/
+          retention-days: 7
+  test:
+    name: Anwendung prüfen
+    if: always()
+    needs: [checks, browser]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Alle Anwendungs- und Browser-Prüfungen verlangen
+        env:
+          CODE_RESULT: ${{ needs.checks.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+        run: test "$CODE_RESULT" = success && test "$BROWSER_RESULT" = success
   build:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [image-meta]
+    needs: [checks, test]
     permissions:
       contents: read
       packages: write
@@ -72,57 +116,50 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.image-meta.outputs.commit }}
+          ref: ${{ needs.checks.outputs.commit }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          load: true
-          tags: cctv-viewer:test
-          platforms: linux/${{ matrix.arch }}
-          build-args: VERSION=${{ needs.image-meta.outputs.version }}
-          cache-from: type=gha,scope=commit-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=commit-${{ matrix.arch }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ needs.image-meta.outputs.commit }}
-            org.opencontainers.image.licenses=MIT
-            org.opencontainers.image.version=${{ needs.image-meta.outputs.version }}
-      - run: ./scripts/smoke.sh cctv-viewer:test
-      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - id: image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           push: true
           platforms: linux/${{ matrix.arch }}
-          tags: ${{ needs.image-meta.outputs.image }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
-          build-args: VERSION=${{ needs.image-meta.outputs.version }}
+          tags: ${{ needs.checks.outputs.image }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+          build-args: VERSION=${{ needs.checks.outputs.version }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=commit-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=commit-${{ matrix.arch }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ needs.image-meta.outputs.commit }}
+            org.opencontainers.image.revision=${{ needs.checks.outputs.commit }}
             org.opencontainers.image.licenses=MIT
-            org.opencontainers.image.version=${{ needs.image-meta.outputs.version }}
+            org.opencontainers.image.version=${{ needs.checks.outputs.version }}
+      - name: Genau das gebaute Image per Digest prüfen
+        env:
+          IMAGE_REF: ${{ needs.checks.outputs.image }}@${{ steps.image.outputs.digest }}
+        run: |
+          docker pull "$IMAGE_REF"
+          ./scripts/smoke.sh "$IMAGE_REF"
   publish-commit:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [image-meta, build]
+    needs: [checks, build]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
+    timeout-minutes: 10
     concurrency:
-      group: commit-image-${{ needs.image-meta.outputs.commit }}
+      group: commit-image-${{ needs.checks.outputs.commit }}
       cancel-in-progress: false
     steps:
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -133,8 +170,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Geprüftes Multiarch-Image für den Commit veröffentlichen
         env:
-          IMAGE: ${{ needs.image-meta.outputs.image }}
-          COMMIT: ${{ needs.image-meta.outputs.commit }}
+          IMAGE: ${{ needs.checks.outputs.image }}
+          COMMIT: ${{ needs.checks.outputs.commit }}
         run: |
           if docker buildx imagetools inspect "$IMAGE:sha-$COMMIT" > "$RUNNER_TEMP/existing" 2> "$RUNNER_TEMP/inspect-error"; then
             echo 'Commit-Image existiert bereits und bleibt unverändert.'
@@ -145,3 +182,24 @@ jobs:
           docker buildx imagetools inspect "$IMAGE:sha-$COMMIT"
           echo "## Commit-Image" >> "$GITHUB_STEP_SUMMARY"
           echo "\`$IMAGE:sha-$COMMIT\`" >> "$GITHUB_STEP_SUMMARY"
+  auto-release:
+    name: Release-Veröffentlichung starten
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [checks, publish-commit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    concurrency:
+      group: automatic-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.checks.outputs.commit }}
+      - name: Neue Anwendungsversion automatisch veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.checks.outputs.commit }}
+        run: python3 scripts/dispatch_release.py "$GITHUB_REPOSITORY" "$COMMIT"

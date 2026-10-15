@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Resolve a manually requested release without publishing before CI passes."""
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -17,7 +18,9 @@ def command(*args, missing_ok=False):
     return result.stdout.strip()
 
 
-def prepare(repository, tag, event_path, output_path):
+def prepare(repository, tag, event_path, output_path, target_commit=""):
+    if target_commit and not re.fullmatch(r"[0-9a-f]{40}", target_commit):
+        raise ValueError("Ein vollständiger getesteter Commit-SHA wird benötigt")
     if not tag:
         tag = "v" + json.loads(Path("package.json").read_text())["version"]
     _, suffix = parse(tag)
@@ -38,7 +41,9 @@ def prepare(repository, tag, event_path, output_path):
     else:
         if existing is not None:
             raise ValueError("Veröffentlichtes Release hat keinen Git-Tag")
-        commit = command("git", "rev-parse", "HEAD")
+        commit = target_commit or command("git", "rev-parse", "HEAD")
+    if target_commit and commit != target_commit:
+        raise ValueError("Release-Tag gehört bereits zu einem anderen Commit")
     Path(event_path).write_text(json.dumps({"release": release}))
     with open(output_path, "a") as output:
         output.write(f"commit={commit}\ncreate_release={str(existing is None).lower()}\n")

@@ -15,10 +15,10 @@ def result(stdout="", stderr="", code=0):
 
 
 class ManualReleaseTest(unittest.TestCase):
-    def prepare(self, tag="v0.6.0"):
+    def prepare(self, tag="v0.6.0", target_commit=""):
         with tempfile.TemporaryDirectory() as tmp:
             event, output = Path(tmp) / "event.json", Path(tmp) / "output"
-            prepare("example/viewer", tag, event, output)
+            prepare("example/viewer", tag, event, output, target_commit)
             return json.loads(event.read_text())["release"], output.read_text()
 
     @patch("manual_release.subprocess.run")
@@ -67,6 +67,26 @@ class ManualReleaseTest(unittest.TestCase):
     def test_invalid_tag_is_rejected_before_api_access(self, run):
         with self.assertRaises(ValueError):
             self.prepare("not-a-version")
+        run.assert_not_called()
+
+    @patch("manual_release.subprocess.run")
+    def test_automatic_call_uses_tested_commit_even_if_main_has_advanced(self, run):
+        run.side_effect = [result(stderr="HTTP 404", code=1), result()]
+        _, output = self.prepare(target_commit=SHA)
+        self.assertIn(f"commit={SHA}", output)
+        self.assertEqual(run.call_count, 2)
+
+    @patch("manual_release.subprocess.run")
+    def test_existing_tag_cannot_redirect_automatic_release_to_another_commit(self, run):
+        run.side_effect = [result(stderr="HTTP 404", code=1), result("tag exists"),
+                           result(), result("b" * 40)]
+        with self.assertRaisesRegex(ValueError, "anderen Commit"):
+            self.prepare(target_commit=SHA)
+
+    @patch("manual_release.subprocess.run")
+    def test_requested_commit_must_be_a_complete_sha(self, run):
+        with self.assertRaises(ValueError):
+            self.prepare(target_commit="main")
         run.assert_not_called()
 
     @patch("manual_release.subprocess.run")
