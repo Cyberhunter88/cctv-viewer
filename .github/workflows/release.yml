@@ -1,19 +1,20 @@
 name: Release und Docker veröffentlichen
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Release-Tag (vX.Y.Z), leer = Version aus package.json; bestehende Releases erneut veröffentlichen'
-        required: false
+      version:
+        description: 'Version des getesteten Builds: vX.Y.Z oder vX.Y.Z-beta.1'
+        required: true
         type: string
       commit:
-        description: 'Getesteter Main-Commit (leer = aktueller Stand des ausgewählten Branches)'
+        description: 'Optionaler vollständiger Main-Commit-SHA (leer = aktueller HEAD von main)'
         required: false
         type: string
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 concurrency:
   group: docker-publication
   cancel-in-progress: false
@@ -29,94 +30,111 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       commit: ${{ steps.meta.outputs.commit }}
       image: ${{ steps.meta.outputs.image }}
-      release: ${{ steps.meta.outputs.release }}
+      release: ${{ inputs.version }}
+      ci_run_id: ${{ steps.ci.outputs.ci_run_id }}
+      ci_run_attempt: ${{ steps.ci.outputs.ci_run_attempt }}
     steps:
+      - name: Nur manuell auf main ausführen
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] || [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo 'Release nur über Run workflow mit Branch main starten.'
+            exit 1
+          fi
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
       - id: meta
         env:
           GH_TOKEN: ${{ github.token }}
-          REQUESTED_TAG: ${{ inputs.tag }}
+          REQUESTED_VERSION: ${{ inputs.version }}
           REQUESTED_COMMIT: ${{ inputs.commit }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            python3 scripts/manual_release.py "$GITHUB_REPOSITORY" "$REQUESTED_TAG" "$RUNNER_TEMP/event.json" "$GITHUB_OUTPUT" "$REQUESTED_COMMIT"
-            export GITHUB_EVENT_PATH="$RUNNER_TEMP/event.json"
-          else
-            tag=$(python3 -c 'import json,os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"]))["release"]["tag_name"])')
-            git fetch origin "refs/tags/$tag:refs/tags/$tag"
-            echo "commit=$(git rev-parse "$tag^{commit}")" >> "$GITHUB_OUTPUT"
-            echo 'create_release=false' >> "$GITHUB_OUTPUT"
-          fi
+          python3 scripts/manual_release.py "$GITHUB_REPOSITORY" "$REQUESTED_VERSION" "$RUNNER_TEMP/event.json" "$GITHUB_OUTPUT" "$REQUESTED_COMMIT"
+          export GITHUB_EVENT_PATH="$RUNNER_TEMP/event.json"
           export RELEASES_FILE="$RUNNER_TEMP/releases.json"
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RELEASES_FILE"
           python3 scripts/release.py
-          tag=$(python3 -c 'import json,os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"]))["release"]["tag_name"])')
-          echo "release=$tag" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - name: Erfolgreiche Commit-CI einschließlich Image-Build abwarten
+      - id: ci
+        name: Vollständige CI für exakt diesen Main-Commit verlangen
         env:
           GH_TOKEN: ${{ github.token }}
           COMMIT: ${{ steps.meta.outputs.commit }}
-        run: python3 scripts/wait_for_commit_ci.py "$GITHUB_REPOSITORY" "$COMMIT"
+        run: python3 scripts/wait_for_commit_ci.py "$GITHUB_REPOSITORY" "$COMMIT" "$GITHUB_OUTPUT"
+      - name: Fehler zusammenfassen
+        if: failure()
+        run: echo '## Release abgebrochen · Version, Main-Zugehörigkeit oder vollständige Commit-CI fehlen. Details stehen im fehlgeschlagenen Schritt. Es wurde nichts veröffentlicht.' >> "$GITHUB_STEP_SUMMARY"
   publish:
     needs: prepare
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: write
       packages: write
+      actions: read
+    env:
+      IMAGE: ${{ needs.prepare.outputs.image }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      COMMIT: ${{ needs.prepare.outputs.commit }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.release }}
+      CI_RUN_ID: ${{ needs.prepare.outputs.ci_run_id }}
+      CI_RUN_ATTEMPT: ${{ needs.prepare.outputs.ci_run_attempt }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Neues GitHub-Release für den geprüften Commit erstellen
-        if: needs.prepare.outputs.create_release == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.release }}
-          COMMIT: ${{ needs.prepare.outputs.commit }}
-          VERSION: ${{ needs.prepare.outputs.version }}
+      - name: Arbeitsdateien festlegen
         run: |
-          args=(--repo "$GITHUB_REPOSITORY" --target "$COMMIT" --title "CCTV Viewer $RELEASE_TAG" --generate-notes)
-          if [[ "$VERSION" == *-* ]]; then args+=(--prerelease --latest=false); fi
-          gh release create "$RELEASE_TAG" "${args[@]}"
-      - name: Unveränderliche Version und Versionszeiger veröffentlichen
-        env:
-          IMAGE: ${{ needs.prepare.outputs.image }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-          COMMIT: ${{ needs.prepare.outputs.commit }}
-          GH_TOKEN: ${{ github.token }}
+          {
+            echo "PROOF_FILE=$RUNNER_TEMP/proof/commit-image-proof.json"
+            echo "RELEASES_FILE=$RUNNER_TEMP/releases.json"
+            echo "RELEASE_PROOF=$RUNNER_TEMP/release-proof.json"
+          } >> "$GITHUB_ENV"
+      - name: Buildnachweis und unveränderliche Images prüfen
         run: |
-          # Nach der Wartezeit neu berechnen: Inzwischen kann ein neueres Release existieren.
-          export RELEASES_FILE="$RUNNER_TEMP/releases.json"
+          gh run download "$CI_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "commit-image-proof-$CI_RUN_ATTEMPT" --dir "$RUNNER_TEMP/proof"
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RELEASES_FILE"
-          bash scripts/promote_image.sh
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ needs.prepare.outputs.commit }}
-      - name: Konfiguration an Release anhängen
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.release }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          cp compose.yaml "$RUNNER_TEMP/compose.yaml"
-          sed "s/^CTV_VERSION=.*/CTV_VERSION=$VERSION/" .env.example > "$RUNNER_TEMP/config.env.example"
-          gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/compose.yaml" "$RUNNER_TEMP/config.env.example" --clobber
-      - name: Öffentlichen Download und Containerstart prüfen
-        env:
-          IMAGE: ${{ needs.prepare.outputs.image }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          docker logout ghcr.io
+          CHECK_ONLY=true bash scripts/promote_image.sh
+          digest=$(python3 -c 'import json,os; print(json.load(open(os.environ["PROOF_FILE"]))["digest"])')
           mkdir -p "$RUNNER_TEMP/anonymous-docker"
-          DOCKER_CONFIG="$RUNNER_TEMP/anonymous-docker" docker pull "$IMAGE:$VERSION" || { echo 'GHCR-Paket einmalig in den Paketeinstellungen auf Public stellen, dann Workflow erneut starten.'; exit 1; }
-          ./scripts/smoke.sh "$IMAGE:$VERSION"
+          DOCKER_CONFIG="$RUNNER_TEMP/anonymous-docker" docker pull "$IMAGE@$digest" || { echo 'Anonymer GHCR-Pull fehlgeschlagen. Paket einmalig auf Public stellen und Workflow mit derselben Version und demselben Commit erneut starten.'; exit 1; }
+          ./scripts/smoke.sh "$IMAGE@$digest" "$VERSION" "$COMMIT" amd64
+      - name: Release und Konfiguration als Entwurf vorbereiten
+        env:
+          CREATE_RELEASE: ${{ needs.prepare.outputs.create_release }}
+        run: |
+          if [ "$CREATE_RELEASE" = true ]; then
+            args=(--repo "$GITHUB_REPOSITORY" --target "$COMMIT" --title "CCTV Viewer $RELEASE_TAG" --generate-notes --draft --latest=false)
+            if [[ "$VERSION" == *-* ]]; then args+=(--prerelease); fi
+            gh release create "$RELEASE_TAG" "${args[@]}"
+          fi
+          git show "$COMMIT:compose.yaml" > "$RUNNER_TEMP/compose.yaml"
+          git show "$COMMIT:.env.example" | sed "s/^CTV_VERSION=.*/CTV_VERSION=$VERSION/" > "$RUNNER_TEMP/config.env.example"
+      - id: promote
+        name: Geprüftes Multiarch-Image ohne Neubau übernehmen
+        run: bash scripts/promote_image.sh
+      - name: Konfiguration und Digest-Nachweis anhängen
+        run: python3 scripts/manual_release.py assets "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$RUNNER_TEMP/compose.yaml" "$RUNNER_TEMP/config.env.example" "$RELEASE_PROOF"
+      - name: Vollständigen Entwurf offiziell veröffentlichen
+        env:
+          IS_LATEST: ${{ steps.promote.outputs.latest }}
+        run: |
+          draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+          if [ "$draft" = true ]; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$IS_LATEST"
+          fi
+          echo "Release: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
+      - name: Wiederaufnahme dokumentieren
+        if: failure()
+        run: |
+          echo '## Veröffentlichung unvollständig' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Vorhandene korrekte Artefakte bleiben erhalten. Nach Beheben der Ursache mit derselben Version und demselben vollständigen Commit-SHA erneut starten. Keine Tags manuell verschieben.' >> "$GITHUB_STEP_SUMMARY"
