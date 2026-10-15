@@ -112,6 +112,19 @@ func (a *App) thumbnail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Write(b)
 }
+
+// Use factors no greater than two to preserve pitch and avoid dropping samples.
+// Slower playback is handled by the browser, just like the video track.
+func audioTempo(factor float64) string {
+	filters := []string{"asetpts=PTS-STARTPTS"}
+	for factor > 2 {
+		filters = append(filters, "atempo=2")
+		factor /= 2
+	}
+	filters = append(filters, fmt.Sprintf("atempo=%.3f", factor))
+	return strings.Join(filters, ",")
+}
+
 func (a *App) streamOwner(r *http.Request) string {
 	c, e := r.Cookie("ctv_session")
 	if e != nil {
@@ -183,7 +196,8 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 	}
 	factor := math.Max(1, input.Speed)
 	vf := fmt.Sprintf("setpts=(PTS-STARTPTS)/%.3f,scale=trunc(iw*%d/100/2)*2:trunc(ih*%d/100/2)*2,fps=%d", factor, profile.Scale, profile.Scale, profile.FPS)
-	args := []string{"-nostdin", "-v", "error", "-threads", "1", "-ss", fmt.Sprintf("%.3f", input.Offset), "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats, "-i", "/proc/self/fd/3", "-t", fmt.Sprintf("%.3f", duration/factor), "-map", "0:v:0", "-an", "-vf", vf, "-c:v", "libx264", "-preset", "veryfast", "-threads", "1", "-crf", "25", "-maxrate", fmt.Sprintf("%dk", profile.Bitrate), "-bufsize", fmt.Sprintf("%dk", profile.Bitrate*2), "-pix_fmt", "yuv420p", "-force_key_frames", "expr:gte(t,n_forced*1)"}
+	// B-frame reordering shifts the presentation origin in fragmented MP4 away from AAC.
+	args := []string{"-nostdin", "-v", "error", "-threads", "1", "-ss", fmt.Sprintf("%.3f", input.Offset), "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats, "-i", "/proc/self/fd/3", "-t", fmt.Sprintf("%.3f", duration/factor), "-map", "0:v:0", "-map", "0:a:0?", "-af", audioTempo(factor), "-c:a", "aac", "-b:a", "96k", "-vf", vf, "-c:v", "libx264", "-bf", "0", "-preset", "veryfast", "-threads", "1", "-crf", "25", "-maxrate", fmt.Sprintf("%dk", profile.Bitrate), "-bufsize", fmt.Sprintf("%dk", profile.Bitrate*2), "-pix_fmt", "yuv420p", "-force_key_frames", "expr:gte(t,n_forced*1)"}
 	output := "index.m3u8"
 	if input.Transport == "hls" {
 		args = append(args, "-f", "hls", "-hls_time", "1", "-hls_list_size", "0", "-hls_playlist_type", "event", "-hls_segment_filename", filepath.Join(dir, "segment-%06d.ts"))

@@ -38,3 +38,22 @@ test('large paired archives select their first start without argument expansion'
  assert.equal(firstRecordingStart(items,200000),200000);
  assert.equal(firstRecordingStart([],42),42);
 });
+
+
+test('Reolink Garten perspectives share the clock despite unequal and changing clip boundaries',()=>{
+ const items:Recording[]=[
+  {id:'Reolink Garten_00_20261015061313.mp4',cameraId:'garden',view:'wide',start:100,duration:10,codec:'h264'},
+  {id:'Reolink Garten_01_20261015061312.mp4',cameraId:'garden',view:'zoom',start:99,duration:8,codec:'h264'},
+  {id:'next-wide',cameraId:'garden',view:'wide',start:110,duration:10,codec:'h264'},
+  {id:'next-zoom',cameraId:'garden',view:'zoom',start:107,duration:9,codec:'h264'},
+ ];
+ assert.equal(recordingAt(items,'garden',99,'wide'),undefined);
+ const wide=recordingAt(items,'garden',100,'wide')!,zoom=recordingAt(items,'garden',100,'zoom')!;
+ assert.equal(100-wide.start,0);assert.equal(100-zoom.start,1);
+ assert.equal(recordingAt(items,'garden',108,'wide')?.id,wide.id);
+ assert.equal(recordingAt(items,'garden',108,'zoom')?.id,'next-zoom');
+ assert.equal(recordingAt(items,'garden',110,'wide')?.id,'next-wide');
+ assert.equal(recordingAt(items,'garden',110,'zoom')?.id,'next-zoom');
+ assert.equal(recordingAt(items,'garden',117,'zoom'),undefined);
+ assert.equal(recordingAt(items,'garden',117,'wide')?.id,'next-wide');
+});

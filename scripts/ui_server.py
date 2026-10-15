@@ -11,8 +11,9 @@ import time
 
 with tempfile.TemporaryDirectory(prefix='cctv-ui-') as directory:
     root = pathlib.Path(directory)
-    env = dict(os.environ, CTV_DEV_HTTP='true', CTV_BASE_URL='http://127.0.0.1:18080',
-               CTV_ADDRESS='127.0.0.1:18080', CTV_TRUSTED_PROXIES='127.0.0.1/32', CTV_DATA_DIR=str(root/'data'),
+    test_address = '127.0.0.1:'+os.environ.get('CTV_TEST_PORT','18080')
+    env = dict(os.environ, CTV_DEV_HTTP='true', CTV_BASE_URL='http://'+test_address,
+               CTV_ADDRESS=test_address, CTV_TRUSTED_PROXIES='127.0.0.1/32', CTV_DATA_DIR=str(root/'data'),
                CTV_RECORDINGS_DIR=str(root/'recordings'), CTV_OIDC_ISSUER='',
                CTV_ADMIN_PASSWORD='synthetic browser test password')
     subprocess.run(['bin/cctv','admin','--username','browser'],env=env,check=True)
@@ -62,6 +63,14 @@ with tempfile.TemporaryDirectory(prefix='cctv-ui-') as directory:
     second.parent.mkdir(parents=True,exist_ok=True)
     shutil.copyfile(audio,second)
     os.utime(second,(time.time()-120,time.time()-120))
+    next_audio = audio.with_name('08-30-30.mp4')
+    shutil.copyfile(audio,next_audio)
+    os.utime(next_audio,(time.time()-120,time.time()-120))
+    for view in ['wide','zoom']:
+        dual_audio = root/'recordings/AudioDual'/('CAM_20261014083000_'+view+'.mp4')
+        dual_audio.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(audio,dual_audio)
+        os.utime(dual_audio,(time.time()-120,time.time()-120))
     for camera in ['DualFront','DualBack']:
         folder=root/'recordings'/camera/'2026/10/14'
         folder.mkdir(parents=True)
@@ -69,6 +78,20 @@ with tempfile.TemporaryDirectory(prefix='cctv-ui-') as directory:
             file=folder/('CAM_'+stamp+'_20261014'+stamp+'_'+view+'.mp4')
             shutil.copyfile(root/'recordings/Eingang/2026/10/14/08-30-00.mp4',file)
             os.utime(file,(time.time()-120,time.time()-120))
+    # Unregistered fixtures for six-camera layouts and native aspect ratios.
+    for index, dimensions in enumerate(['320x180', '240x180', '180x320']):
+        template = root/('aspect-'+str(index)+'.mp4')
+        subprocess.run(['ffmpeg','-nostdin','-v','error','-f','lavfi','-i',
+                        'testsrc2=size='+dimensions+':rate=15','-t','30','-c:v','libx264',
+                        '-threads','1','-pix_fmt','yuv420p','-y',str(template)],check=True)
+        for camera in range(index,6,3):
+            for kind in ['Single','Dual']:
+                folder=root/'recordings'/('Six'+kind+str(camera+1))/'2026/10/14'
+                folder.mkdir(parents=True)
+                for view in (['wide','zoom'] if kind=='Dual' else ['single']):
+                    file=folder/('CAM_20261014083000_'+view+'.mp4')
+                    shutil.copyfile(template,file)
+                    os.utime(file,(time.time()-120,time.time()-120))
     connection.commit()
     connection.close()
     server = subprocess.Popen(['bin/cctv'],env=env)

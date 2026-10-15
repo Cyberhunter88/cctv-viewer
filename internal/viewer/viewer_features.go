@@ -57,7 +57,7 @@ func (a *App) requestScan(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if !a.queueScan(scanJob{date: in.Date, camera: in.Camera, all: in.All}, true) {
+	if !a.queueScan(scanJob{date: in.Date, camera: in.Camera, all: in.All, manual: true}, true) {
 		fail(w, 409, "Indexauftrag bereits aktiv oder Warteschlange voll")
 		return
 	}

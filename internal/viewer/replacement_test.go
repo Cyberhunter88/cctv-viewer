@@ -293,31 +293,27 @@ func TestLargeSyntheticPartition(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	if !a.scanPartition(c, c.Folder, 0, math.MaxInt64) {
-		t.Fatal(a.scanStatus())
+	if a.scanPartition(c, c.Folder, 0, math.MaxInt64) || a.scanStatus().Skipped != 10000 {
+		t.Fatal("empty videos must be reported as skipped", a.scanStatus())
 	}
 }
-func TestSchedulePersistsAndSkipsRecursiveCameras(t *testing.T) {
+func TestSchedulePersistsAndIncludesRecursiveCameras(t *testing.T) {
 	a := testApp(t)
 	a.cfgMu.Lock()
 	a.cfg.AutoScan = true
 	a.cfg.AutoScanMinutes = 1
 	a.cfgMu.Unlock()
-	a.db.SaveCamera(Camera{ID: "recursive", Name: "Recursive", Folder: "none", Format: "automatic", IndexingMode: "full", Timezone: "UTC"})
-	a.runScheduledScan()
-	if a.scanStatus().Running {
-		t.Fatal("recursive background scan")
+	for _, kind := range []string{"full", "partitioned"} {
+		a.db.SaveCamera(Camera{ID: kind, Name: kind, Folder: kind, Format: "automatic", IndexingMode: kind, Timezone: "UTC"})
+		os.Mkdir(filepath.Join(a.cfg.RecordingsDir, kind), 0700)
 	}
-	a.db.SaveCamera(Camera{ID: "daily", Name: "Daily", Folder: "daily", Format: "automatic", IndexingMode: "partitioned", Timezone: "UTC"})
-	os.Mkdir(filepath.Join(a.cfg.RecordingsDir, "daily"), 0700)
 	a.runScheduledScan()
-	deadline := time.Now().Add(5 * time.Second)
-	for a.scanStatus().Running && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	var next int64
-	if e := a.db.QueryRow(`SELECT next_run FROM scan_schedule WHERE camera_id='daily'`).Scan(&next); e != nil || next <= time.Now().Unix() {
-		t.Fatal(next, e)
+	waitIndex(t, a)
+	for _, id := range []string{"full", "partitioned"} {
+		var next int64
+		if e := a.db.QueryRow(`SELECT next_run FROM scan_schedule WHERE camera_id=?`, id).Scan(&next); e != nil || next <= time.Now().Unix() {
+			t.Fatal(id, next, e)
+		}
 	}
 }
 

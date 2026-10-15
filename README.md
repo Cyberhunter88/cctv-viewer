@@ -9,6 +9,7 @@ Viewers und sind eigenständig in Go/TypeScript umgesetzt. Unser Layout bleibt e
 - Automatische und feste Raster bis 4 × 4, eigene Raster bis 8 × 8 und Kameraseiten
 - Kameraauswahl und Reihenfolge per Ziehen; manueller oder automatischer Hotspot
 - Original, Ausgewogen und Schnell; Wiedergabe von 0,25× bis 16×
+- Tonknopf pro Ansicht; jeweils eine hörbare Quelle, auch bei komprimierter Wiedergabe
 - Tastatursteuerung (Leertaste/K für Pause/Play, Pfeiltasten, J/L zum Springen, F für Vollbild) und Timeline-Hover-Uhrzeit
 - Aufnahmesuche mit Kamera-, Zeitraum- und Mindestdauerfilter
 - Datumspartitionierte oder rekursive Indexierung; optionale automatische Tagesindexierung
@@ -17,7 +18,7 @@ Viewers und sind eigenständig in Go/TypeScript umgesetzt. Unser Layout bleibt e
 
 Kein NVR: Der Viewer verwendet vorhandene Videodateien. Home Assistant und
 Videoanalyse sind ausgeschlossen. Bilder, Clip-Export, Lesezeichen, Zeitlinks,
-digitaler Zoom, separate Vollbild- und Audiobedienung wurden entfernt.
+digitaler Zoom und separate Vollbildbedienung wurden entfernt.
 
 Die vollständige Zuordnung zur Referenz steht in [FEATURE_MATRIX.md](FEATURE_MATRIX.md).
 
@@ -248,12 +249,23 @@ Unklare Aufnahmen bleiben im Index und in der Erkennungsprüfung erhalten, füll
 aber keine Wiedergabelücken und erscheinen nicht als Vorschaubild oder Sprungziel.
 Der Kameraordner bestimmt die Kamera; die Aufnahmezeiten synchronisieren die
 Ansichten, auch bei unterschiedlichen Dateianfängen oder Clipgrenzen. Es erfolgt
-keine Bildanalyse. Ein zusätzlicher Zoom-Zeitversatz korrigiert dessen Uhr in
+keine Bildanalyse. Unterschiedliche Dateizeitstempel verhindern die gemeinsame Ansicht nicht:
+`Reolink Garten_00_20261015061313.mp4` (Weitwinkel) und
+`Reolink Garten_01_20261015061312.mp4` (Zoom) gehören bei passenden Kennungen
+zu derselben Kamera. Um 06:13:13 läuft Zoom bereits eine Sekunde.
+Ein zusätzlicher Zoom-Zeitversatz korrigiert dessen Uhr in
 Zehntelsekunden; negative Werte verschieben früher. Fehlt eine Ansicht, zeigt sie
 eine Aufnahmelücke. Weitwinkel steht links, Zoom rechts; das Raster zählt Kamerapaare.
 Eine fehlende oder fehlerhafte Ansicht stoppt die andere Ansicht nicht.
 Doppelklick oder die Vergrößern-Schaltfläche öffnet eine Ansicht groß; Escape
 stellt die Rasteransicht wieder her. Browserdecoder können geringfügig abweichen.
+
+Jede Ansicht hat einen Tonknopf. Anfangs sind alle Ansichten stumm; beim Einschalten
+wird die bisherige Tonquelle stummgeschaltet. Die Auswahl bleibt bei Clip-, Qualitäts-
+und Positionswechseln erhalten, bis die Ansicht ausgeblendet wird. Videos ohne
+Audiospur bleiben abspielbar. Ausgewogen und Schnell wandeln die erste vorhandene
+Audiospur nach AAC um; bei Geschwindigkeitswechseln bleibt die Tonhöhe erhalten.
+Im Original hängt die Audiounterstützung vom Browser und Quellcodec ab.
 
 Kamerafilter per Ziehen umordnen. Gewählte Kameras bleiben über Seitenwechsel
 auch in kleinen Rastern erreichbar. Hotspot vergrößert eine Kamera. Im Automatikmodus
@@ -284,7 +296,8 @@ Die Profile sind administrativ einstellbar: Skalierung 20–100 %, FPS 2–30,
 Bitrate 100–8000 kbit/s. Sie erhalten das Seitenverhältnis. Ab 2× wird die
 beschleunigte Wiedergabe serverseitig kodiert. Desktopbrowser erhalten fragmentiertes
 MP4; Browser mit nativer HLS-Unterstützung erhalten HLS. Bei 4× wartet HLS auf zwei,
-bei 8×/16× auf vier Segmente oder auf Clipabschluss. Ton bleibt stumm.
+bei 8×/16× auf vier Segmente oder auf Clipabschluss. Eine vorhandene Audiospur
+wird als AAC übernommen und mit unveränderter Tonhöhe an die Geschwindigkeit angepasst.
 
 Vorladen „Metadaten“ spart im pausierten Zustand Daten; „Automatisch“ erlaubt dem
 Browser stärkeres Vorladen. Bei Streamfehlern gibt es höchstens drei automatische
@@ -339,6 +352,36 @@ bevor die Sicherung eingesetzt wird. Eine vollständige Datenverzeichnis-Sicheru
 ist zusätzlich empfohlen. Neue Einstellungen seit dem Upgrade sind in der alten
 Sicherung nicht enthalten. Originalaufnahmen werden nicht verändert.
 
+## Commit-Images und Releases
+
+Pull Requests durchlaufen ausschließlich die Anwendungs- und Browser-Prüfungen.
+Die dafür benötigten Frontend-Dateien und Test-Binärdateien werden kompiliert;
+Docker-Images werden dabei weder gebaut noch veröffentlicht. Pushes auf
+Feature-Branches starten keinen zusätzlichen CI-Lauf; bei einem offenen
+Pull Request aktualisieren sie dessen Prüfungen.
+
+Nach dem Merge löst der Push auf `main` die Prüfungen und nativen Docker-Builds
+für AMD64 und ARM64 für den zusammengeführten Commit aus. Nach erfolgreichen Smoke-Tests veröffentlicht die
+CI das gemeinsame Image als
+`ghcr.io/cyberhunter88/cctv-viewer:sha-<vollständiger Commit-SHA>`.
+Das gilt auch für direkte Pushes auf `main`. Wiederholte CI-Läufe überschreiben
+ein vorhandenes Commit-Image nicht. Die im Image angezeigte Anwendungsversion
+stammt aus `package.json`.
+
+Ein veröffentlichtes GitHub-Release mit Tag `vX.Y.Z` übernimmt das Image seines
+Tag-Commits, ohne es neu zu bauen. Der Release-Workflow wartet bis zu 30 Minuten
+auf dessen erfolgreiche Push-CI auf `main`. Fehlt diese oder schlägt sie fehl, wird kein
+Release-Image freigegeben. Ältere Commits benötigen ebenfalls einen erfolgreichen
+Lauf der neuen CI mit veröffentlichtem Commit-Image.
+
+Der Docker-Tag `X.Y.Z` und die passenden Versionszeiger verweisen auf denselben
+Image-Digest wie das Commit-Image; SBOM und Provenienz bleiben erhalten.
+`latest` erhält die höchste veröffentlichte stabile Version. Vorabversionen und
+ältere Releases verschieben `latest` nicht. Bereits belegte Versions-Tags werden
+nur akzeptiert, wenn ihr Digest exakt übereinstimmt. Release-Konfiguration und
+öffentlicher Containerstart werden weiterhin geprüft. Bei Bedarf lässt sich der
+Workflow „Docker veröffentlichen“ mit einem bestehenden Release-Tag erneut starten.
+
 ## Entwicklung und Prüfungen
 
 ```bash
@@ -361,3 +404,18 @@ Die Browser- und Medientests verwenden ausschließlich synthetische Videos und
 temporäre SQLite-Datenbanken. `CTV_TEST_BROWSER` erlaubt einen installierten
 Chromium-Browser für lokale Tests. Die CI prüft Containerstart, Anmeldung,
 Neustart sowie schreibgeschützte Aufnahme-Mounts und erstellt AMD64/ARM64-Images.
+
+## Farbschema und Darstellung mit mehreren Kameras
+
+Über „Darstellung“ stehen System, Hell und Dunkel zur Verfügung. Die Auswahl wird
+lokal gespeichert. Neue Ansichten verwenden Originalwiedergabe und das natürliche
+Seitenverhältnis; gespeicherte Einstellungen bleiben erhalten. Originalvideos werden
+ohne zusätzliche Kompression übertragen und vollständig in die Kachel eingepasst.
+
+Kameraraster passen sich der verfügbaren Breite an. Auf schmalen Displays stehen
+Weitwinkel und Zoom untereinander; weitere Kameras sind über Kameraseiten erreichbar.
+Unter „Indexierung · Details“ erscheinen Dateizähler und Status pro Kamera sowie die
+Warteschlange. Automatische Scans berücksichtigen auch rekursive Quellen und bei
+Tagesordnern die beiden vorherigen lokalen Tage.
+
+Prüfumfang, technische Grenzen und weitere Vorschläge: [UI-Sichtung](UI_REVIEW.md).

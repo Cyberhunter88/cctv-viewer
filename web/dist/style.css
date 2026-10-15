@@ -1,12 +1,30 @@
+/* Shared UI and canvas palette. */
+:root {
+ color-scheme: dark;
+ --text:#e9edef; --muted:#b0bac3; --subtle:#a2afb8; --background:#0c1014;
+ --panel:#141a20; --surface:#1b2730; --input:#10161c; --line:#3d4b56;
+ --accent:#a5edb7; --accent-ink:#12261a; --accent-line:#709f80;
+ --selected:#253b2e; --error:#ffaaaa; --warning-border:#9c8644;
+ --warning-bg:#272315; --warning-text:#edda9c; --success-text:#d0edd9;
+ --timeline-line:#3d4b56; --timeline-muted:#b0bec7; --timeline-track:#253540;
+ --timeline-record:#8ed0a2; --timeline-cursor:#d0ffe0; --timeline-panel:#141a20;
+}
+:root[data-theme=light] {
+ color-scheme: light;
+ --text:#17252e; --muted:#405460; --subtle:#4b606d; --background:#f3f6f8;
+ --panel:#ffffff; --surface:#e7edf1; --input:#ffffff; --line:#a9b8c2;
+ --accent:#176136; --accent-ink:#ffffff; --accent-line:#377b51;
+ --selected:#e0f1e5; --error:#a51e29; --warning-border:#947019;
+ --warning-bg:#fff3cf; --warning-text:#684b00; --success-text:#194b2d;
+ --timeline-line:#b5c3cc; --timeline-muted:#405460; --timeline-track:#dce5ea;
+ --timeline-record:#397a50; --timeline-cursor:#123d24; --timeline-panel:#ffffff;
+}
 :root {
   font-family: Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  color: #e9edef;
-  background: #0c1014;
+  color: var(--text);
+  background: var(--background);
   font-synthesis: none;
-  --green: #a5edb7;
-  --muted: #a2abb3;
-  --line: #242c33;
-  --panel: #141a20
+  --green: var(--accent);
 }
 
 * {
@@ -52,9 +70,9 @@ button {
 }
 
 input,select {
-  color: #e4e9ed;
-  background: #10161c;
-  border: 1px solid #303a44;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--line);
   border-radius: 7px;
   padding: 11px 12px;
   min-width: 0
@@ -84,7 +102,7 @@ input[type=date]::-webkit-calendar-picker-indicator {
 }
 
 .eyebrow {
-  color: #7a8b91;
+  color: var(--subtle);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 2px
@@ -119,7 +137,7 @@ h2 {
 
 .brand>span:not(.brand-mark):not(.version) {
   font-weight: 400;
-  color: #aeb8be
+  color: var(--muted)
 }
 
 .brand-mark {
@@ -147,18 +165,18 @@ h2 {
 
 .primary {
   background: var(--green);
-  color: #12261a
+  color: var(--accent-ink)
 }
 
 .secondary {
-  background: #1b242b;
-  border-color: #35414b
+  background: var(--surface);
+  border-color: var(--line)
 }
 
 .text-button,.icon-button,.rail-item {
   background: none;
   border: 0;
-  color: #a5b0b9
+  color: var(--muted)
 }
 
 .text-button {
@@ -178,17 +196,17 @@ h2 {
 }
 
 .error {
-  color: #ff9d9d;
+  color: var(--error);
   font-size: 13px;
   line-height: 1.6
 }
 
 .warning {
-  border: 1px solid #62562c;
-  background: #272315;
+  border: 1px solid var(--warning-border);
+  background: var(--warning-bg);
   border-radius: 8px;
   padding: 14px;
-  color: #dac991;
+  color: var(--warning-text);
   font-size: 12px;
   white-space: pre-line
 }
@@ -251,20 +269,20 @@ h2 {
 }
 
 .login-copy p {
-  color: #8faaa0;
+  color: var(--subtle);
   max-width: 360px;
   line-height: 1.8;
   font-size: 14px
 }
 
 .login-art small {
-  color: #657c72;
+  color: var(--subtle);
   letter-spacing: 2px;
   font-size: 9px
 }
 
 .decor-timeline {
-  border-top: 1px solid #496858;
+  border-top: 1px solid var(--accent-line);
   margin: 50px 0 10px;
   height: 52px;
   position: relative;
@@ -326,11 +344,11 @@ label {
   flex-direction: column;
   gap: 8px;
   font-size: 12px;
-  color: #b0bac3
+  color: var(--muted)
 }
 
 label small {
-  color: #72808b;
+  color: var(--subtle);
   font-size: 11px;
   line-height: 1.5
 }
@@ -339,7 +357,7 @@ label small {
   display: flex;
   align-items: center;
   gap: 16px;
-  color: #6e7b85;
+  color: var(--subtle);
   font-size: 11px;
   margin: 28px 0
 }
@@ -355,14 +373,14 @@ label small {
   margin-top: 30px;
   text-align: center;
   font-size: 10px;
-  color: #5c6c78
+  color: var(--subtle)
 }
 
 .rail {
   width: 68px;
   position: fixed;
   inset: 0 auto 0 0;
-  background: #11171c;
+  background: var(--panel);
   border-right: 1px solid var(--line);
   display: flex;
   align-items: center;
@@ -399,7 +417,7 @@ label small {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: #25312e;
+  background: var(--selected);
   color: var(--green);
   font-size: 12px;
   display: flex;
@@ -424,8 +442,8 @@ header {
   margin-left: 14px;
   font-size: 8px;
   letter-spacing: 1.2px;
-  color: #82928a;
-  border: 1px solid #37463e;
+  color: var(--subtle);
+  border: 1px solid var(--accent-line);
   padding: 4px 6px;
   border-radius: 3px
 }
@@ -435,7 +453,7 @@ header {
   align-items: center;
   gap: 10px;
   font-size: 12px;
-  color: #929da6
+  color: var(--muted)
 }
 
 .header-right .text-button {
@@ -470,7 +488,7 @@ main {
   display: flex;
   align-items: center;
   gap: 9px;
-  color: #87959d;
+  color: var(--subtle);
   font-size: 11px
 }
 
@@ -487,7 +505,7 @@ main {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #141b21;
+  background: var(--panel);
   border: 1px solid var(--line);
   padding: 3px 6px;
   border-radius: 8px
@@ -508,7 +526,7 @@ main {
   align-items: center;
   gap: 9px;
   font-size: 11px;
-  color: #7d8994
+  color: var(--subtle)
 }
 
 .compact-label select {
@@ -526,10 +544,10 @@ main {
 .filter {
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #131a20;
+  background: var(--panel);
   padding: 7px 11px;
   font-size: 11px;
-  color: #87949e;
+  color: var(--subtle);
   display: flex;
   align-items: center;
   gap: 7px
@@ -544,7 +562,7 @@ main {
 
 .filter.selected {
   color: var(--green);
-  border-color: #476653;
+  border-color: var(--accent-line);
   background: #a5edb70a
 }
 
@@ -569,7 +587,7 @@ main {
 .camera-tile {
   position: relative;
   aspect-ratio: 16/9;
-  background: #11171c;
+  background: var(--panel);
   border: 1px solid #29343b;
   border-radius: 9px;
   overflow: hidden;
@@ -653,7 +671,7 @@ main {
 
 .timeline-section {
   margin-top: 20px;
-  background: #12191f;
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 9px;
   overflow: hidden
@@ -677,7 +695,7 @@ main {
 .play-button {
   border: 0;
   background: var(--green);
-  color: #173c22;
+  color: var(--accent-ink);
   width: 34px;
   height: 34px;
   font-size: 13px;
@@ -707,12 +725,12 @@ main {
 
 .timezone {
   font-size: 9px;
-  color: #677782
+  color: var(--subtle)
 }
 
 .timeline-tools {
   font-size: 10px;
-  color: #9ba7af
+  color: var(--subtle)
 }
 
 .legend {
@@ -726,7 +744,7 @@ main {
   width: 6px;
   height: 6px;
   border-radius: 2px;
-  background: #89cba2
+  background: var(--accent)
 }
 
 .timeline-viewport {
@@ -744,9 +762,9 @@ main {
   display: flex;
   justify-content: space-between;
   padding: 9px 18px 12px;
-  color: #6b7c88;
+  color: var(--subtle);
   font-size: 9px;
-  border-top: 1px solid #1c262d
+  border-top: 1px solid var(--line)
 }
 
 .thumbnails {
@@ -759,9 +777,9 @@ main {
 .thumb {
   flex: 0 0 130px;
   position: relative;
-  border: 1px solid #2a373f;
+  border: 1px solid var(--line);
   border-radius: 5px;
-  background: #1b252d;
+  background: var(--surface);
   aspect-ratio: 16/9;
   padding: 0;
   overflow: hidden
@@ -785,7 +803,7 @@ main {
 }
 
 .empty {
-  border: 1px dashed #34413d;
+  border: 1px dashed var(--line);
   border-radius: 10px;
   padding: 60px 20px;
   text-align: center;
@@ -794,7 +812,7 @@ main {
 
 .empty-icon {
   font-size: 48px;
-  color: #71877a
+  color: var(--subtle)
 }
 
 .empty h2 {
@@ -804,7 +822,7 @@ main {
 .empty p {
   font-size: 13px;
   line-height: 1.8;
-  color: #85968e
+  color: var(--subtle)
 }
 
 .empty .button {
@@ -815,14 +833,14 @@ footer {
   display: flex;
   justify-content: space-between;
   font-size: 9px;
-  color: #4c5e69;
+  color: var(--subtle);
   padding: 8px 34px 24px
 }
 
 dialog {
-  background: #151d24;
-  color: #dde6eb;
-  border: 1px solid #37434c;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
   border-radius: 14px;
   padding: 28px;
   width: min(680px,calc(100vw - 24px));
@@ -877,7 +895,7 @@ dialog::backdrop {
 .camera-entry {
   display: flex;
   align-items: center;
-  border: 1px solid #34424a;
+  border: 1px solid var(--line);
   border-radius: 6px;
   font-size: 12px
 }
@@ -890,8 +908,8 @@ dialog::backdrop {
 }
 
 .camera-entry .delete {
-  color: #a57575;
-  border-left: 1px solid #34424a
+  color: var(--error);
+  border-left: 1px solid var(--line)
 }
 
 pre {
@@ -899,7 +917,7 @@ pre {
   overflow-wrap: anywhere;
   font-size: 11px;
   line-height: 1.8;
-  background: #0c141a;
+  background: var(--input);
   padding: 12px;
   border-radius: 6px
 }
@@ -910,22 +928,14 @@ pre {
   left: 50%;
   transform: translateX(-50%);
   z-index: 30;
-  background: #283b31;
-  color: #d0edd9;
-  border: 1px solid #55765f;
+  background: var(--selected);
+  color: var(--success-text);
+  border: 1px solid var(--accent-line);
   padding: 14px 22px;
   border-radius: 8px;
   max-width: 90vw;
   font-size: 13px;
   box-shadow: 0 8px 30px #0008
-}
-
-@media(min-width:1600px) {
-  .camera-tile {
-    max-height: 420px;
-    aspect-ratio: auto;
-    height: calc((100vw - 220px)/3.56)
-  }
 }
 
 @media(max-width:900px) {
@@ -1154,15 +1164,15 @@ pre {
 
 .settings-tabs button {
   padding: 10px 14px;
-  border: 1px solid #35434d;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #1b2730;
-  color: #dce8df
+  background: var(--surface);
+  color: var(--text)
 }
 
 .settings-tabs button[aria-pressed=true] {
-  border-color: #709f80;
-  color: #c8f9d5
+  border-color: var(--accent);
+  color: var(--accent)
 }
 
 #management-dialog {
@@ -1192,7 +1202,7 @@ dialog pre {
 
 #folder-browser {
   padding: 12px;
-  border: 1px solid #35434d;
+  border: 1px solid var(--line);
   margin-top: 10px;
   max-height: 260px;
   overflow: auto
@@ -1389,7 +1399,7 @@ dialog img {
 #timeline-resize {
   height: 12px;
   cursor: ns-resize;
-  background: linear-gradient(transparent 4px,#43564c 4px,#43564c 7px,transparent 7px);
+  background: linear-gradient(transparent 4px,var(--accent-line) 4px,var(--accent-line) 7px,transparent 7px);
   touch-action: none
 }
 
@@ -1447,7 +1457,7 @@ dialog img {
 }
 
 fieldset {
-  border: 1px solid #33483c;
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
   min-width: 0
@@ -1637,7 +1647,7 @@ input[type=checkbox] {
   top: 4px;
   transform: translateX(-50%);
   background: #10171edd;
-  border: 1px solid #476653;
+  border: 1px solid var(--accent-line);
   color: var(--green);
   padding: 2px 7px;
   border-radius: 4px;
@@ -1650,20 +1660,20 @@ input[type=checkbox] {
 
 .empty-filter-hint {
   grid-column: 1/-1;
-  border: 1px dashed #34413d;
+  border: 1px dashed var(--line);
   border-radius: 8px;
   padding: 36px 18px;
   text-align: center;
-  color: #85968e;
+  color: var(--subtle);
   font-size: 13px;
   line-height: 1.6
 }
 
 .camera-entry .move-button {
   padding: 8px 6px;
-  color: #87959d;
+  color: var(--subtle);
   font-size: 13px;
-  border-right: 1px solid #34424a
+  border-right: 1px solid var(--line)
 }
 
 .camera-entry .move-button:hover {
@@ -1689,7 +1699,7 @@ input[type=checkbox] {
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
-  color: #c3cbd0;
+  color: var(--text);
   cursor: pointer;
   list-style: none
 }
@@ -1710,8 +1720,8 @@ input[type=checkbox] {
   display: grid;
   min-width: 170px;
   padding: 7px;
-  background: #151d24;
-  border: 1px solid #37434c;
+  background: var(--panel);
+  border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 12px 28px #0009
 }
@@ -1725,7 +1735,7 @@ input[type=checkbox] {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #aab4ba;
+  color: var(--muted);
   font-size: 12px
 }
 
@@ -1737,17 +1747,17 @@ input[type=checkbox] {
   position: sticky;
   top: 0;
   z-index: 8;
-  background: #12191f;
+  background: var(--panel);
   border-radius: 8px 8px 0 0
 }
 
 .timeline-bottom {
-  color: #a0aab1;
+  color: var(--muted);
   font-size: 11px
 }
 
 #search-count {
-  color: #aab4ba
+  color: var(--muted)
 }
 
 .search-result {
@@ -1770,7 +1780,7 @@ input[type=checkbox] {
 }
 
 .boot-error p {
-  color: #aab4ba;
+  color: var(--muted);
   line-height: 1.6
 }
 
@@ -1837,7 +1847,7 @@ input[type=checkbox] {
     padding: 6px 10px;
     border: 1px solid var(--line);
     border-radius: 7px;
-    color: #c1cbd0
+    color: var(--muted)
   }
   .mobile-options-collapsed .advanced-view {
     display: none
@@ -1847,7 +1857,7 @@ input[type=checkbox] {
     padding: 10px;
     border: 1px solid var(--line);
     border-radius: 8px;
-    background: #11181e
+    background: var(--panel)
   }
   .camera-page-controls {
     justify-content: flex-end;
@@ -1857,10 +1867,10 @@ input[type=checkbox] {
     padding: 8px 0 12px
   }
   .filter {
-    color: #b0bac1
+    color: var(--muted)
   }
   .compact-label {
-    color: #aab4ba
+    color: var(--muted)
   }
   .timeline-section {
     scroll-margin-top: 8px
@@ -1872,3 +1882,54 @@ input[type=checkbox] {
     font-size: 10px
   }
 }
+
+/* Kacheln always fit their group; dual views stack at the group's own width. */
+.camera-group { container-type:inline-size; align-content:start; }
+.camera-group.dual { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.camera-group .camera-tile { width:100%; height:auto; max-height:none; }
+@container (max-width:487px) { .camera-group.dual > .camera-tile { grid-column:1 / -1; } }
+.tile-header { gap:6px; }
+.camera-tile .tile-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; display:block; }
+.tile-header small { flex-shrink:0; }
+.tile-message { inset:34px 8px 32px; gap:4px; color:#b7c6ce; font-size:12px; overflow:auto; }
+.tile-message .symbol { font-size:22px; color:#9eb5c3; }
+.tile-footer { color:#d0dce3; }
+.tile-message.error { color:#ffc8a6; }
+.camera-page-controls { flex-wrap:wrap; margin:10px 0; }
+#camera-range { margin-right:auto; }
+#grid-hint { color:var(--subtle); font-size:11px; }
+.theme-control { display:flex; flex-direction:row; align-items:center; justify-content:flex-end; gap:8px; padding:6px 16px; min-height:48px; background:var(--panel); border-bottom:1px solid var(--line); color:var(--muted); }
+.theme-control select { padding:6px 10px; font-size:12px; }
+.scan-details { margin:16px 0; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--text); font-size:12px; }
+.scan-details summary { cursor:pointer; }
+.scan-camera-status { padding:8px 0; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
+#scan-queue { color:var(--muted); }
+:root[data-theme=light] .login-art { background:linear-gradient(135deg,#e0f0e6,#f5faf7); }
+:root[data-theme=light] .login-art:after { opacity:.2; }
+:root[data-theme=light] .login-copy p,:root[data-theme=light] .login-art small { color:var(--muted); }
+:root[data-theme=light] .camera-tile { border-color:#536773; }
+.camera-tile .tile-header { color:#f1f6f8; }
+:root[data-theme=light] .timeline-tooltip { background:var(--panel); }
+:root[data-theme=light] .rail-item.active,:root[data-theme=light] .filter.selected { background:var(--selected); }
+:root[data-theme=light] .avatar { color:var(--accent); }
+@media(max-width:600px) {
+ .theme-control { min-height:44px; padding:4px 12px; }
+ .camera-page-controls { gap:6px; }
+ #camera-range { flex-basis:100%; }
+ #grid-hint { flex-basis:100%; }
+ .camera-group.dual .tile-header { font-size:11px; }
+}
+
+.tile-audio { pointer-events:auto; min-height:32px; padding:4px 8px; border:1px solid #667984; border-radius:6px; background:#17252e; color:#fff; cursor:pointer; font:inherit; white-space:nowrap; }
+.tile-audio[aria-pressed=true] { background:#125b48; border-color:#53d4ab; }
+.tile-audio:focus-visible { outline:2px solid #53d4ab; outline-offset:2px; }
+
+summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+
+/* Consistent form labels in both themes and at narrow widths. */
+dialog label { display:flex; flex-direction:column; align-items:stretch; gap:7px; margin:10px 0; min-width:0; }
+dialog label:has(>input[type=checkbox]) { flex-direction:row; align-items:center; flex-wrap:wrap; }
+dialog label>input:not([type=checkbox]),dialog label>select { width:100%; }
+#camera-form { gap:16px; }
+#camera-form label { margin:0; }
+.camera-list { margin-bottom:12px; }
