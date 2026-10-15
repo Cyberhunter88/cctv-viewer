@@ -1,0 +1,42 @@
+import {test,expect,type Page} from '@playwright/test';
+test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.40'}});
+async function login(page:Page){
+ await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:20000});
+}
+async function open(page:Page){await page.locator('#preferences-button').click();await expect(page.locator('#preferences-dialog')).toBeVisible()}
+test('legacy settings migrate, personal preferences persist and reset',async({page})=>{
+ await login(page);const session=await(await page.request.get('/api/session')).json();
+ await page.evaluate(key=>localStorage.setItem('cctv-view:'+key,JSON.stringify({layout:'4',quality:'compatible',cameras:['Garten'],order:['Garten','Eingang'],timelineHeight:300})),session.preferenceKey);await page.reload();
+ await expect(page.locator('#layout')).toHaveValue('2x2');await expect(page.locator('#quality')).toHaveValue('balanced');await expect(page.locator('#camera-filters .filter').first()).toHaveText('Garten');await open(page);
+ await expect(page.locator('#pref-showNames')).toBeChecked();await page.locator('#pref-density').selectOption('compact');await page.locator('#pref-showNames').uncheck();await page.locator('#pref-showTimestamps').uncheck();await page.locator('#pref-showCodec').uncheck();await page.locator('#pref-showOverview').uncheck();await page.locator('#pref-showThumbnails').uncheck();await page.locator('#pref-shortcuts').uncheck();await page.locator('#pref-seekStep').selectOption('30');await page.locator('#pref-timelineHeight').fill('400');await page.locator('#pref-timelineHeight').dispatchEvent('change');await page.locator('#theme').selectOption('dark');
+ const thumbs:string[]=[];page.on('request',r=>{if(r.url().includes('/thumbnail'))thumbs.push(r.url())});await page.reload();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen');
+ await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await expect(page.locator('#overview')).toBeHidden();await expect(page.locator('#thumbnails')).toBeHidden();await expect(page.locator('.thumb')).toHaveCount(0);await expect(page.locator('#timeline-viewport')).toHaveCSS('height','400px');expect(thumbs).toEqual([]);
+ await expect(page.locator('.camera-tile').first()).toHaveAccessibleName('Garten');await open(page);await expect(page.locator('#pref-seekStep')).toHaveValue('30');await expect(page.locator('#pref-shortcuts')).not.toBeChecked();
+ page.once('dialog',d=>d.dismiss());await page.locator('#preferences-reset').click();await expect(page.locator('#pref-density')).toHaveValue('compact');
+ page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await expect(page.locator('#pref-density')).toHaveValue('comfortable');await expect(page.locator('#pref-showNames')).toBeChecked();await expect(page.locator('#pref-shortcuts')).toBeChecked();await expect(page.locator('#theme')).toHaveValue('system');await expect(page.locator('#pref-seekStep')).toHaveValue('5');await expect(page.locator('#layout')).toHaveValue('auto');await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#pref-timelineHeight')).toHaveValue('240');await page.locator('#preferences-close').click();await expect(page.locator('#camera-filters .filter.selected')).toHaveCount(2);
+});
+test('shortcuts share the configured step and never interfere with forms',async({page})=>{
+ await login(page);await open(page);await page.locator('#pref-seekStep').selectOption('30');await page.locator('#preferences-close').click();await page.locator('#timeline').focus();await expect(page.locator('#clock')).toHaveText('08:30:00');await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');await page.keyboard.press('Shift+ArrowLeft');await expect(page.locator('#clock')).toHaveText('08:29:30');await page.keyboard.press('Shift+ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');const after=await page.locator('#clock').textContent();
+ await open(page);await page.locator('#pref-shortcuts').uncheck();await page.locator('#preferences-close').click();await page.locator('#timeline').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);await page.locator('#overview').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);
+ await open(page);await page.locator('#pref-shortcuts').check();await page.locator('#pref-timelineHeight').focus();await page.keyboard.press('ArrowDown');await expect(page.locator('#clock')).toHaveText(after!);await page.keyboard.press('Escape');await expect(page.locator('#preferences-dialog')).toBeHidden();await expect(page.locator('#preferences-button')).toBeFocused();
+ await page.locator('#select-none').click();await expect(page.locator('#video-grid')).toContainText('Keine Kameras ausgewählt');await expect(page.locator('#camera-range')).toHaveText('Keine Kamera ausgewählt');await page.locator('#select-all').click();await expect(page.locator('.camera-tile')).toHaveCount(2);
+});
+for(const role of ['admin','viewer'])test(`${role} responsive shell and settings in both themes`,async({page},info)=>{
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ if(role==='viewer')await page.route('**/api/session',async route=>{const response=await route.fetch();if(response.status()!==200)return route.fulfill({response});const session=await response.json();await route.fulfill({response,json:{...session,role:'viewer',preferenceKey:'viewer-redesign'}})});
+ await login(page);if(role==='viewer')await expect(page.locator('#settings-button')).toBeHidden();else await expect(page.locator('#settings-button')).toBeVisible();
+ for(const theme of ['light','dark']){
+  for(const width of [390,768,1440,1920]){
+   await page.setViewportSize({width,height:1000});await open(page);await page.locator('#theme').selectOption(theme);
+   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+   const box=await page.locator('#preferences-dialog').boundingBox();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(width);
+   await page.screenshot({path:info.outputPath(`${theme}-${width}-settings.png`)});await page.locator('#preferences-close').click();
+   expect(await page.locator('.rail-item').evaluateAll(items=>items.filter(item=>!item.hasAttribute('hidden')).every(item=>{const button=item.getBoundingClientRect(),icon=item.querySelector('svg')!.getBoundingClientRect();return Math.abs(button.y+button.height/2-icon.y-icon.height/2)<1}))).toBe(true);
+   const icon=await page.locator('.rail-logo svg').boundingBox(),logo=await page.locator('.rail-logo').boundingBox();expect(Math.abs(icon!.y+icon!.height/2-logo!.y-logo!.height/2)).toBeLessThan(1);
+   await expect(page.locator('#search-button')).toHaveAccessibleName('Aufnahmen suchen');await expect(page.locator('#play')).toBeVisible();
+   await page.screenshot({path:info.outputPath(`${theme}-${width}-recordings.png`),fullPage:true});
+   await page.evaluate(()=>window.scrollTo({top:document.documentElement.scrollHeight,behavior:'instant'}));const transport=await page.locator('#playback-controls').boundingBox();expect(transport!.y).toBeGreaterThanOrEqual(0);expect(transport!.y+transport!.height).toBeLessThanOrEqual(1000);await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}));
+  }
+ }
+ expect(errors).toEqual([]);
+});
