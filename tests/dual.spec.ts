@@ -2,6 +2,12 @@ import {test,expect,type Page} from '@playwright/test';
 // The disposable server trusts loopback as a synthetic proxy. Give this test
 // its own client IP so adding a ninth test does not exhaust the login quota.
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.10'}});
+test.afterEach(async({page})=>{
+ if(page.isClosed())return;
+ const sessionResponse=await page.request.get('/api/session');if(!sessionResponse.ok())return;
+ const session=await sessionResponse.json(),cameras=await(await page.request.get('/api/cameras')).json();
+ for(const camera of cameras.filter((c:{name:string})=>['DualFront','DualBack','Dual isolation'].includes(c.name)))await page.request.delete('/api/cameras/'+camera.id,{headers:{'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin}});
+});
 async function login(page:Page){await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:20000});await expect(page.locator('#rescan')).toBeEnabled({timeout:20000})}
 
 test('batch setup, paired views, offset sync, enlargement and cleanup',async({page})=>{
@@ -42,7 +48,6 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  await firstGroup.locator('.zoom-toggle').click();await expect(firstGroup.locator('video')).toHaveCount(1);
  await expect(firstGroup.locator('.zoom-toggle')).toBeFocused();
  await page.reload();await expect(page.locator('.camera-group.dual video')).toHaveCount(2);
- await page.evaluate(async()=>{const session=await(await fetch('/api/session')).json();const cameras=await(await fetch('/api/cameras')).json();for(const c of cameras.filter((c:{name:string})=>c.name==='DualFront'||c.name==='DualBack')){const r=await fetch('/api/cameras/'+c.id,{method:'DELETE',headers:{'X-CSRF-Token':session.csrf}});if(!r.ok)throw new Error('cleanup failed')}});
  expect(errors).toEqual([]);
 });
 

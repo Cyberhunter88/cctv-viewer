@@ -37,7 +37,9 @@ for(const kind of ['single','dual','mixed'] as const)test(`six ${kind} cameras r
     if(width===390)expect(await page.locator('.camera-group').count()).toBeLessThanOrEqual(2);
     if(width===390&&kind!=='single'){
      for(const group of await page.locator('.camera-group.dual').all()){
+      await expect(group.locator('.camera-tile')).toHaveCount(1);await group.locator('.zoom-toggle').click();
       const boxes=await group.locator('.camera-tile').evaluateAll(tiles=>tiles.map(t=>t.getBoundingClientRect().toJSON()));expect(boxes[1].top).toBeGreaterThanOrEqual(boxes[0].bottom);
+      await group.locator('.zoom-toggle').click();
      }
     }
    }
@@ -49,7 +51,9 @@ for(const kind of ['single','dual','mixed'] as const)test(`six ${kind} cameras r
 for(const kind of ['single','dual'] as const)test(`six ${kind} native videos play without transcode and preserve source aspect`,async({page})=>{
  await login(page);const setup=await six(page,kind);const transcodes:string[]=[];page.on('request',r=>{if(r.method()==='POST'&&r.url().endsWith('/api/streams'))transcodes.push(r.url())});
  try{
-  await page.setViewportSize({width:1920,height:1080});await expect(page.locator('video')).toHaveCount(kind==='dual'?12:6);await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#aspect')).toHaveValue('auto');
+  await page.setViewportSize({width:1920,height:1080});await expect(page.locator('video')).toHaveCount(6);
+  if(kind==='dual'){for(let i=0;i<6;i++)await page.locator('.zoom-toggle').nth(i).click();await expect(page.locator('video')).toHaveCount(12)}
+  await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#aspect')).toHaveValue('auto');
   await page.locator('#play').click();await expect.poll(()=>page.locator('video').evaluateAll(v=>v.every(x=>x.currentTime>.5&&x.videoWidth>0)),{timeout:20000}).toBe(true);
   const values=await page.locator('video').evaluateAll(v=>v.map(x=>({time:x.currentTime,ratio:x.videoWidth/x.videoHeight,box:x.parentElement!.getBoundingClientRect().width/x.parentElement!.getBoundingClientRect().height,fit:getComputedStyle(x).objectFit})));
   expect(Math.max(...values.map(x=>x.time))-Math.min(...values.map(x=>x.time))).toBeLessThan(1);
