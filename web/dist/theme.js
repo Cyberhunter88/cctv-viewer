@@ -6,6 +6,7 @@
   try { const saved = localStorage.getItem(key); if (['system', 'light', 'dark'].includes(saved)) choice = saved; } catch {}
   function apply() {
     document.documentElement.dataset.theme = choice === 'system' ? (system.matches ? 'dark' : 'light') : choice;
+    document.querySelectorAll('[data-theme-select]').forEach(select => select.value = choice);
     window.dispatchEvent(new Event('themechange'));
   }
   apply();
@@ -17,11 +18,13 @@
     apply();
   });
   addEventListener('DOMContentLoaded', () => {
-    const select = document.getElementById('theme'); select.value = choice;
-    select.addEventListener('change', () => {
-      choice = select.value;
-      try { localStorage.setItem(key, choice); } catch {}
-      apply();
+    document.querySelectorAll('[data-theme-select]').forEach(select => {
+      select.value = choice;
+      select.addEventListener('change', () => {
+        choice = select.value;
+        try { localStorage.setItem(key, choice); } catch {}
+        apply();
+      });
     });
   });
 })();

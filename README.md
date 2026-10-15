@@ -276,12 +276,28 @@ Die Pfeile neben Abspielen springen zur vorherigen/nächsten Aufnahmegrenze.
 Timeline anklicken zum Springen, Mausrad zum Zoomen, Umschalt+Ziehen zum Verschieben;
 Touch unterstützt Verschieben und Zweifinger-Zoom. Die Tagesübersicht verschiebt
 den sichtbaren Bereich. Der Trenner darüber verändert die Timeline-Höhe, auch mit
-Pfeiltasten. „Ansicht einklappen“ lässt Wiedergabesteuerung weiterhin erreichbar.
-Raster, Filter, Reihenfolge, Vorladen und Timeline-Höhe werden je Benutzer im Browser gespeichert.
+Pfeiltasten. Die Wiedergabesteuerung über den Kamerabildern bleibt beim Scrollen erreichbar.
+„Ansicht anpassen“ öffnet die persönlichen Einstellungen. Die Kameraauswahl bietet
+„Alle auswählen“ und „Auswahl aufheben“; Seitenangaben zeigen die sichtbaren Kameras.
+
+Unter „Einstellungen“ können alle Benutzer Farbschema, Oberflächendichte, Raster,
+Seitenverhältnis, Vorladen und Hotspot wählen. Kameranamen, Zeitstempel, Codec,
+Tagesübersicht und Vorschaubilder lassen sich einzeln ein- und ausblenden.
+Ausgeblendete Vorschaubilder werden nicht geladen. Die Timeline-Höhe ist zwischen
+100 und 650 Pixeln einstellbar. Tastenkürzel lassen sich abschalten; Pfeiltasten
+springen wahlweise 5, 10 oder 30 Sekunden, mit Umschalt immer 60 Sekunden.
+Eine Tastenübersicht steht im Einstellungsdialog. Eingabefelder behalten ihre
+normale Tastaturbedienung.
+
+Änderungen wirken sofort. Persönliche Einstellungen einschließlich Kameraauswahl
+und Reihenfolge werden je Benutzer in diesem Browser gespeichert; das Farbschema
+gilt browserweit. Bestehende Ansichtspräferenzen werden übernommen. Zurücksetzen
+erfordert eine Bestätigung und stellt auch die Auswahl aller Kameras wieder her.
+Administratoren erreichen Kamera- und Benutzerverwaltung separat über „Verwaltung“.
 
 „Aufnahmen suchen“ durchsucht den bisherigen Index nach Dateiname oder Kameraname.
-Kamera, Berliner Zeitraum und Mindestdauer begrenzen die Ergebnisse (maximal 100
-über die Oberfläche). Treffer öffnen Kamera, Tag und Aufnahmezeitpunkt. Noch nicht
+Kamera, Berliner Zeitraum und Mindestdauer begrenzen die Ergebnisse. Die Suche zeigt
+100 Treffer pro Seite; „Weitere Treffer laden“ lädt die nächste Seite. Treffer öffnen Kamera, Tag und Aufnahmezeitpunkt. Noch nicht
 indexierte Tage zuerst öffnen oder einen vollständigen manuellen Scan starten.
 
 Original liefert unterstützte MP4/MOV-Dateien unverändert mit HTTP-Range.
@@ -303,7 +319,7 @@ Vorladen „Metadaten“ spart im pausierten Zustand Daten; „Automatisch“ er
 Browser stärkeres Vorladen. Bei Streamfehlern gibt es höchstens drei automatische
 Wiederherstellungsversuche mit einer begrenzten Wiederherstellungsdauer; betroffene
 Kameras zeigen anschließend einen Fehler. Gesunde Kameras und die Timeline laufen
-weiter. Pause/Abspielen oder Profilwechsel erlauben einen erneuten Versuch.
+weiter. „Erneut versuchen“ im Kamerabild, Pause/Abspielen oder Profilwechsel erlauben einen erneuten Versuch.
 
 Browserdecoder können geringfügig voneinander abweichen; framegenaue forensische
 Synchronität wird nicht zugesagt. Bei Aufnahmelücken springt die gemeinsame Uhr
@@ -402,7 +418,8 @@ Neustart sowie schreibgeschützte Aufnahme-Mounts und erstellt AMD64/ARM64-Image
 
 ## Farbschema und Darstellung mit mehreren Kameras
 
-Über „Darstellung“ stehen System, Hell und Dunkel zur Verfügung. Die Auswahl wird
+Über „Einstellungen → Darstellung“ stehen System, Hell und Dunkel zur Verfügung;
+auch die Anmeldung bietet eine Farbschema-Auswahl. Die Auswahl wird
 lokal gespeichert. Neue Ansichten verwenden Originalwiedergabe und das natürliche
 Seitenverhältnis; gespeicherte Einstellungen bleiben erhalten. Originalvideos werden
 ohne zusätzliche Kompression übertragen und vollständig in die Kachel eingepasst.

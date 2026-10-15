@@ -1,5 +1,5 @@
 import {clamp,clock} from './timeline.ts';
-type Context={bounds:()=>{from:number;to:number;cursor:number;viewStart:number;viewEnd:number};seek:(time:number)=>void;zoom:(factor:number,anchor?:number)=>void;pan:(start:number,end:number)=>void};
+type Context={shortcuts:()=>boolean;seekStep:()=>number;bounds:()=>{from:number;to:number;cursor:number;viewStart:number;viewEnd:number};seek:(time:number)=>void;zoom:(factor:number,anchor?:number)=>void;pan:(start:number,end:number)=>void};
 export function attachTimelineControls(canvas:HTMLCanvasElement,c:Context){
  const timeAt=(x:number)=>{const rect=canvas.getBoundingClientRect(),b=c.bounds();return b.viewStart+clamp((x-rect.left-85)/Math.max(1,rect.width-100),0,1)*(b.viewEnd-b.viewStart)};
  const tooltip=document.getElementById('timeline-tooltip');
@@ -13,6 +13,6 @@ export function attachTimelineControls(canvas:HTMLCanvasElement,c:Context){
  for(const event of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(event,e=>finish(e as PointerEvent));
  canvas.addEventListener('pointerleave',()=>{if(tooltip)tooltip.hidden=true});
  canvas.addEventListener('wheel',e=>{e.preventDefault();if(tooltip)tooltip.hidden=true;c.zoom(e.deltaY>0?1.5:1/1.5,timeAt(e.clientX))},{passive:false});
- canvas.addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();c.seek(c.bounds().cursor+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?100:10))}if(e.key==='+'||e.key==='='){e.preventDefault();c.zoom(.5)}if(e.key==='-'){e.preventDefault();c.zoom(2)}});
+ canvas.addEventListener('keydown',e=>{if(!c.shortcuts()||e.ctrlKey||e.metaKey||e.altKey)return;if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();c.seek(c.bounds().cursor+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?60:c.seekStep()))}if(e.key==='+'||e.key==='='){e.preventDefault();c.zoom(.5)}if(e.key==='-'){e.preventDefault();c.zoom(2)}});
  return ()=>{};
 }
