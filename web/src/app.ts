@@ -1,5 +1,5 @@
 import Hls from 'hls.js';
-import {validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveCamera,type ViewState} from './view-state';
+import {validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveCamera,defaultView,type ViewState} from './view-state';
 import {attachTimelineControls} from './timeline-controls';
 import {initManagement,berlinEpoch} from './management';
 import {recordingAt,nextRecording,playbackRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline';
@@ -20,7 +20,7 @@ const speed=()=>Number($<HTMLSelectElement>('speed').value);
 let refreshRange=()=>{};let page=0,order:string[]=[],hotspot:string|undefined,lastHotspotCursor:number|undefined;
 let scanCompletion=0;
 let toastTimer:ReturnType<typeof setTimeout>|undefined;
- const state:ViewState={cameras:[],order:[],layout:'auto',quality:'native',speed:'1',preload:'metadata',aspect:'auto',columns:2,rows:2,autoHotspot:false,collapsed:true,timelineHeight:240};
+ const state:ViewState=defaultView();
  let trace:{at:number;event:string;camera?:string;detail?:string}[]=[],tracing=false,traceStart=0;
  function log(event:string,camera?:string,detail?:string){if(tracing&&trace.length<20000)trace.push({at:Math.round(performance.now()-traceStart),event,camera,detail});}
 
@@ -38,14 +38,14 @@ function ordered(){return order.map(id=>cameras.find(c=>c.id===id)).filter((c):c
 function grid(){return gridSize($<HTMLSelectElement>('layout').value,state.columns,state.rows,selected.size,$('video-grid').clientWidth||innerWidth,ordered().some(c=>c.viewMode==='dual'))}
 function visiblePageCapacity(){const [cols,rows]=grid();return pageCapacity($<HTMLSelectElement>('layout').value,cols,rows)}
 function visible():Camera[]{const all=ordered(),capacity=visiblePageCapacity();page=clamp(page,0,Math.max(0,Math.ceil(all.length/capacity)-1));return all.slice(page*capacity,(page+1)*capacity)}
-function setMessage(tile:Tile,message:string,error=false){if(tile.messageState===message&&tile.messageError===error)return;tile.messageState=message;tile.messageError=error;tile.message.replaceChildren();if(message){tile.message.append(element('span','symbol',error?'⚠':'▧'),element('span','',message))}tile.message.hidden=!message;tile.message.classList.toggle('error',error)}
+function setMessage(tile:Tile,message:string,error=false){if(tile.messageState===message&&tile.messageError===error)return;tile.messageState=message;tile.messageError=error;tile.message.replaceChildren();if(message){tile.message.append(element('span','symbol',error?'⚠':'▧'),element('span','',message))}tile.message.hidden=!message;tile.message.classList.toggle('error',error);if(error){const retry=element('button','tile-retry','Erneut versuchen');retry.type='button';retry.onclick=()=>tile.retry();tile.message.append(retry)}}
 class Tile {
  audioButton=element('button','tile-audio');
  messageState?:string;messageError=false;playPending=false;video=element('video');container=element('div','camera-tile');message=element('div','tile-message');timestamp=element('span');codec=element('small');stream?:string;record?:Recording;loading=false;failed=false;epoch=0;offset=0;factor=1;abort?:AbortController;hls?:Hls;loadedSpeed=1;attempts=0;recoveryStart=0;recoveryTimer?:ReturnType<typeof setTimeout>;stallTimer?:ReturnType<typeof setTimeout>;pauseTimer?:ReturnType<typeof setTimeout>;
  constructor(public camera:Camera,public view?:string){
   this.video.muted=true;this.video.preservesPitch=true;this.video.playsInline=true;this.video.preload=state.preload as 'metadata'|'auto';
   const header=element('div','tile-header'),title=element('button','tile-title',camera.name+(view==='wide'?' · Weitwinkel':view==='zoom'?' · Zoom':''));title.type='button';title.setAttribute('aria-label',title.textContent+' · Als Hotspot wählen');title.title=title.textContent+' · Als Hotspot wählen';title.onclick=()=>{hotspot=camera.id;state.autoHotspot=false;$<HTMLInputElement>('auto-hotspot').checked=false;renderGrid();saveView()};header.append(title,this.codec);
-  const footer=element('div','tile-footer');footer.append(this.timestamp,element('span','','AUFNAHME'));this.container.append(this.video,header,this.message,footer);
+  const footer=element('div','tile-footer');footer.append(this.timestamp,element('span','','AUFNAHME'));this.container.append(this.video,header,this.message,footer);this.container.setAttribute('role','group');this.container.setAttribute('aria-label',title.textContent!);
   this.container.ondblclick=()=>this.container.classList.toggle('expanded');
   const expand=element('button','tile-expand','⤢');expand.type='button';expand.setAttribute('aria-label','Ansicht vergrößern');expand.onclick=()=>this.container.classList.toggle('expanded');this.audioButton.type='button';this.setAudio(false);
   this.audioButton.onclick=()=>{const enabled=audioTile!==this;if(audioTile)audioTile.setAudio(false);audioTile=enabled?this:undefined;this.setAudio(enabled);if(enabled&&playing)this.startPlayback()};
@@ -62,7 +62,7 @@ class Tile {
  setAudio(enabled:boolean){this.video.muted=!enabled;this.audioButton.textContent=enabled?'Ton an':'Ton aus';this.audioButton.setAttribute('aria-pressed',String(enabled));const label=`${enabled?'Ton ausschalten':'Ton einschalten'} · ${this.camera.name}${this.view==='wide'?' · Weitwinkel':this.view==='zoom'?' · Zoom':''}`;this.audioButton.setAttribute('aria-label',label);this.audioButton.title=label}
  startPlayback(){if(this.playPending)return;this.playPending=true;const epoch=this.epoch;void this.video.play().catch((error:Error)=>{if(epoch!==this.epoch)return;if(error.name==='NotAllowedError'&&audioTile===this){audioTile=undefined;this.setAudio(false);notify('Der Browser hat die Tonwiedergabe blockiert. Bitte Ton erneut einschalten.')}}).finally(()=>{if(epoch===this.epoch)this.playPending=false})}
  applyAspect(){this.container.style.aspectRatio=state.aspect==='auto'?`${this.video.videoWidth||16} / ${this.video.videoHeight||9}`:state.aspect==='fill'?'16 / 9':state.aspect;this.video.style.objectFit=state.aspect==='fill'?'cover':'contain'}
- fail(message:string){const record=this.record;this.release();this.record=record;this.failed=true;setMessage(this,message+' · Pause und Abspielen zum Wiederholen.',true);log('failed',this.camera.id,message)}
+ fail(message:string){const record=this.record;this.release();this.record=record;this.failed=true;setMessage(this,message+' · Bitte erneut versuchen.',true);log('failed',this.camera.id,message)}
  recover(message:string){if(this.failed)return;if(!this.recoveryStart)this.recoveryStart=performance.now();if(this.attempts>=3||performance.now()-this.recoveryStart>=30000){this.fail(message);return}const record=this.record;if(!record)return;this.attempts++;log('retry',this.camera.id,String(this.attempts));void this.load(record,true)}
  release(){this.epoch++;clearTimeout(this.pauseTimer);clearTimeout(this.stallTimer);clearTimeout(this.recoveryTimer);this.abort?.abort();this.abort=undefined;this.hls?.destroy();this.hls=undefined;this.video.pause();this.video.removeAttribute('src');this.video.load();if(this.stream){const id=this.stream;this.stream=undefined;void api('/api/streams/'+id,{method:'DELETE',keepalive:true}).catch(()=>{})}this.loading=false;this.playPending=false;this.record=undefined;this.failed=false;this.offset=0;this.factor=1}
  destroy(){if(audioTile===this){audioTile=undefined;this.setAudio(false)}this.release();this.container.remove()}
@@ -111,12 +111,12 @@ function renderGrid(){
   gridElement.append(group);if(isHotspot&&c.id===hotspot)gridElement.prepend(group);
  }
  if(cameras.length>0&&selected.size===0)gridElement.append(element('div','empty-filter-hint','Keine Kameras ausgewählt. Wähle oben mindestens eine Kamera aus, um die Aufnahmen anzuzeigen.'));
- const capacity=visiblePageCapacity();$('camera-range').textContent=selected.size?`Kameras ${page*capacity+1}–${Math.min((page+1)*capacity,selected.size)} von ${selected.size}`:'Keine Kamera ausgewählt';const layout=$<HTMLSelectElement>('layout').value,requested=layout==='custom'?state.columns:Number(layout.split('x')[0]);$('grid-hint').textContent=Number.isFinite(requested)&&requested>cols?`Raster an Bildschirm angepasst: ${cols} Spalte${cols===1?'':'n'}`:'';$('page-display').textContent=`${page+1} / ${Math.max(1,Math.ceil(selected.size/capacity))}`;$<HTMLButtonElement>('page-prev').disabled=page===0;$<HTMLButtonElement>('page-next').disabled=(page+1)*capacity>=selected.size;
+ const capacity=visiblePageCapacity();$('camera-range').textContent=selected.size?`Kameras ${page*capacity+1}–${Math.min((page+1)*capacity,selected.size)} von ${selected.size}`:'Keine Kamera ausgewählt';const layout=$<HTMLSelectElement>('layout').value,requested=layout==='custom'?state.columns:Number(layout.split('x')[0]);$('grid-hint').textContent=Number.isFinite(requested)&&requested>cols?`Raster an Bildschirm angepasst: ${cols} Spalte${cols===1?'':'n'}`:'';$('page-display').textContent=`Seite ${page+1} von ${Math.max(1,Math.ceil(selected.size/capacity))}`;$<HTMLButtonElement>('page-prev').disabled=page===0;$<HTMLButtonElement>('page-next').disabled=(page+1)*capacity>=selected.size;
  $('custom-grid').hidden=$<HTMLSelectElement>('layout').value!=='custom';$('hotspot-control').hidden=!isHotspot;
 }
 function renderCameras(){
  lastHotspotCursor=undefined;playableRecords=playbackRecordings(records,cameras); const filters=$('camera-filters');filters.replaceChildren();for(const id of order){const camera=cameras.find(c=>c.id===id);if(!camera)continue;const b=element('button','filter'+(selected.has(id)?' selected':''),camera.name);b.setAttribute('aria-pressed',String(selected.has(id)));b.draggable=true;b.ondragstart=e=>e.dataTransfer?.setData('text/plain',id);b.ondragover=e=>e.preventDefault();b.ondrop=e=>{e.preventDefault();const source=e.dataTransfer?.getData('text/plain');if(!source||!order.includes(source))return;order=moveCamera(order,source,id);renderCameras();saveView()};b.onclick=()=>{if(selected.has(id))selected.delete(id);else selected.add(id);page=0;renderCameras();saveView()};filters.append(b)}
- renderGrid();$('empty').hidden=cameras.length!==0;$('timeline-section').hidden=cameras.length===0;$('add-first').hidden=session.role!=='admin';update();void thumbnails();
+ renderGrid();$('empty').hidden=cameras.length!==0;$('timeline-section').hidden=cameras.length===0;$('playback-controls').hidden=cameras.length===0;$('add-first').hidden=session.role!=='admin';update();void thumbnails();
 }
 function setScan(scan:Scan){
  scanRunning=scan.running;scanCompletion=scan.completion??scanCompletion;
@@ -171,7 +171,7 @@ function scheduleResize(gridChanged=false){
  resizeFrame=requestAnimationFrame(()=>{resizeFrame=0;const rebuild=gridResizePending;gridResizePending=false;if(!session||!from)return;if(rebuild)renderGrid();draw();refreshRange()});
 }
 new ResizeObserver(()=>scheduleResize()).observe(canvas.parentElement!);
-async function thumbnails(){const generation=++thumbGeneration;for(const url of thumbURLs)URL.revokeObjectURL(url);thumbURLs.length=0;const root=$('thumbnails');root.replaceChildren();const ids=visible().map(c=>c.id),items=playableRecords.filter(r=>ids.includes(r.cameraId)).sort((a,b)=>a.start-b.start);const sample=items.filter((_,i)=>i%Math.max(1,Math.ceil(items.length/8))===0).slice(0,8);
+async function thumbnails(){const generation=++thumbGeneration;for(const url of thumbURLs)URL.revokeObjectURL(url);thumbURLs.length=0;const root=$('thumbnails');root.replaceChildren();if(!state.showThumbnails)return;const ids=visible().map(c=>c.id),items=playableRecords.filter(r=>ids.includes(r.cameraId)).sort((a,b)=>a.start-b.start);const sample=items.filter((_,i)=>i%Math.max(1,Math.ceil(items.length/8))===0).slice(0,8);
  const pairs=sample.map(record=>{const button=element('button','thumb'),img=element('img'),label=element('span','',clock(record.start));img.alt='Vorschau '+clock(record.start);button.title=clock(record.start);button.append(img,label);button.onclick=()=>seek(record.start);root.append(button);return{record,img}});
  await Promise.allSettled(pairs.map(async({record,img})=>{try{const response=await fetch('/api/recordings/'+record.id+'/thumbnail');if(!response.ok)return;const blob=await response.blob();if(generation!==thumbGeneration)return;const url=URL.createObjectURL(blob);thumbURLs.push(url);img.src=url}catch{}}));
 }
@@ -208,8 +208,8 @@ async function boot(){
  $('user-name').textContent=session.name;$('avatar').textContent=session.name.slice(0,2).toUpperCase();$('settings-button').hidden=session.role!=='admin';$('rescan').hidden=session.role!=='admin';dateInput.value=berlinDate(new Date());await refreshCameras();
  let stored:unknown;try{stored=JSON.parse(localStorage.getItem('cctv-view:'+session.preferenceKey)||'null')}catch{}
  const saved=validView(stored,cameras.map(c=>c.id));for(const id of ['layout','quality','speed'] as const)if(saved[id])$<HTMLSelectElement>(id).value=saved[id]!;
- Object.assign(state,saved);hotspot=saved.hotspot;if(saved.cameras)selected=new Set(saved.cameras);if(saved.order)order=[...saved.order,...order.filter(id=>!saved.order!.includes(id))];for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).value=state[id];$<HTMLInputElement>('grid-columns').value=String(state.columns);$<HTMLInputElement>('grid-rows').value=String(state.rows);$<HTMLInputElement>('auto-hotspot').checked=state.autoHotspot;applyToolbar();setTimelineHeight(state.timelineHeight);renderCameras();await loadDay();
- refreshRange=attachTimelineControls(canvas,{bounds:()=>({from,to,cursor,viewStart,viewEnd}),seek,zoom,pan:(start,end)=>{viewStart=start;viewEnd=end;draw();refreshRange()}});
+ Object.assign(state,saved);hotspot=saved.hotspot;if(saved.cameras)selected=new Set(saved.cameras);if(saved.order)order=[...saved.order,...order.filter(id=>!saved.order!.includes(id))];for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).value=state[id];$<HTMLInputElement>('grid-columns').value=String(state.columns);$<HTMLInputElement>('grid-rows').value=String(state.rows);$<HTMLInputElement>('auto-hotspot').checked=state.autoHotspot;applyPreferences();setTimelineHeight(state.timelineHeight);renderCameras();await loadDay();
+ refreshRange=attachTimelineControls(canvas,{bounds:()=>({from,to,cursor,viewStart,viewEnd}),seek,zoom,shortcuts:()=>state.shortcuts,seekStep:()=>state.seekStep,pan:(start,end)=>{viewStart=start;viewEnd=end;draw();refreshRange()}});
  $('boot-error').hidden=true;$('app').hidden=false;$('playback-diagnostics').hidden=false;requestAnimationFrame(frame);
  setInterval(async()=>{try{const scan=await api<Scan>('/api/scan');const wasRunning=scanRunning,completedBefore=scanCompletion;setScan(scan);if((wasRunning&&!scan.running)||scanCompletion>completedBefore)await loadDay(false)}catch(e){notify((e as Error).message)}},4000);
 }
@@ -218,8 +218,37 @@ async function runBoot(){const button=$<HTMLButtonElement>('boot-retry');button.
 $('boot-retry').addEventListener('click',()=>void runBoot());
 void runBoot();
 
-function applyToolbar(){document.body.classList.toggle('mobile-options-collapsed',state.collapsed);$('mobile-toolbar').setAttribute('aria-expanded',String(!state.collapsed));$('mobile-toolbar').textContent=state.collapsed?'Ansicht anzeigen':'Ansicht einklappen'}
-on('mobile-toolbar',()=>{state.collapsed=!state.collapsed;applyToolbar();saveView()});
+const preferences=$<HTMLDialogElement>('preferences-dialog');
+function syncPreferences(){
+ for(const id of ['layout','quality'] as const)$<HTMLSelectElement>('pref-'+id).value=$<HTMLSelectElement>(id).value;
+ for(const key of ['showNames','showTimestamps','showCodec','showOverview','showThumbnails','shortcuts'] as const)$<HTMLInputElement>('pref-'+key).checked=state[key];
+ $<HTMLSelectElement>('pref-density').value=state.density;$<HTMLSelectElement>('pref-seekStep').value=String(state.seekStep);$<HTMLInputElement>('pref-timelineHeight').value=String(state.timelineHeight);
+}
+function applyPreferences(){
+ document.documentElement.dataset.density=state.density;
+ for(const key of ['showNames','showTimestamps','showCodec'] as const)document.body.classList.toggle('hide-'+key,!state[key]);
+ $('overview').hidden=!state.showOverview;$('thumbnails').hidden=!state.showThumbnails;syncPreferences();scheduleResize();
+}
+function openPreferences(){syncPreferences();preferences.showModal()}
+on('preferences-button',openPreferences);on('header-preferences',openPreferences);on('mobile-toolbar',openPreferences);on('preferences-close',()=>preferences.close());
+for(const id of ['layout','quality'] as const){
+ const source=$<HTMLSelectElement>(id),target=$<HTMLSelectElement>('pref-'+id);for(const option of source.options)target.add(option.cloneNode(true) as HTMLOptionElement);
+ target.onchange=()=>{source.value=target.value;source.dispatchEvent(new Event('change'))};source.addEventListener('change',syncPreferences);
+}
+for(const key of ['showNames','showTimestamps','showCodec','showOverview','showThumbnails','shortcuts'] as const)$<HTMLInputElement>('pref-'+key).onchange=()=>{state[key]=$<HTMLInputElement>('pref-'+key).checked;applyPreferences();if(key==='showThumbnails')void thumbnails();saveView()};
+$<HTMLSelectElement>('pref-density').onchange=()=>{state.density=$<HTMLSelectElement>('pref-density').value as ViewState['density'];applyPreferences();saveView()};
+$<HTMLSelectElement>('pref-seekStep').onchange=()=>{state.seekStep=Number($<HTMLSelectElement>('pref-seekStep').value);saveView()};
+$<HTMLInputElement>('pref-timelineHeight').onchange=()=>{const input=$<HTMLInputElement>('pref-timelineHeight');setTimelineHeight(Number(input.value)||240);input.value=String(state.timelineHeight);saveView()};
+on('preferences-reset',()=>{
+ if(!confirm('Persönliche Einstellungen und Kameraauswahl auf die Standardwerte zurücksetzen?'))return;
+ Object.assign(state,defaultView());selected=new Set(cameras.map(c=>c.id));order=cameras.map(c=>c.id);hotspot=undefined;page=0;
+ for(const id of ['layout','quality','speed','preload','aspect'] as const)$<HTMLSelectElement>(id).value=state[id];
+ $<HTMLInputElement>('grid-columns').value='2';$<HTMLInputElement>('grid-rows').value='2';$<HTMLInputElement>('auto-hotspot').checked=false;
+ const theme=$<HTMLSelectElement>('theme');theme.value='system';theme.dispatchEvent(new Event('change'));
+ tiles.forEach(t=>t.release());applyPreferences();setTimelineHeight(state.timelineHeight);renderCameras();saveView();notify('Persönliche Einstellungen zurückgesetzt.');
+});
+on('select-all',()=>{selected=new Set(cameras.map(c=>c.id));page=0;renderCameras();saveView()});
+on('select-none',()=>{selected.clear();page=0;renderCameras();saveView()});
 for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).onchange=()=>{state[id]=$<HTMLSelectElement>(id).value;renderGrid();saveView()};
 for(const [id,key] of [['grid-columns','columns'],['grid-rows','rows']] as const)$<HTMLInputElement>(id).onchange=()=>{state[key]=clamp(Math.floor(Number($<HTMLInputElement>(id).value))||2,1,8);$<HTMLInputElement>(id).value=String(state[key]);page=0;renderCameras();saveView()};
 $<HTMLInputElement>('auto-hotspot').onchange=()=>{state.autoHotspot=$<HTMLInputElement>('auto-hotspot').checked;update();saveView()};
@@ -232,8 +261,8 @@ function drawOverview(){if(!from)return;const palette=timelineColors();const wid
 
 overview.onpointerdown=e=>{overview.setPointerCapture(e.pointerId);seek(from+clamp((e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth,0,1)*(to-from));const span=viewEnd-viewStart;viewStart=clamp(cursor-span/2,from,to-span);viewEnd=viewStart+span;draw()};
 overview.onpointermove=e=>{if(e.buttons===1){const span=viewEnd-viewStart,start=clamp(from+(e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth*(to-from)-span/2,from,to-span);viewStart=start;viewEnd=start+span;draw()}};
-overview.onkeydown=e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();seek(cursor+(e.key==='ArrowRight'?60:-60))}};
-function setTimelineHeight(height:number){state.timelineHeight=Math.round(clamp(height,100,650));$('timeline-viewport').style.height=state.timelineHeight+'px';resize.setAttribute('aria-valuenow',String(state.timelineHeight));resize.setAttribute('aria-valuetext',`${state.timelineHeight} Pixel`);draw()}
+overview.onkeydown=e=>{if(state.shortcuts&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();seek(cursor+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?60:state.seekStep))}};
+function setTimelineHeight(height:number){state.timelineHeight=Math.round(clamp(height,100,650));$('timeline-viewport').style.height=state.timelineHeight+'px';$<HTMLInputElement>('pref-timelineHeight').value=String(state.timelineHeight);resize.setAttribute('aria-valuenow',String(state.timelineHeight));resize.setAttribute('aria-valuetext',`${state.timelineHeight} Pixel`);draw()}
 let resizeStart=0,resizeHeight=0;const resize=$('timeline-resize');resize.onpointerdown=e=>{resize.setPointerCapture(e.pointerId);resizeStart=e.clientY;resizeHeight=state.timelineHeight};resize.onpointermove=e=>{if(!resize.hasPointerCapture(e.pointerId))return;setTimelineHeight(resizeHeight+e.clientY-resizeStart)};resize.onpointerup=()=>saveView();resize.onkeydown=e=>{if(['ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();setTimelineHeight(state.timelineHeight+(e.key==='ArrowDown'?20:-20));saveView()}};
 let observedGridWidth=-1;
 new ResizeObserver(([entry])=>{const width=entry.contentRect.width;if(width===observedGridWidth)return;observedGridWidth=width;scheduleResize(true)}).observe($('video-grid'));
@@ -283,20 +312,20 @@ on('trace-download',async()=>{const status=await api('/api/playback-status');con
 
 $<HTMLSelectElement>('view-mode').onchange=cameraFormatChanged;
 document.addEventListener('keydown',e=>{
- if(e.key==='Escape')document.querySelectorAll('.camera-tile.expanded').forEach(t=>t.classList.remove('expanded'));
+ if(e.key==='Escape'&&!document.querySelector('dialog[open]'))document.querySelectorAll('.camera-tile.expanded').forEach(t=>t.classList.remove('expanded'));
  const target=e.target instanceof HTMLElement?e.target:undefined;
  const tag=target?.tagName;
  if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA'||tag==='CANVAS'||target?.isContentEditable||target?.closest('button,a,summary,[role="button"],[role="link"]'))return;
- if(document.querySelector('dialog[open]'))return;
+ if(e.defaultPrevented||e.ctrlKey||e.metaKey||e.altKey||document.querySelector('dialog[open]')||!state.shortcuts||!session)return;
  if(e.key===' '||e.key==='Spacebar'||e.code==='Space'||e.key==='k'||e.key==='K'){
   e.preventDefault();
   if(playing)pause();else play();
  }else if(e.key==='ArrowLeft'){
   e.preventDefault();
-  seek(cursor-(e.shiftKey?60:5));
+  seek(cursor-(e.shiftKey?60:state.seekStep));
  }else if(e.key==='ArrowRight'){
   e.preventDefault();
-  seek(cursor+(e.shiftKey?60:5));
+  seek(cursor+(e.shiftKey?60:state.seekStep));
  }else if(e.key==='j'||e.key==='J'){
   e.preventDefault();
   seek(cursor-10);

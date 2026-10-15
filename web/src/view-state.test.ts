@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveCamera} from './view-state.ts';
+import {defaultView,validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveCamera} from './view-state.ts';
 const records=[{id:'a',cameraId:'a',start:100,duration:50,codec:'h264'},{id:'b',cameraId:'b',start:120,duration:20,codec:'h264'}];
 test('migrates old view preferences and sanitizes unknown cameras',()=>{assert.deepEqual(validView({cameras:['gone','a','a'],layout:'9',quality:'compatible',speed:'4'},['a']),{cameras:['a'],layout:'3x3',quality:'balanced',speed:'4'});assert.deepEqual(validView({cameras:[],layout:'100',quality:'bad',speed:'0',rows:99},['a']),{cameras:[]});assert.deepEqual(validView(null,[]),{})});
 test('fixed, custom and narrow automatic grids preserve capacity',()=>{assert.deepEqual(gridSize('3x2',2,2,20,1200),[3,2]);assert.deepEqual(gridSize('custom',8,8,100,1200),[4,8]);assert.deepEqual(gridSize('auto',2,2,8,390),[1,2]);assert.deepEqual(gridSize('hotspot',2,2,6,1200),[3,2])});
@@ -18,4 +18,11 @@ test('six cameras retain readable capacity on phones and dual grids',()=>{
  assert.equal(pageCapacity('hotspot',2,2),1);
  assert.equal(pageCapacity('hotspot',1,2),2);
  assert.deepEqual(validView({quality:'fast',aspect:'4/3'},[]),{quality:'fast',aspect:'4/3'});
+});
+
+test('personal preferences validate persisted input and retain old defaults',()=>{
+ const state={...defaultView(),...validView({layout:'4',density:'compact',showNames:false,showOverview:false,showThumbnails:false,shortcuts:false,seekStep:30,timelineHeight:900},[])};
+ assert.equal(state.layout,'2x2');assert.equal(state.showNames,false);assert.equal(state.showTimestamps,true);assert.equal(state.shortcuts,false);assert.equal(state.seekStep,30);assert.equal(state.timelineHeight,650);
+ assert.deepEqual(validView({density:'tiny',showNames:'false',showCodec:0,seekStep:99,timelineHeight:'200'},[]),{});
+ assert.equal(defaultView().showThumbnails,true);assert.equal(defaultView().seekStep,5);
 });
