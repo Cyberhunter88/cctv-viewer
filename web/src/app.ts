@@ -55,6 +55,8 @@ class Tile {
   this.video.addEventListener('canplay',()=>{if(!this.failed){clearTimeout(this.stallTimer);clearTimeout(this.recoveryTimer);setMessage(this,'');this.align();log('ready',camera.id)}});
   this.video.addEventListener('waiting',()=>{if(playing&&!this.loading){setMessage(this,'Wird gepuffert …');log('buffering',camera.id);clearTimeout(this.stallTimer);this.stallTimer=setTimeout(()=>this.recover('Pufferung dauert zu lange'),10000)}});
   this.video.addEventListener('playing',()=>{clearTimeout(this.stallTimer);log('playing',camera.id)});
+  // WebKit/GStreamer may clear muted when changing playback speed.
+  this.video.addEventListener('volumechange',()=>{if(audioTile!==this&&!this.video.muted)this.video.muted=true});
   this.video.addEventListener('ended',()=>{if(this.record&&cursor<this.record.start+this.record.duration-1){this.release();this.update()}});
  }
  setAudio(enabled:boolean){this.video.muted=!enabled;this.audioButton.textContent=enabled?'Ton an':'Ton aus';this.audioButton.setAttribute('aria-pressed',String(enabled));const label=`${enabled?'Ton ausschalten':'Ton einschalten'} · ${this.camera.name}${this.view==='wide'?' · Weitwinkel':this.view==='zoom'?' · Zoom':''}`;this.audioButton.setAttribute('aria-label',label);this.audioButton.title=label}

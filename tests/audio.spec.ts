@@ -27,7 +27,10 @@ for(const dual of [false,true])test(`audio selects one ${dual?'perspective':'cam
    await page.locator('#quality').selectOption(quality);await audible(page,1);
    await expect.poll(()=>page.locator('video').last().evaluate(v=>!v.paused&&v.readyState>=2),{timeout:25000}).toBe(true);
   }
-  await page.locator('#speed').selectOption('2');await audible(page,1);await page.locator('#speed').selectOption('1');
+  // A media backend can clear muted asynchronously during a rate change.
+  // Keep the explicitly selected camera audible and restore all other mutes.
+  await page.locator('video').first().evaluate(v=>{v.muted=false});await audible(page,1);
+  await page.locator('#speed').selectOption('2');await audible(page,1);await page.locator('#speed').selectOption('1');await audible(page,1);
   if(!dual){
    await page.locator('.tile-audio').first().click();await audible(page,0);
    const previous=await page.locator('video').first().getAttribute('src');await page.locator('#skip-forward').click();await expect.poll(()=>page.locator('video').first().getAttribute('src')).not.toBe(previous);await audible(page,0);await expect.poll(()=>page.locator('video').first().evaluate(v=>!v.paused&&v.readyState>=2),{timeout:20000}).toBe(true);
