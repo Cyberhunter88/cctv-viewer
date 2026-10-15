@@ -1,23 +1,26 @@
 import Hls from 'hls.js';
-import {validView,gridSize,hotspotCandidate,recordingBoundary,moveCamera,type ViewState} from './view-state';
+import {validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveCamera,type ViewState} from './view-state';
 import {attachTimelineControls} from './timeline-controls';
 import {initManagement,berlinEpoch} from './management';
 import {recordingAt,nextRecording,playbackRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline';
 interface Camera {viewMode?:string;wideMarker?:string;zoomMarker?:string;zoomOffset?:number;id:string;name:string;folder:string;pattern:string;timezone:string;offset:number;format?:string;prefix?:string;indexingMode?:string;directoryPattern?:string;sourceStatus?:string;lastScan?:number;indexedVideos?:number}
 interface Session {preferenceKey:string;name:string;role:'admin'|'viewer';csrf:string;kind:'local'|'oidc'}
-interface Scan {active?:string[];completed?:number;total?:number;running:boolean;date:string;camera:string;indexed:number;warnings:string[]}
+interface CameraScan {id:string;name:string;state:string;inspected:number;added:number;changed:number;skipped:number}
+interface Scan {jobId?:string;state?:string;completion?:number;queue?:{id:string;date:string;camera:string;automatic:boolean}[];cameras?:CameraScan[];active?:string[];completed?:number;total?:number;running:boolean;date:string;camera:string;indexed:number;warnings:string[]}
 interface Day {recordings:Recording[];from:number;to:number;scan:Scan}
 interface SearchPage {results:{id:string;cameraId:string;cameraName:string;filename:string;start:number;duration:number}[];total:number;offset:number;limit:number;hasMore:boolean}
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 let session:Session, cameras:Camera[]=[],records:Recording[]=[],playableRecords:Recording[]=[],selected=new Set<string>(),from=0,to=0,cursor=0,viewStart=0,viewEnd=0,playing=false,lastFrame=0,scanRunning=false,loadGeneration=0;
 let thumbGeneration=0;const thumbURLs:string[]=[];
 const tiles=new Map<string,Tile>();
+let audioTile:Tile|undefined;
 const dateInput=$<HTMLInputElement>('date'),canvas=$<HTMLCanvasElement>('timeline');
 const timelineLayer=document.createElement('canvas');let timelineKey='',timelineRecords:Recording[]|undefined;
 const speed=()=>Number($<HTMLSelectElement>('speed').value);
 let refreshRange=()=>{};let page=0,order:string[]=[],hotspot:string|undefined,lastHotspotCursor:number|undefined;
+let scanCompletion=0;
 let toastTimer:ReturnType<typeof setTimeout>|undefined;
- const state:ViewState={cameras:[],order:[],layout:'auto',quality:'native',speed:'1',preload:'metadata',aspect:'4/3',columns:2,rows:2,autoHotspot:false,collapsed:true,timelineHeight:240};
+ const state:ViewState={cameras:[],order:[],layout:'auto',quality:'native',speed:'1',preload:'metadata',aspect:'auto',columns:2,rows:2,autoHotspot:false,collapsed:true,timelineHeight:240};
  let trace:{at:number;event:string;camera?:string;detail?:string}[]=[],tracing=false,traceStart=0;
  function log(event:string,camera?:string,detail?:string){if(tracing&&trace.length<20000)trace.push({at:Math.round(performance.now()-traceStart),event,camera,detail});}
 
@@ -32,29 +35,35 @@ async function api<T>(url:string,options:RequestInit={}):Promise<T>{
 function on(id:string,fn:()=>void|Promise<void>){$(id).addEventListener('click',()=>{Promise.resolve(fn()).catch(e=>notify(e.message))})}
 function element<K extends keyof HTMLElementTagNameMap>(tag:K,className='',text=''):HTMLElementTagNameMap[K]{const e=document.createElement(tag);e.className=className;e.textContent=text;return e}
 function ordered(){return order.map(id=>cameras.find(c=>c.id===id)).filter((c):c is Camera=>!!c&&selected.has(c.id))}
-function grid(){return gridSize($<HTMLSelectElement>('layout').value,state.columns,state.rows,selected.size,$('video-grid').clientWidth||innerWidth)}
-function visiblePageCapacity(){const [cols,rows]=grid();return $<HTMLSelectElement>('layout').value==='hotspot'?Math.max(2,cols*rows-1):cols*rows}
+function grid(){return gridSize($<HTMLSelectElement>('layout').value,state.columns,state.rows,selected.size,$('video-grid').clientWidth||innerWidth,ordered().some(c=>c.viewMode==='dual'))}
+function visiblePageCapacity(){const [cols,rows]=grid();return pageCapacity($<HTMLSelectElement>('layout').value,cols,rows)}
 function visible():Camera[]{const all=ordered(),capacity=visiblePageCapacity();page=clamp(page,0,Math.max(0,Math.ceil(all.length/capacity)-1));return all.slice(page*capacity,(page+1)*capacity)}
 function setMessage(tile:Tile,message:string,error=false){if(tile.messageState===message&&tile.messageError===error)return;tile.messageState=message;tile.messageError=error;tile.message.replaceChildren();if(message){tile.message.append(element('span','symbol',error?'⚠':'▧'),element('span','',message))}tile.message.hidden=!message;tile.message.classList.toggle('error',error)}
 class Tile {
+ audioButton=element('button','tile-audio');
  messageState?:string;messageError=false;playPending=false;video=element('video');container=element('div','camera-tile');message=element('div','tile-message');timestamp=element('span');codec=element('small');stream?:string;record?:Recording;loading=false;failed=false;epoch=0;offset=0;factor=1;abort?:AbortController;hls?:Hls;loadedSpeed=1;attempts=0;recoveryStart=0;recoveryTimer?:ReturnType<typeof setTimeout>;stallTimer?:ReturnType<typeof setTimeout>;pauseTimer?:ReturnType<typeof setTimeout>;
  constructor(public camera:Camera,public view?:string){
-  this.video.muted=true;this.video.playsInline=true;this.video.preload=state.preload as 'metadata'|'auto';
-  const header=element('div','tile-header'),title=element('button','tile-title',camera.name+(view==='wide'?' · Weitwinkel':view==='zoom'?' · Zoom':''));title.type='button';title.title='Als Hotspot wählen';title.onclick=()=>{hotspot=camera.id;state.autoHotspot=false;$<HTMLInputElement>('auto-hotspot').checked=false;renderGrid();saveView()};header.append(title,this.codec);
+  this.video.muted=true;this.video.preservesPitch=true;this.video.playsInline=true;this.video.preload=state.preload as 'metadata'|'auto';
+  const header=element('div','tile-header'),title=element('button','tile-title',camera.name+(view==='wide'?' · Weitwinkel':view==='zoom'?' · Zoom':''));title.type='button';title.setAttribute('aria-label',title.textContent+' · Als Hotspot wählen');title.title=title.textContent+' · Als Hotspot wählen';title.onclick=()=>{hotspot=camera.id;state.autoHotspot=false;$<HTMLInputElement>('auto-hotspot').checked=false;renderGrid();saveView()};header.append(title,this.codec);
   const footer=element('div','tile-footer');footer.append(this.timestamp,element('span','','AUFNAHME'));this.container.append(this.video,header,this.message,footer);
   this.container.ondblclick=()=>this.container.classList.toggle('expanded');
-  const expand=element('button','tile-expand','⤢');expand.type='button';expand.setAttribute('aria-label','Ansicht vergrößern');expand.onclick=()=>this.container.classList.toggle('expanded');footer.append(expand);
-  this.video.addEventListener('error',()=>{if(this.record&&!this.loading)this.recover('Video konnte nicht geladen werden')});
-  this.video.addEventListener('loadedmetadata',()=>this.align());
+  const expand=element('button','tile-expand','⤢');expand.type='button';expand.setAttribute('aria-label','Ansicht vergrößern');expand.onclick=()=>this.container.classList.toggle('expanded');this.audioButton.type='button';this.setAudio(false);
+  this.audioButton.onclick=()=>{const enabled=audioTile!==this;if(audioTile)audioTile.setAudio(false);audioTile=enabled?this:undefined;this.setAudio(enabled);if(enabled&&playing)this.startPlayback()};
+  this.audioButton.ondblclick=e=>e.stopPropagation();expand.ondblclick=e=>e.stopPropagation();footer.append(this.audioButton,expand);
+  this.video.addEventListener('error',()=>{if(this.record&&!this.loading){if($<HTMLSelectElement>('quality').value==='native'&&this.video.error?.code===4)this.fail('Originalformat im Browser nicht unterstützt. Bitte Ausgewogen oder Schnell wählen');else this.recover('Video konnte nicht geladen werden')}});
+  this.video.addEventListener('loadedmetadata',()=>{this.applyAspect();this.align()});
   this.video.addEventListener('canplay',()=>{if(!this.failed){clearTimeout(this.stallTimer);clearTimeout(this.recoveryTimer);setMessage(this,'');this.align();log('ready',camera.id)}});
   this.video.addEventListener('waiting',()=>{if(playing&&!this.loading){setMessage(this,'Wird gepuffert …');log('buffering',camera.id);clearTimeout(this.stallTimer);this.stallTimer=setTimeout(()=>this.recover('Pufferung dauert zu lange'),10000)}});
   this.video.addEventListener('playing',()=>{clearTimeout(this.stallTimer);log('playing',camera.id)});
   this.video.addEventListener('ended',()=>{if(this.record&&cursor<this.record.start+this.record.duration-1){this.release();this.update()}});
  }
+ setAudio(enabled:boolean){this.video.muted=!enabled;this.audioButton.textContent=enabled?'Ton an':'Ton aus';this.audioButton.setAttribute('aria-pressed',String(enabled));const label=`${enabled?'Ton ausschalten':'Ton einschalten'} · ${this.camera.name}${this.view==='wide'?' · Weitwinkel':this.view==='zoom'?' · Zoom':''}`;this.audioButton.setAttribute('aria-label',label);this.audioButton.title=label}
+ startPlayback(){if(this.playPending)return;this.playPending=true;const epoch=this.epoch;void this.video.play().catch((error:Error)=>{if(epoch!==this.epoch)return;if(error.name==='NotAllowedError'&&audioTile===this){audioTile=undefined;this.setAudio(false);notify('Der Browser hat die Tonwiedergabe blockiert. Bitte Ton erneut einschalten.')}}).finally(()=>{if(epoch===this.epoch)this.playPending=false})}
+ applyAspect(){this.container.style.aspectRatio=state.aspect==='auto'?`${this.video.videoWidth||16} / ${this.video.videoHeight||9}`:state.aspect==='fill'?'16 / 9':state.aspect;this.video.style.objectFit=state.aspect==='fill'?'cover':'contain'}
  fail(message:string){const record=this.record;this.release();this.record=record;this.failed=true;setMessage(this,message+' · Pause und Abspielen zum Wiederholen.',true);log('failed',this.camera.id,message)}
  recover(message:string){if(this.failed)return;if(!this.recoveryStart)this.recoveryStart=performance.now();if(this.attempts>=3||performance.now()-this.recoveryStart>=30000){this.fail(message);return}const record=this.record;if(!record)return;this.attempts++;log('retry',this.camera.id,String(this.attempts));void this.load(record,true)}
  release(){this.epoch++;clearTimeout(this.pauseTimer);clearTimeout(this.stallTimer);clearTimeout(this.recoveryTimer);this.abort?.abort();this.abort=undefined;this.hls?.destroy();this.hls=undefined;this.video.pause();this.video.removeAttribute('src');this.video.load();if(this.stream){const id=this.stream;this.stream=undefined;void api('/api/streams/'+id,{method:'DELETE',keepalive:true}).catch(()=>{})}this.loading=false;this.playPending=false;this.record=undefined;this.failed=false;this.offset=0;this.factor=1}
- destroy(){this.release();this.container.remove()}
+ destroy(){if(audioTile===this){audioTile=undefined;this.setAudio(false)}this.release();this.container.remove()}
  async load(record:Recording,recovering=false){
   const different=this.record?.id!==record.id;this.release();if(different&&!recovering){this.attempts=0;this.recoveryStart=0}this.record=record;const epoch=this.epoch;this.loading=true;setMessage(this,'Aufnahme wird geladen …');this.codec.textContent=record.codec==='hevc'?'H.265':record.codec.toUpperCase();this.loadedSpeed=speed();if(recovering&&this.recoveryStart)this.recoveryTimer=setTimeout(()=>this.fail('Wiederherstellung nach 30 Sekunden beendet'),Math.max(1,30000-(performance.now()-this.recoveryStart)));
   const quality=$<HTMLSelectElement>('quality').value;log('load',this.camera.id,quality);
@@ -75,7 +84,7 @@ class Tile {
  align(){if(!this.record||this.loading||this.failed)return;const target=(cursor-this.record.start-this.offset)/this.factor;
   if(this.stream&&(target<-.1||this.loadedSpeed!==speed()||target>this.video.currentTime+3&&this.video.readyState>=1&&!Array.from({length:this.video.buffered.length},(_,i)=>[this.video.buffered.start(i),this.video.buffered.end(i)]).some(([a,b])=>target>=a&&target<b))){void this.load(this.record,true);return}
   if(this.video.readyState>=1&&Math.abs(this.video.currentTime-target)>.65/this.factor){try{this.video.currentTime=Math.max(0,target)}catch{}}
-  const rate=speed()/this.factor;if(this.video.playbackRate!==rate)this.video.playbackRate=rate;if(playing){if(this.video.paused&&!this.playPending){this.playPending=true;const epoch=this.epoch;void this.video.play().catch(()=>{}).finally(()=>{if(epoch===this.epoch)this.playPending=false})}}else if(!this.video.paused)this.video.pause();
+  const rate=speed()/this.factor;if(this.video.playbackRate!==rate)this.video.playbackRate=rate;if(playing){if(this.video.paused)this.startPlayback()}else if(!this.video.paused)this.video.pause();
  }
  current(){return recordingAt(playableRecords,this.camera.id,cursor,this.view)}
  update(timestamp=clock(cursor)){if(this.timestamp.textContent!==timestamp)this.timestamp.textContent=timestamp;const record=this.current();if(!record){if(this.record)this.release();setMessage(this,this.view&&recordingAt(records,this.camera.id,cursor,'unknown')?'Kennung unklar · Erkennung in Kameraeinstellungen prüfen':'Keine Aufnahme zu diesem Zeitpunkt');return}if(this.record?.id!==record.id){void this.load(record);return}this.align()}
@@ -93,21 +102,29 @@ function renderGrid(){
  gridElement.replaceChildren();
  const isHotspot=$<HTMLSelectElement>('layout').value==='hotspot';if(!active.some(c=>c.id===hotspot))hotspot=active[0]?.id;
  for(const c of active){
-  const group=element('div','camera-group');group.classList.toggle('dual',c.viewMode==='dual');group.classList.toggle('hotspot-primary',isHotspot&&c.id===hotspot&&cols>1);
+  const group=element('div','camera-group');group.classList.toggle('dual',c.viewMode==='dual');group.classList.toggle('hotspot-primary',isHotspot&&c.id===hotspot&&cols>1&&grid()[1]>1);
   for(const view of c.viewMode==='dual'?['wide','zoom']:[undefined]){
-   const key=c.id+':'+(view||'single');if(!tiles.has(key))tiles.set(key,new Tile(c,view));const tile=tiles.get(key)!;tile.camera=c;group.append(tile.container);tile.container.style.aspectRatio=state.aspect==='auto'?'auto':state.aspect==='fill'?'16 / 9':state.aspect;tile.video.style.objectFit=state.aspect==='fill'?'cover':'contain';tile.video.preload=state.preload as 'metadata'|'auto';
+   const key=c.id+':'+(view||'single');if(!tiles.has(key))tiles.set(key,new Tile(c,view));const tile=tiles.get(key)!;tile.camera=c;group.append(tile.container);tile.applyAspect();tile.video.preload=state.preload as 'metadata'|'auto';
   }
   gridElement.append(group);if(isHotspot&&c.id===hotspot)gridElement.prepend(group);
  }
  if(cameras.length>0&&selected.size===0)gridElement.append(element('div','empty-filter-hint','Keine Kameras ausgewählt. Wähle oben mindestens eine Kamera aus, um die Aufnahmen anzuzeigen.'));
- const capacity=visiblePageCapacity();$('page-display').textContent=`${page+1} / ${Math.max(1,Math.ceil(selected.size/capacity))}`;$<HTMLButtonElement>('page-prev').disabled=page===0;$<HTMLButtonElement>('page-next').disabled=(page+1)*capacity>=selected.size;
+ const capacity=visiblePageCapacity();$('camera-range').textContent=selected.size?`Kameras ${page*capacity+1}–${Math.min((page+1)*capacity,selected.size)} von ${selected.size}`:'Keine Kamera ausgewählt';const layout=$<HTMLSelectElement>('layout').value,requested=layout==='custom'?state.columns:Number(layout.split('x')[0]);$('grid-hint').textContent=Number.isFinite(requested)&&requested>cols?`Raster an Bildschirm angepasst: ${cols} Spalte${cols===1?'':'n'}`:'';$('page-display').textContent=`${page+1} / ${Math.max(1,Math.ceil(selected.size/capacity))}`;$<HTMLButtonElement>('page-prev').disabled=page===0;$<HTMLButtonElement>('page-next').disabled=(page+1)*capacity>=selected.size;
  $('custom-grid').hidden=$<HTMLSelectElement>('layout').value!=='custom';$('hotspot-control').hidden=!isHotspot;
 }
 function renderCameras(){
  lastHotspotCursor=undefined;playableRecords=playbackRecordings(records,cameras); const filters=$('camera-filters');filters.replaceChildren();for(const id of order){const camera=cameras.find(c=>c.id===id);if(!camera)continue;const b=element('button','filter'+(selected.has(id)?' selected':''),camera.name);b.setAttribute('aria-pressed',String(selected.has(id)));b.draggable=true;b.ondragstart=e=>e.dataTransfer?.setData('text/plain',id);b.ondragover=e=>e.preventDefault();b.ondrop=e=>{e.preventDefault();const source=e.dataTransfer?.getData('text/plain');if(!source||!order.includes(source))return;order=moveCamera(order,source,id);renderCameras();saveView()};b.onclick=()=>{if(selected.has(id))selected.delete(id);else selected.add(id);page=0;renderCameras();saveView()};filters.append(b)}
  renderGrid();$('empty').hidden=cameras.length!==0;$('timeline-section').hidden=cameras.length===0;$('add-first').hidden=session.role!=='admin';update();void thumbnails();
 }
-function setScan(scan:Scan){scanRunning=scan.running;$('scan-status').textContent=scan.running?`Indexierung · ${scan.completed||0}/${scan.total||0} Kameras · ${scan.camera||'wird vorbereitet'} · ${scan.indexed} Videos`:'Index bereit';$('index-dot').classList.toggle('busy',scan.running);for(const id of ['rescan','scan-all','rebuild-index'])$<HTMLButtonElement>(id).disabled=scan.running;$('warnings').hidden=!scan.warnings?.length;$('warnings').textContent=(scan.warnings||[]).join('\n')}
+function setScan(scan:Scan){
+ scanRunning=scan.running;scanCompletion=scan.completion??scanCompletion;
+ const labels:Record<string,string>={queued:'Wartet',running:'Wird geprüft',complete:'Abgeschlossen',partial:'Teilweise abgeschlossen',failed:'Fehlgeschlagen',cancelled:'Abgebrochen'};
+ $('scan-status').textContent=scan.running?`Indexierung · ${scan.completed||0}/${scan.total||0} Kameras · ${scan.indexed} neue/geänderte Videos`:(scan.state==='partial'?'Indexierung teilweise abgeschlossen':scan.state==='cancelled'?'Indexierung abgebrochen':scan.state==='failed'?'Indexierung fehlgeschlagen':'Index bereit');
+ $('index-dot').classList.toggle('busy',scan.running);for(const id of ['rescan','scan-all','rebuild-index'])$<HTMLButtonElement>(id).disabled=scan.running;
+ const root=$('scan-cameras');root.replaceChildren();for(const c of scan.cameras||[])root.append(element('div','scan-camera-status',`${c.name}: ${labels[c.state]||c.state} · ${c.inspected} geprüft · ${c.added} neu · ${c.changed} geändert · ${c.skipped} übersprungen`));
+ $('scan-queue').textContent=`${scan.queue?.length||0} Aufträge warten${scan.queue?.length?' · '+scan.queue.map(q=>`${cameras.find(c=>c.id===q.camera)?.name||'Alle Kameras'} (${q.date})`).join(', '):''}`;
+ $('warnings').hidden=!scan.warnings?.length;$('warnings').textContent=(scan.warnings||[]).join('\n');
+}
 async function loadDay(reset=true){const generation=++loadGeneration;if(reset){pause();tiles.forEach(t=>t.release())}const data=await api<Day>('/api/day?date='+encodeURIComponent(dateInput.value));if(generation!==loadGeneration)return;records=data.recordings;playableRecords=playbackRecordings(records,cameras);from=data.from;to=data.to;setScan(data.scan);if(reset){cursor=firstRecordingStart(playableRecords,from);viewStart=from;viewEnd=to}$('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;update();void thumbnails();refreshRange()}
 async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList()}
 function updateTimelineDescription(cams:Camera[]){
@@ -125,20 +142,21 @@ function updateTimelineDescription(cams:Camera[]){
  if(!cams.length)list.append(element('li','','Keine Kameras sichtbar.'));
  description.append(list);
 }
-function draw(){if(!from)return;const cams=visible(),width=canvas.parentElement!.clientWidth,height=48+Math.max(1,cams.length)*34,dpr=devicePixelRatio||1;
+function timelineColors(){const css=getComputedStyle(document.documentElement);return Object.fromEntries(['line','muted','track','record','cursor','panel'].map(k=>[k,css.getPropertyValue('--timeline-'+k).trim()]))}
+function draw(){if(!from)return;const palette=timelineColors();const cams=visible(),width=canvas.parentElement!.clientWidth,height=48+Math.max(1,cams.length)*34,dpr=devicePixelRatio||1;
  if(width<=0)return;
  if(canvas.width!==Math.round(width*dpr)||canvas.height!==Math.round(height*dpr)){canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);canvas.style.height=height+'px'}
  const ctx=canvas.getContext('2d')!;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);const left=85,right=width-15,area=right-left,span=viewEnd-viewStart,x=(t:number)=>left+(t-viewStart)/span*area;
  const intervals=[60,300,600,1800,3600,7200,14400,21600];const interval=intervals.find(s=>span/s<area/65)||21600;
  const key=[width,height,dpr,viewStart,viewEnd,...cams.map(c=>c.id+':'+c.name+':'+c.viewMode)].join('/');
  if(timelineKey!==key||timelineRecords!==playableRecords){
- ctx.font='9px system-ui';ctx.textAlign='center';for(let t=Math.ceil(viewStart/interval)*interval;t<=viewEnd;t+=interval){const p=x(t);ctx.strokeStyle='#25313a';ctx.beginPath();ctx.moveTo(p,30);ctx.lineTo(p,height-10);ctx.stroke();ctx.fillStyle='#758997';ctx.fillText(clock(t).slice(0,5),p,19)}
- cams.forEach((camera,i)=>{const y=39+i*34;ctx.fillStyle='#7d909c';ctx.textAlign='left';ctx.fillText(camera.name.length>11?camera.name.slice(0,10)+'…':camera.name,12,y+14);ctx.fillStyle='#1b2730';ctx.fillRect(left,y,area,23);
-  ctx.save();ctx.beginPath();ctx.rect(left,y,area,23);ctx.clip();for(const r of playableRecords.filter(r=>r.cameraId===camera.id&&r.start<viewEnd&&(r.kind==='image'?r.start>=viewStart:r.start+r.duration>viewStart))){ctx.fillStyle=r.kind==='image'?'#e4b86c':'#709f80';ctx.fillRect(x(r.start),y+3,r.kind==='image'?4:Math.max(2,r.duration/span*area),17)}ctx.restore();
+ ctx.font='9px system-ui';ctx.textAlign='center';for(let t=Math.ceil(viewStart/interval)*interval;t<=viewEnd;t+=interval){const p=x(t);ctx.strokeStyle=palette.line;ctx.beginPath();ctx.moveTo(p,30);ctx.lineTo(p,height-10);ctx.stroke();ctx.fillStyle=palette.muted;ctx.fillText(clock(t).slice(0,5),p,19)}
+ cams.forEach((camera,i)=>{const y=39+i*34;ctx.fillStyle=palette.muted;ctx.textAlign='left';ctx.fillText(camera.name.length>11?camera.name.slice(0,10)+'…':camera.name,12,y+14);ctx.fillStyle=palette.track;ctx.fillRect(left,y,area,23);
+  ctx.save();ctx.beginPath();ctx.rect(left,y,area,23);ctx.clip();for(const r of playableRecords.filter(r=>r.cameraId===camera.id&&r.start<viewEnd&&(r.kind==='image'?r.start>=viewStart:r.start+r.duration>viewStart))){ctx.fillStyle=palette.record;ctx.fillRect(x(r.start),y+3,r.kind==='image'?4:Math.max(2,r.duration/span*area),17)}ctx.restore();
  });
  timelineLayer.width=canvas.width;timelineLayer.height=canvas.height;timelineLayer.getContext('2d')!.drawImage(canvas,0,0);timelineKey=key;timelineRecords=playableRecords;updateTimelineDescription(cams);
  }else ctx.drawImage(timelineLayer,0,0,width,height);
- if(cursor>=viewStart&&cursor<=viewEnd){const p=x(cursor);ctx.strokeStyle='#c8f9d5';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(p,29);ctx.lineTo(p,height-8);ctx.stroke();ctx.fillStyle='#c8f9d5';ctx.beginPath();ctx.moveTo(p-4,27);ctx.lineTo(p+4,27);ctx.lineTo(p,33);ctx.fill()}
+ if(cursor>=viewStart&&cursor<=viewEnd){const p=x(cursor);ctx.strokeStyle=palette.cursor;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(p,29);ctx.lineTo(p,height-8);ctx.stroke();ctx.fillStyle=palette.cursor;ctx.beginPath();ctx.moveTo(p-4,27);ctx.lineTo(p+4,27);ctx.lineTo(p,33);ctx.fill()}
  drawOverview();
  const hours=span/3600;$('zoom-label').textContent=hours>=1?`${Math.round(hours*10)/10} Std.`:`${Math.round(span/60)} Min.`;
 }
@@ -191,7 +209,7 @@ async function boot(){
  Object.assign(state,saved);hotspot=saved.hotspot;if(saved.cameras)selected=new Set(saved.cameras);if(saved.order)order=[...saved.order,...order.filter(id=>!saved.order!.includes(id))];for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).value=state[id];$<HTMLInputElement>('grid-columns').value=String(state.columns);$<HTMLInputElement>('grid-rows').value=String(state.rows);$<HTMLInputElement>('auto-hotspot').checked=state.autoHotspot;applyToolbar();setTimelineHeight(state.timelineHeight);renderCameras();await loadDay();
  refreshRange=attachTimelineControls(canvas,{bounds:()=>({from,to,cursor,viewStart,viewEnd}),seek,zoom,pan:(start,end)=>{viewStart=start;viewEnd=end;draw();refreshRange()}});
  $('boot-error').hidden=true;$('app').hidden=false;$('playback-diagnostics').hidden=false;requestAnimationFrame(frame);
- setInterval(async()=>{try{const scan=await api<Scan>('/api/scan');const wasRunning=scanRunning;setScan(scan);if(wasRunning&&!scan.running)await loadDay(false)}catch(e){notify((e as Error).message)}},4000);
+ setInterval(async()=>{try{const scan=await api<Scan>('/api/scan');const wasRunning=scanRunning,completedBefore=scanCompletion;setScan(scan);if((wasRunning&&!scan.running)||scanCompletion>completedBefore)await loadDay(false)}catch(e){notify((e as Error).message)}},4000);
 }
 function showBootError(error:unknown){$('boot-error-message').textContent=(error as Error).message||'Unbekannter Fehler';$('boot-error').hidden=false}
 async function runBoot(){const button=$<HTMLButtonElement>('boot-retry');button.disabled=true;if(!$('boot-error').hidden)$('boot-error-message').textContent='Verbindung wird hergestellt …';try{await boot()}catch(error){showBootError(error)}finally{button.disabled=false}}
@@ -208,7 +226,7 @@ on('page-prev',()=>{page--;renderCameras()});on('page-next',()=>{page++;renderCa
 on('scan-all',async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({date:dateInput.value,all:true})}))});
 on('rebuild-index',async()=>{if(!confirm('Den abgeleiteten Index und Vorschaubilder neu aufbauen? Kameras und Originalvideos bleiben erhalten.'))return;pause();tiles.forEach(t=>t.release());await api('/api/index/rebuild',{method:'POST'});records=[];await loadDay();notify('Index geleert. Der geöffnete Tag wird erneut eingelesen.')});
 const overview=$<HTMLCanvasElement>('overview'),overviewLayer=document.createElement('canvas');let overviewKey='',overviewRecords:Recording[]|undefined;
-function drawOverview(){if(!from)return;const width=Math.max(100,overview.parentElement!.clientWidth),dpr=devicePixelRatio||1;if(overview.width!==width*dpr){overview.width=width*dpr;overview.height=34*dpr}const ctx=overview.getContext('2d')!;ctx.setTransform(dpr,0,0,dpr,0,0);const ids=visible().map(c=>c.id),key=[from,to,width,dpr,...ids].join('/');if(overviewKey!==key||overviewRecords!==playableRecords){ctx.fillStyle='#1b2730';ctx.fillRect(0,0,width,34);ctx.fillStyle='#709f80';for(const r of playableRecords)if(ids.includes(r.cameraId)){const start=clamp(r.start,from,to);ctx.fillRect((start-from)/(to-from)*width,10,Math.max(1,(Math.min(to,r.start+r.duration)-start)/(to-from)*width),14)}overviewLayer.width=overview.width;overviewLayer.height=overview.height;overviewLayer.getContext('2d')!.drawImage(overview,0,0);overviewKey=key;overviewRecords=playableRecords}else ctx.drawImage(overviewLayer,0,0,width,34);ctx.strokeStyle='#c8f9d5';ctx.strokeRect((viewStart-from)/(to-from)*width,1,(viewEnd-viewStart)/(to-from)*width,32);ctx.fillStyle='#fff';ctx.fillRect((cursor-from)/(to-from)*width,0,1,34)}
+function drawOverview(){if(!from)return;const palette=timelineColors();const width=Math.max(100,overview.parentElement!.clientWidth),dpr=devicePixelRatio||1;if(overview.width!==width*dpr){overview.width=width*dpr;overview.height=34*dpr}const ctx=overview.getContext('2d')!;ctx.setTransform(dpr,0,0,dpr,0,0);const ids=visible().map(c=>c.id),key=[from,to,width,dpr,...ids].join('/');if(overviewKey!==key||overviewRecords!==playableRecords){ctx.fillStyle=palette.track;ctx.fillRect(0,0,width,34);ctx.fillStyle=palette.record;for(const r of playableRecords)if(ids.includes(r.cameraId)){const start=clamp(r.start,from,to);ctx.fillRect((start-from)/(to-from)*width,10,Math.max(1,(Math.min(to,r.start+r.duration)-start)/(to-from)*width),14)}overviewLayer.width=overview.width;overviewLayer.height=overview.height;overviewLayer.getContext('2d')!.drawImage(overview,0,0);overviewKey=key;overviewRecords=playableRecords}else ctx.drawImage(overviewLayer,0,0,width,34);ctx.strokeStyle=palette.cursor;ctx.strokeRect((viewStart-from)/(to-from)*width,1,(viewEnd-viewStart)/(to-from)*width,32);ctx.fillStyle=palette.cursor;ctx.fillRect((cursor-from)/(to-from)*width,0,1,34)}
 
 overview.onpointerdown=e=>{overview.setPointerCapture(e.pointerId);seek(from+clamp((e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth,0,1)*(to-from));const span=viewEnd-viewStart;viewStart=clamp(cursor-span/2,from,to-span);viewEnd=viewStart+span;draw()};
 overview.onpointermove=e=>{if(e.buttons===1){const span=viewEnd-viewStart,start=clamp(from+(e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth*(to-from)-span/2,from,to-span);viewStart=start;viewEnd=start+span;draw()}};
@@ -297,3 +315,5 @@ async function browseBatch(folder=''){batchFolder=folder;const data=await api<{p
 on('batch-open',async()=>{batchSelection.clear();$('batch-error').textContent='';renderBatchSelection();$<HTMLDialogElement>('batch-dialog').showModal();await browseBatch()});
 on('batch-close',()=>$<HTMLDialogElement>('batch-dialog').close());
 on('batch-save',async()=>{const button=$<HTMLButtonElement>('batch-save');button.disabled=true;try{const settings=cameraInput();await api('/api/cameras/batch',{method:'POST',body:JSON.stringify({date:dateInput.value,cameras:[...batchSelection].map(([folder,name])=>({...settings,id:'',folder,name}))})});$<HTMLDialogElement>('batch-dialog').close();dialog.close();await refreshCameras();await loadDay();notify('Kameras hinzugefügt. Bis zu drei Kameras werden gleichzeitig indexiert.')}catch(e){$('batch-error').textContent=(e as Error).message}finally{button.disabled=false}});
+
+window.addEventListener('themechange',()=>{timelineKey='';overviewKey='';draw()});

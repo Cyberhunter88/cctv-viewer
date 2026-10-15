@@ -1,7 +1,7 @@
 name: CCTV Viewer bauen und prüfen
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
   workflow_call:
     inputs:
@@ -13,7 +13,7 @@ permissions:
   contents: read
 jobs:
   test:
-    name: Anwendung prüfen und Docker bauen
+    name: Anwendung prüfen
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -40,12 +40,106 @@ jobs:
           path: test-results/
           retention-days: 7
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+  image-meta:
+    needs: test
+    runs-on: ubuntu-24.04
+    outputs:
+      commit: ${{ steps.meta.outputs.commit }}
+      image: ${{ steps.meta.outputs.image }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - id: meta
+        run: |
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "version=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')" >> "$GITHUB_OUTPUT"
+  build:
+    needs: [image-meta]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.image-meta.outputs.commit }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - if: github.event_name == 'push'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           load: true
           tags: cctv-viewer:test
-          cache-from: type=gha,scope=ci
-          cache-to: type=gha,mode=max,scope=ci
+          platforms: linux/${{ matrix.arch }}
+          build-args: VERSION=${{ needs.image-meta.outputs.version }}
+          cache-from: type=gha,scope=commit-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=commit-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.image-meta.outputs.commit }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ needs.image-meta.outputs.version }}
       - run: ./scripts/smoke.sh cctv-viewer:test
+      - if: github.event_name == 'push'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          push: true
+          platforms: linux/${{ matrix.arch }}
+          tags: ${{ needs.image-meta.outputs.image }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+          build-args: VERSION=${{ needs.image-meta.outputs.version }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=commit-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.image-meta.outputs.commit }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ needs.image-meta.outputs.version }}
+  publish-commit:
+    if: github.event_name == 'push'
+    needs: [image-meta, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: commit-image-${{ needs.image-meta.outputs.commit }}
+      cancel-in-progress: false
+    steps:
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Geprüftes Multiarch-Image für den Commit veröffentlichen
+        env:
+          IMAGE: ${{ needs.image-meta.outputs.image }}
+          COMMIT: ${{ needs.image-meta.outputs.commit }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:sha-$COMMIT" > "$RUNNER_TEMP/existing" 2> "$RUNNER_TEMP/inspect-error"; then
+            echo 'Commit-Image existiert bereits und bleibt unverändert.'
+          else
+            grep -Eiq 'not found|manifest unknown|name unknown' "$RUNNER_TEMP/inspect-error" || { cat "$RUNNER_TEMP/inspect-error"; exit 1; }
+            docker buildx imagetools create -t "$IMAGE:sha-$COMMIT" "$IMAGE:build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-amd64" "$IMAGE:build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-arm64"
+          fi
+          docker buildx imagetools inspect "$IMAGE:sha-$COMMIT"
+          echo "## Commit-Image" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$IMAGE:sha-$COMMIT\`" >> "$GITHUB_STEP_SUMMARY"

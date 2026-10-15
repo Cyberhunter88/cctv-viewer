@@ -25,6 +25,8 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  const times=await page.locator('.camera-group.dual video').evaluateAll(v=>v.map(x=>x.currentTime));expect(Math.abs(times[0]-times[1])).toBeLessThan(1);
  await page.locator('#play').click();await page.locator('.camera-group.dual video').first().dblclick();await expect(page.locator('.camera-tile.expanded')).toHaveCount(1);await page.keyboard.press('Escape');await expect(page.locator('.camera-tile.expanded')).toHaveCount(0);
  await page.screenshot({path:'/tmp/cctv-dual-ui.png',fullPage:true});
+ // On phones only two camera groups fit per page. Keep this check focused on paired views.
+ for(const name of ['Eingang','Garten'])await page.locator('#camera-filters').getByRole('button',{name,exact:true}).click();
  await page.setViewportSize({width:390,height:844});await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:'/tmp/cctv-dual-mobile.png',fullPage:true});
  for(const width of [980,1440,390]){
   await page.setViewportSize({width,height:844});
@@ -43,7 +45,7 @@ test('a failed or missing zoom leaves wide playback running without repeated req
  });
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);
  const session=await(await page.request.get('/api/session')).json();
- const headers={'X-CSRF-Token':session.csrf,Origin:'http://127.0.0.1:18080'};
+ const headers={'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin};
  const response=await page.request.post('/api/cameras',{headers,data:{name:'Dual isolation',folder:'DualFront',format:'automatic',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:'dual',wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:-5}});
  expect(response.ok(),await response.text()).toBe(true);const camera=await response.json();
  try{

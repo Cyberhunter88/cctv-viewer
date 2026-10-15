@@ -204,7 +204,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/streams/{id}", a.protect(false, a.deleteStream))
 	mux.HandleFunc("GET /api/streams/{id}/{file}", a.protect(false, a.streamFile))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && r.URL.Path != "/app.js" && r.URL.Path != "/style.css" {
+		if r.URL.Path != "/" && r.URL.Path != "/app.js" && r.URL.Path != "/theme.js" && r.URL.Path != "/style.css" && r.URL.Path != "/favicon.svg" && r.URL.Path != "/favicon.ico" {
 			http.NotFound(w, r)
 			return
 		}
@@ -224,6 +224,10 @@ func (a *App) Handler() http.Handler {
 			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		case ".css":
 			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		case ".svg":
+			w.Header().Set("Content-Type", "image/svg+xml")
+		case ".ico":
+			w.Header().Set("Content-Type", "image/x-icon")
 		}
 		w.Write(b)
 	})

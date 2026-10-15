@@ -3,52 +3,94 @@ package viewer
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"math"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
+type CameraScanStatus struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	State     string `json:"state"`
+	Inspected int    `json:"inspected"`
+	Added     int    `json:"added"`
+	Changed   int    `json:"changed"`
+	Skipped   int    `json:"skipped"`
+}
+type QueuedScan struct {
+	ID        string `json:"id"`
+	Date      string `json:"date"`
+	Camera    string `json:"camera"`
+	Automatic bool   `json:"automatic"`
+}
 type ScanStatus struct {
-	Active    []string `json:"active"`
-	Completed int      `json:"completed"`
-	Total     int      `json:"total"`
-	Running   bool     `json:"running"`
-	Date      string   `json:"date"`
-	Camera    string   `json:"camera"`
-	Indexed   int      `json:"indexed"`
-	Warnings  []string `json:"warnings"`
-	Finished  string   `json:"finished,omitempty"`
+	Active     []string           `json:"active"`
+	Completed  int                `json:"completed"`
+	Total      int                `json:"total"`
+	Running    bool               `json:"running"`
+	Date       string             `json:"date"`
+	Camera     string             `json:"camera"`
+	Indexed    int                `json:"indexed"`
+	Warnings   []string           `json:"warnings"`
+	Finished   string             `json:"finished,omitempty"`
+	JobID      string             `json:"jobId"`
+	State      string             `json:"state"`
+	Queue      []QueuedScan       `json:"queue"`
+	Cameras    []CameraScanStatus `json:"cameras"`
+	Inspected  int                `json:"inspected"`
+	Added      int                `json:"added"`
+	Changed    int                `json:"changed"`
+	Skipped    int                `json:"skipped"`
+	Completion uint64             `json:"completion"`
 }
 type scanJob struct {
-	date, camera, batch string
-	all, incremental    bool
+	date, camera, batch, id  string
+	all, incremental, manual bool
 }
+
+func sameScan(a, b scanJob) bool {
+	return a.date == b.date && a.camera == b.camera && a.batch == b.batch && a.all == b.all && a.incremental == b.incremental
+}
+
 type indexer struct {
-	current   scanJob
-	queue     []scanJob
-	scheduled bool
-	mu        sync.Mutex
-	status    ScanStatus
-	last      map[string]time.Time
+	current      scanJob
+	queue        []scanJob
+	scheduled    bool
+	mu           sync.Mutex
+	status       ScanStatus
+	last         map[string]time.Time
+	manualStreak int
+	completion   uint64
 }
 
 func (a *App) scanStatus() ScanStatus {
 	a.index.mu.Lock()
 	defer a.index.mu.Unlock()
 	s := a.index.status
+	if s.State == "" {
+		s.State = "idle"
+	}
 	s.Active = append([]string{}, s.Active...)
 	s.Warnings = append([]string{}, s.Warnings...)
+	s.Cameras = append([]CameraScanStatus{}, s.Cameras...)
+	s.Queue = []QueuedScan{}
+	for _, q := range a.index.queue {
+		s.Queue = append(s.Queue, QueuedScan{q.id, q.date, q.camera, !q.manual})
+	}
+	s.Completion = a.index.completion
 	return s
 }
 func (a *App) warn(s string) {
@@ -58,34 +100,105 @@ func (a *App) warn(s string) {
 		a.index.status.Warnings = append(a.index.status.Warnings, s)
 	}
 }
+
+// Called with the index mutex held; preserve the legacy human-readable fields.
+func (x *indexer) updateActive() {
+	x.status.Active = []string{}
+	for _, c := range x.status.Cameras {
+		if c.State == "running" {
+			x.status.Active = append(x.status.Active, c.Name)
+		}
+	}
+	x.status.Camera = strings.Join(x.status.Active, " · ")
+}
+func (a *App) progress(c Camera, kind string) {
+	a.index.mu.Lock()
+	defer a.index.mu.Unlock()
+	for i := range a.index.status.Cameras {
+		p := &a.index.status.Cameras[i]
+		if p.ID != c.ID {
+			continue
+		}
+		switch kind {
+		case "inspected":
+			p.Inspected++
+		case "added":
+			p.Added++
+		case "changed":
+			p.Changed++
+		case "skipped":
+			p.Skipped++
+		}
+		break
+	}
+	switch kind {
+	case "inspected":
+		a.index.status.Inspected++
+	case "added":
+		a.index.status.Added++
+		a.index.status.Indexed++
+	case "changed":
+		a.index.status.Changed++
+		a.index.status.Indexed++
+	case "skipped":
+		a.index.status.Skipped++
+	}
+}
+
+// Called with the index mutex held. Prefer manual work, but never starve background work.
+func (x *indexer) nextJob() scanJob {
+	chosen := 0
+	manual, automatic := -1, -1
+	for i, q := range x.queue {
+		if q.manual {
+			if manual < 0 {
+				manual = i
+			}
+		} else if automatic < 0 {
+			automatic = i
+		}
+	}
+	if automatic >= 0 && (x.manualStreak >= 3 || manual < 0) {
+		chosen = automatic
+	} else if manual >= 0 {
+		chosen = manual
+	}
+	job := x.queue[chosen]
+	x.queue = append(x.queue[:chosen], x.queue[chosen+1:]...)
+	return job
+}
 func (a *App) startScan(date string, force bool) bool { return a.queueScan(scanJob{date: date}, force) }
 func (a *App) queueScan(job scanJob, force bool) bool {
+	a.index.mu.Lock()
+	defer a.index.mu.Unlock()
 	if a.ctx.Err() != nil {
 		return false
 	}
-	a.index.mu.Lock()
-	defer a.index.mu.Unlock()
 	key := job.date + "/" + job.camera
 	if !force && time.Since(a.index.last[key]) < time.Minute {
 		return false
 	}
-	if a.index.status.Running && a.index.current == job {
+	if a.index.status.Running && sameScan(a.index.current, job) {
 		return false
 	}
-	for _, q := range a.index.queue {
-		if q == job {
+	for i, q := range a.index.queue {
+		if sameScan(q, job) {
+			if job.manual {
+				a.index.queue[i].manual = true
+			}
 			return false
 		}
 	}
 	if len(a.index.queue) >= 32 {
 		return false
 	}
+	job.id = token()[:16]
 	if a.index.status.Running {
 		a.index.queue = append(a.index.queue, job)
 		return true
 	}
 	a.index.current = job
-	a.index.status = ScanStatus{Running: true, Date: job.date, Warnings: []string{}}
+	a.index.status = ScanStatus{Running: true, Date: job.date, JobID: job.id, State: "running", Warnings: []string{}}
 	a.work.Add(1)
 	go func() {
 		defer a.work.Done()
@@ -93,29 +206,61 @@ func (a *App) queueScan(job scanJob, force bool) bool {
 		for {
 			a.scanJob(current)
 			if current.incremental && a.ctx.Err() == nil {
-				a.db.Exec(`INSERT INTO scan_schedule VALUES(?,?) ON CONFLICT(camera_id) DO UPDATE SET next_run=excluded.next_run`, current.camera, time.Now().Add(time.Duration(a.config().AutoScanMinutes)*time.Minute).Unix())
+				if _, e := a.db.ExecContext(a.ctx, `INSERT INTO scan_schedule VALUES(?,?) ON CONFLICT(camera_id) DO UPDATE SET next_run=excluded.next_run`, current.camera, time.Now().Add(time.Duration(a.config().AutoScanMinutes)*time.Minute).Unix()); e != nil {
+					a.warn("Zeitplan konnte nicht gespeichert werden")
+				}
 			}
 			a.index.mu.Lock()
+			if current.manual {
+				a.index.manualStreak++
+			} else {
+				a.index.manualStreak = 0
+			}
 			if !current.incremental {
 				a.index.last[current.date+"/"+current.camera] = time.Now()
 			}
-			if len(a.index.last) > 1000 {
-				for k, v := range a.index.last {
-					if time.Since(v) > time.Hour {
-						delete(a.index.last, k)
+			for k, v := range a.index.last {
+				if time.Since(v) > time.Hour {
+					delete(a.index.last, k)
+				}
+			}
+			a.index.completion++
+			a.index.status.State = "complete"
+			if len(a.index.status.Warnings) > 0 || a.index.status.Skipped > 0 {
+				a.index.status.State = "partial"
+			}
+			for _, c := range a.index.status.Cameras {
+				if c.State == "partial" || c.State == "failed" {
+					a.index.status.State = "partial"
+				}
+			}
+			failed := 0
+			for _, c := range a.index.status.Cameras {
+				if c.State == "failed" {
+					failed++
+				}
+			}
+			if failed > 0 && failed == len(a.index.status.Cameras) {
+				a.index.status.State = "failed"
+			}
+			if a.ctx.Err() != nil {
+				a.index.status.State = "cancelled"
+				a.index.queue = nil
+				for i := range a.index.status.Cameras {
+					if a.index.status.Cameras[i].State == "queued" {
+						a.index.status.Cameras[i].State = "cancelled"
 					}
 				}
 			}
-			if len(a.index.queue) == 0 || a.ctx.Err() != nil {
+			if len(a.index.queue) == 0 {
 				a.index.status.Running = false
 				a.index.status.Finished = time.Now().UTC().Format(time.RFC3339)
 				a.index.mu.Unlock()
 				return
 			}
-			current = a.index.queue[0]
+			current = a.index.nextJob()
 			a.index.current = current
-			a.index.queue = a.index.queue[1:]
-			a.index.status = ScanStatus{Running: true, Date: current.date, Warnings: []string{}}
+			a.index.status = ScanStatus{Running: true, Date: current.date, JobID: current.id, State: "running", Warnings: []string{}}
 			a.index.mu.Unlock()
 		}
 	}()
@@ -124,7 +269,6 @@ func (a *App) queueScan(job scanJob, force bool) bool {
 func (a *App) runScheduledScan() {
 	cfg := a.config()
 	a.index.mu.Lock()
-	busy := a.index.status.Running || len(a.index.queue) > 0
 	wasEnabled := a.index.scheduled
 	a.index.scheduled = cfg.AutoScan
 	a.index.mu.Unlock()
@@ -132,21 +276,19 @@ func (a *App) runScheduledScan() {
 		return
 	}
 	if !wasEnabled {
-		a.db.Exec(`DELETE FROM scan_schedule`)
-	}
-	if busy {
-		return
+		if _, e := a.db.ExecContext(a.ctx, `DELETE FROM scan_schedule`); e != nil {
+			a.warn("Zeitplan nicht lesbar")
+			return
+		}
 	}
 	cams, e := a.db.Cameras()
 	if e != nil {
 		return
 	}
+	// Queue all due cameras, including recursive sources. Dedupe limits repeated ticks.
 	for _, c := range cams {
-		if c.IndexingMode == "full" {
-			continue
-		}
 		var next int64
-		a.db.QueryRow(`SELECT next_run FROM scan_schedule WHERE camera_id=?`, c.ID).Scan(&next)
+		a.db.QueryRowContext(a.ctx, `SELECT next_run FROM scan_schedule WHERE camera_id=?`, c.ID).Scan(&next)
 		if next > time.Now().Unix() {
 			continue
 		}
@@ -155,9 +297,9 @@ func (a *App) runScheduledScan() {
 			continue
 		}
 		a.queueScan(scanJob{date: time.Now().In(loc).Format("2006-01-02"), camera: c.ID, incremental: true}, true)
-		return
 	}
 }
+
 func dayBounds(date string) (time.Time, time.Time, error) {
 	loc, _ := time.LoadLocation("Europe/Berlin")
 	from, e := time.ParseInLocation("2006-01-02", date, loc)
@@ -190,6 +332,10 @@ func (a *App) scanJob(job scanJob) {
 	}
 	a.index.mu.Lock()
 	a.index.status.Total = len(chosen)
+	a.index.status.Cameras = []CameraScanStatus{}
+	for _, c := range chosen {
+		a.index.status.Cameras = append(a.index.status.Cameras, CameraScanStatus{ID: c.ID, Name: c.Name, State: "queued"})
+	}
 	a.index.mu.Unlock()
 	// Jobs remain serialized, so the same camera cannot be scanned concurrently.
 	// Within each job, at most three independent camera sources are probed at once.
@@ -210,45 +356,61 @@ func (a *App) scanJob(job scanJob) {
 			defer workers.Done()
 			defer func() { <-slots }()
 			a.index.mu.Lock()
-			a.index.status.Active = append(a.index.status.Active, c.Name)
-			a.index.status.Camera = strings.Join(a.index.status.Active, " · ")
+			for i := range a.index.status.Cameras {
+				if a.index.status.Cameras[i].ID == c.ID {
+					a.index.status.Cameras[i].State = "running"
+				}
+			}
+			a.index.updateActive()
 			a.index.mu.Unlock()
-			defer func() {
-				a.index.mu.Lock()
-				for i, name := range a.index.status.Active {
-					if name == c.Name {
-						a.index.status.Active = append(a.index.status.Active[:i], a.index.status.Active[i+1:]...)
-						break
+			defer func() { a.index.mu.Lock(); a.index.status.Completed++; a.index.updateActive(); a.index.mu.Unlock() }()
+			complete := a.scanCamera(job, c, from, to)
+			a.index.mu.Lock()
+			for i := range a.index.status.Cameras {
+				p := &a.index.status.Cameras[i]
+				if p.ID == c.ID {
+					p.State = "complete"
+					if !complete || p.Skipped > 0 {
+						p.State = "partial"
+						if !complete && p.Inspected == 0 {
+							p.State = "failed"
+						}
+					}
+					if a.ctx.Err() != nil {
+						p.State = "cancelled"
 					}
 				}
-				a.index.status.Completed++
-				a.index.status.Camera = strings.Join(a.index.status.Active, " · ")
-				a.index.mu.Unlock()
-			}()
-			a.scanCamera(job, c, from, to)
+			}
+			a.index.mu.Unlock()
 		}(c)
 	}
 	workers.Wait()
 }
-func (a *App) scanCamera(job scanJob, c Camera, from, to time.Time) {
+func (a *App) scanCamera(job scanJob, c Camera, from, to time.Time) bool {
 	date := job.date
 	loc, e := time.LoadLocation(c.Timezone)
 	if e != nil {
-		return
+		a.warn(c.Name + ": ungültige Zeitzone")
+		return false
 	}
 	// Include the preceding two local days to find recordings crossing midnight.
 	first := from.Add(-time.Duration((c.Offset + math.Max(0, c.ZoomOffset)) * float64(time.Second))).In(loc)
 	first = time.Date(first.Year(), first.Month(), first.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -2)
 	end := to.Add(-time.Duration((c.Offset + math.Min(0, c.ZoomOffset)) * float64(time.Second))).In(loc)
 	if job.incremental {
-		first = time.Date(time.Now().In(loc).Year(), time.Now().In(loc).Month(), time.Now().In(loc).Day(), 0, 0, 0, 0, loc)
-		end = first
+		localDay, err := time.ParseInLocation("2006-01-02", job.date, loc)
+		if err != nil {
+			return false
+		}
+		first = localDay.AddDate(0, 0, -2)
+		end = localDay
 	}
+
 	complete := true
 	seen := map[string]bool{}
 	for d := first; !d.After(end); d = d.AddDate(0, 0, 1) {
 		p, e := partition(c, d)
-		if job.all {
+		if job.all || c.IndexingMode == "full" {
 			p = c.Folder
 			e = nil
 		}
@@ -272,155 +434,182 @@ func (a *App) scanCamera(job scanJob, c Camera, from, to time.Time) {
 		if complete {
 			success = now
 		}
-		a.db.ExecContext(a.ctx, `INSERT INTO camera_days VALUES(?,?,?,?) ON CONFLICT(camera_id,date) DO UPDATE SET checked=excluded.checked,complete=excluded.complete`, c.ID, date, now, complete)
-		a.db.ExecContext(a.ctx, `INSERT INTO camera_scans(camera_id,attempt,success,complete) VALUES(?,?,?,?) ON CONFLICT(camera_id) DO UPDATE SET attempt=excluded.attempt,complete=excluded.complete,success=CASE WHEN excluded.success>0 THEN excluded.success ELSE camera_scans.success END`, c.ID, now, success, complete)
+		_, dayErr := a.db.ExecContext(a.ctx, `INSERT INTO camera_days VALUES(?,?,?,?) ON CONFLICT(camera_id,date) DO UPDATE SET checked=excluded.checked,complete=excluded.complete`, c.ID, date, now, complete)
+		_, scanErr := a.db.ExecContext(a.ctx, `INSERT INTO camera_scans(camera_id,attempt,success,complete) VALUES(?,?,?,?) ON CONFLICT(camera_id) DO UPDATE SET attempt=excluded.attempt,complete=excluded.complete,success=CASE WHEN excluded.success>0 THEN excluded.success ELSE camera_scans.success END`, c.ID, now, success, complete)
+		if dayErr != nil || scanErr != nil {
+			a.warn(c.Name + ": Scanstatus konnte nicht gespeichert werden")
+			return false
+		}
 	}
+	return complete && a.ctx.Err() == nil
 }
 
 func (a *App) scanPartition(c Camera, p string, from, to int64) bool {
 	return a.scanPartitionMode(c, p, from, to, false)
 }
+
+// Read directories in bounded chunks. Unlike fs.WalkDir this never reads and sorts
+// an entire large archive directory before processing the first video.
+func (a *App) walkMedia(name string, depth int, visit func(string, fs.DirEntry) error) error {
+	if a.ctx.Err() != nil {
+		return a.ctx.Err()
+	}
+	if depth > 128 {
+		return errors.New("Verzeichnisstruktur zu tief")
+	}
+	dir, e := a.root.Open(name)
+	if e != nil {
+		return e
+	}
+	defer dir.Close()
+	for {
+		entries, err := dir.ReadDir(128)
+		for _, entry := range entries {
+			if a.ctx.Err() != nil {
+				return a.ctx.Err()
+			}
+			if entry.Type()&os.ModeSymlink != 0 {
+				continue
+			}
+			child := path.Join(name, entry.Name())
+			if e := visit(child, entry); e != nil {
+				return e
+			}
+			if entry.IsDir() {
+				if e := a.walkMedia(child, depth+1, visit); e != nil {
+					return e
+				}
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+}
 func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental bool) bool {
 	began := time.Now()
-	inspected := 0
-	updated := 0
+	inspected, updated, count := 0, 0, 0
 	defer func() {
 		slog.Info("Indexierung", "camera", c.ID, "incremental", incremental, "inspected", inspected, "updated", updated, "elapsed", time.Since(began))
 	}()
-	settled := map[string]bool{}
-	if incremental {
-		rows, e := a.db.Query(`SELECT path FROM recordings WHERE camera_id=? AND settled=1`, c.ID)
-		if e != nil {
-			return false
-		}
-		for rows.Next() {
-			var name string
-			rows.Scan(&name)
-			settled[name] = true
-		}
-		rows.Close()
-	}
-	type candidate struct {
-		path string
-		info fs.FileInfo
-	}
-	candidates := []candidate{}
-	count := 0
-	err := fs.WalkDir(a.root.FS(), p, func(name string, d fs.DirEntry, walkErr error) error {
-		if a.ctx.Err() != nil {
-			return a.ctx.Err()
-		}
-		if walkErr != nil {
-			return walkErr
-		}
+	healthy := true
+	seen := map[string]bool{}
+	err := a.walkMedia(p, 0, func(name string, d fs.DirEntry) error {
 		count++
 		if count > 2000000 {
 			return errors.New("mehr als 2000000 Einträge; Tagesordner verwenden")
 		}
-		if d.Type()&os.ModeSymlink != 0 {
+		if d.IsDir() || !supportedMedia(name) {
 			return nil
 		}
-		if d.IsDir() {
-			return nil
-		}
-		if !supportedMedia(name) {
-			return nil
-		}
-		if settled[name] {
-			candidates = append(candidates, candidate{path: name})
-			return nil
+		if !incremental {
+			seen[name] = true
 		}
 		inspected++
+		a.progress(c, "inspected")
+		skip := func(message string) { healthy = false; a.progress(c, "skipped"); a.warn(c.Name + ": " + message) }
 		st, e := d.Info()
 		if e != nil {
-			return e
+			skip("Datei nicht lesbar")
+			return nil
 		}
-		candidates = append(candidates, candidate{name, st})
-		return nil
-	})
-	if err != nil {
-		if !incremental && errors.Is(err, fs.ErrNotExist) { // A removed partition is reconciled; an offline mount must remain mounted at the host.
-			if _, e := a.root.Stat(c.Folder); e == nil {
-				return a.reconcile(c.ID, p, map[string]bool{})
-			} else {
-				a.warn(c.Name + ": Quelle nicht erreichbar")
-			}
-			return false
-		}
-		a.warn(c.Name + ": Ordner nicht vollständig lesbar")
-		return false
-	}
-	sort.Slice(candidates, func(i, j int) bool { return candidates[i].path < candidates[j].path })
-	healthy := true
-	seen := map[string]bool{}
-	for _, item := range candidates {
-		if a.ctx.Err() != nil {
-			return false
-		}
-		seen[item.path] = true
-		relative := strings.TrimPrefix(item.path, c.Folder+"/")
-		if item.info == nil {
-			continue
-		}
+		relative := strings.TrimPrefix(name, c.Folder+"/")
 		start, e := cameraTimestamp(c, relative)
 		fallback := e != nil && cameraFormat(c) == "automatic" && strings.Contains(e.Error(), "Kein Zeitstempel")
 		if e != nil && !fallback {
-			a.warn(c.Name + ": " + relative + ": " + e.Error())
-			continue
+			skip(relative + ": " + e.Error())
+			return nil
 		}
-		// Avoid probing historic files outside the requested window, except the preceding day.
 		if !fallback && (start.Unix() >= to || start.Unix() < from-48*3600) {
-			continue
+			return nil
 		}
-		size, mod := item.info.Size(), item.info.ModTime().UnixNano()
+		size, mod := st.Size(), st.ModTime().UnixNano()
 		var oldSize, oldMod int64
-		e = a.db.QueryRowContext(a.ctx, `SELECT size,mod FROM recordings WHERE camera_id=? AND path=?`, c.ID, item.path).Scan(&oldSize, &oldMod)
-		if e == nil && size == oldSize && mod == oldMod {
-			if incremental && time.Since(item.info.ModTime()) >= 120*time.Second {
-				a.db.ExecContext(a.ctx, `UPDATE recordings SET settled=1 WHERE camera_id=? AND path=?`, c.ID, item.path)
+		e = a.db.QueryRowContext(a.ctx, `SELECT size,mod FROM recordings WHERE camera_id=? AND path=?`, c.ID, name).Scan(&oldSize, &oldMod)
+		exists := e == nil
+		if e != nil && !errors.Is(e, sql.ErrNoRows) {
+			skip("Index nicht lesbar")
+			return nil
+		}
+		if exists && size == oldSize && mod == oldMod {
+			if incremental && time.Since(st.ModTime()) >= 120*time.Second {
+				if _, e := a.db.ExecContext(a.ctx, `UPDATE recordings SET settled=1 WHERE camera_id=? AND path=? AND settled=0`, c.ID, name); e != nil {
+					skip("Index konnte nicht gespeichert werden")
+				}
 			}
-			continue
+			return nil
 		}
-		// Growing and recently written files must settle before probing.
-		if time.Since(item.info.ModTime()) < 30*time.Second || size == 0 {
-			continue
+		if time.Since(st.ModTime()) < 30*time.Second || size == 0 {
+			skip(relative + ": Aufnahme wird noch geschrieben")
+			return nil
 		}
-		file, e := openSource(a.root, item.path)
+		file, e := openSource(a.root, name)
 		if e != nil {
-			a.warn(c.Name + ": Datei nicht lesbar")
-			continue
+			skip(relative + ": Datei nicht lesbar")
+			return nil
 		}
-		duration, codec, created, e := probeMedia(a.ctx, file)
+		duration, codec, created, probeErr := probeMedia(a.ctx, file)
 		if fallback {
 			if created.IsZero() {
-				created = item.info.ModTime()
+				created = st.ModTime()
 			}
 			start = created.Add(time.Duration(c.Offset * float64(time.Second)))
 		}
-		after, se := file.Stat()
+		after, statErr := file.Stat()
 		file.Close()
-		if e != nil || se != nil || after.Size() != size || after.ModTime().UnixNano() != mod {
-			a.warn(c.Name + ": " + relative + ": noch unvollständig oder Bild/Video nicht lesbar")
-			continue
+		if a.ctx.Err() != nil {
+			return a.ctx.Err()
 		}
-		h := sha256.Sum256([]byte(c.ID + "\x00" + item.path))
+		if statErr != nil || after.Size() != size || after.ModTime().UnixNano() != mod {
+			skip(relative + ": Aufnahme wird noch geschrieben")
+			return nil
+		}
+		if probeErr != nil {
+			skip(relative + ": Video beschädigt oder nicht lesbar")
+			return nil
+		}
+		h := sha256.Sum256([]byte(c.ID + "\x00" + name))
 		id := hex.EncodeToString(h[:16])
-		_, e = a.db.ExecContext(a.ctx, `INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod,filename) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(camera_id,path) DO UPDATE SET start=excluded.start,duration=excluded.duration,codec=excluded.codec,size=excluded.size,mod=excluded.mod,filename=excluded.filename,settled=0`, id, c.ID, item.path, float64(start.UnixNano())/1e9, duration, codec, size, mod, filepath.Base(item.path))
+		_, e = a.db.ExecContext(a.ctx, `INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod,filename) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(camera_id,path) DO UPDATE SET start=excluded.start,duration=excluded.duration,codec=excluded.codec,size=excluded.size,mod=excluded.mod,filename=excluded.filename,settled=0`, id, c.ID, name, float64(start.UnixNano())/1e9, duration, codec, size, mod, filepath.Base(name))
 		if e != nil {
-			healthy = false
-			a.warn(c.Name + ": Index konnte nicht gespeichert werden")
-			continue
+			skip("Index konnte nicht gespeichert werden")
+			return nil
 		}
-		a.index.mu.Lock()
-		a.index.status.Indexed++
 		updated++
-		a.index.mu.Unlock()
+		if exists {
+			a.progress(c, "changed")
+		} else {
+			a.progress(c, "added")
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			if _, e := a.root.Stat(c.Folder); e == nil {
+				return true
+			}
+			a.warn(c.Name + ": Quelle nicht erreichbar")
+		} else {
+			a.warn(c.Name + ": Ordner nicht vollständig lesbar")
+		}
+		return false
+	}
+	if !healthy || a.ctx.Err() != nil {
+		return false
 	}
 	if incremental {
-		return healthy
+		return true
 	}
-	return a.reconcile(c.ID, p, seen) && healthy
+	if !a.reconcile(c.ID, p, seen) {
+		a.warn(c.Name + ": Index konnte nicht bereinigt werden")
+		return false
+	}
+	return true
 }
+
 func (a *App) reconcile(camera, p string, seen map[string]bool) bool {
 	rows, e := a.db.QueryContext(a.ctx, `SELECT id,path FROM recordings WHERE camera_id=? AND path>=? AND path<?`, camera, p+"/", p+"0")
 	if e != nil {

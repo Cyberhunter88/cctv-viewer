@@ -2,6 +2,7 @@ package viewer
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -107,5 +108,132 @@ func TestBatchAtomicAndParallelCameraScan(t *testing.T) {
 	}
 	if a.scanStatus().Running || maxActive != 3 {
 		t.Fatalf("parallel scan: max=%d status=%+v", maxActive, a.scanStatus())
+	}
+}
+
+// The two perspectives belong to the same camera even with unequal timestamps.
+func TestReolinkGardenUnequalStarts(t *testing.T) {
+	a := testApp(t)
+	c := Camera{ID: "garden", IndexingMode: "full", Name: "Reolink Garten", Folder: "Reolink Garten", Format: "automatic", Timezone: "Europe/Berlin", ViewMode: "dual", WideMarker: "_00_", ZoomMarker: "_01_"}
+	if err := a.db.SaveCamera(c); err != nil {
+		t.Fatal(err)
+	}
+	names := []string{"Reolink Garten_00_20261015061313.mp4", "Reolink Garten_01_20261015061312.mp4"}
+	for i, name := range names {
+		want := []string{"wide", "zoom"}[i]
+		full := c.Folder + "/" + name
+		if got := recordingView(c, full); got != want {
+			t.Fatalf("%s: %s", name, got)
+		}
+		testVideo(t, filepath.Join(a.cfg.RecordingsDir, full), false)
+	}
+	a.scanDay("2026-10-15")
+	records, err := a.db.Recordings(c.ID, 0, 2e10)
+	if err != nil || len(records) != 2 {
+		t.Fatalf("%+v %v", records, err)
+	}
+	starts := map[string]float64{}
+	for _, r := range records {
+		starts[r.View] = r.Start
+	}
+	if starts["wide"]-starts["zoom"] != 1 {
+		t.Fatalf("timestamps changed: %+v", starts)
+	}
+	cookie, session := login(t, a)
+	dayResponse := request(a, "GET", "/api/day?date=2026-10-15", nil, cookie, session.CSRF)
+	var day struct {
+		Recordings []Recording `json:"recordings"`
+	}
+	if dayResponse.Code != 200 {
+		t.Fatal(dayResponse.Code, dayResponse.Body.String())
+	}
+	if err := json.Unmarshal(dayResponse.Body.Bytes(), &day); err != nil {
+		t.Fatal(err)
+	}
+	if len(day.Recordings) != 2 {
+		t.Fatal(dayResponse.Body.String())
+	}
+	for _, r := range day.Recordings {
+		if r.Start != starts[r.View] {
+			t.Fatal(dayResponse.Body.String())
+		}
+	}
+	c.ZoomOffset = 1
+	if err := a.db.SaveCamera(c); err != nil {
+		t.Fatal(err)
+	}
+	records, err = a.db.Recordings(c.ID, 0, 2e10)
+	if err != nil || len(records) != 2 || records[0].Start != records[1].Start {
+		t.Fatalf("clock correction: %+v %v", records, err)
+	}
+	w := request(a, "GET", fmt.Sprintf("/api/search?camera=garden&from=%.0f&to=%.0f", starts["wide"], starts["wide"]), nil, cookie, session.CSRF)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var search struct {
+		Results []struct {
+			Start float64 `json:"start"`
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &search); err != nil {
+		t.Fatal(err)
+	}
+	if len(search.Results) != 2 {
+		t.Fatal(w.Body.String())
+	}
+	for _, r := range search.Results {
+		if r.Start != starts["wide"] {
+			t.Fatal(w.Body.String())
+		}
+	}
+	w = request(a, "POST", "/api/cameras/preview", c, cookie, session.CSRF)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var preview struct {
+		Examples []struct {
+			View string `json:"view"`
+			Time string `json:"time"`
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Examples) != 2 || preview.Examples[0].Time != preview.Examples[1].Time {
+		t.Fatal(w.Body.String())
+	}
+}
+
+func TestDualViewMidnightIntervals(t *testing.T) {
+	a := testApp(t)
+	c := Camera{ID: "midnight-pair", Name: "Midnight pair", Folder: "pair", Timezone: "Europe/Berlin", ViewMode: "dual", WideMarker: "_00_", ZoomMarker: "_01_"}
+	if err := a.db.SaveCamera(c); err != nil {
+		t.Fatal(err)
+	}
+	boundary, _, err := dayBounds("2026-10-16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, clip := range []struct {
+		id, path string
+		start    float64
+	}{{"wide", "pair/CAM_00_20261015235959.mp4", float64(boundary.Unix() - 1)}, {"zoom", "pair/CAM_01_20261016000001.mp4", float64(boundary.Unix() + 1)}} {
+		if _, err := a.db.Exec(`INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod) VALUES(?,?,?,?,3,'h264',1,1)`, clip.id, c.ID, clip.path, clip.start); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, date := range []string{"2026-10-15", "2026-10-16"} {
+		from, to, err := dayBounds(date)
+		if err != nil {
+			t.Fatal(err)
+		}
+		recordings, err := a.db.Recordings(c.ID, float64(from.Unix()), float64(to.Unix()))
+		want := 1
+		if date == "2026-10-16" {
+			want = 2
+		}
+		if err != nil || len(recordings) != want {
+			t.Fatalf("%s: %+v %v", date, recordings, err)
+		}
 	}
 }

@@ -18,11 +18,18 @@ export function validView(value:unknown,ids:string[]):Partial<ViewState>{
  if(Number.isFinite(v.timelineHeight))out.timelineHeight=clamp(v.timelineHeight!,100,650);
  return out;
 }
-export function gridSize(layout:string,columns:number,rows:number,count:number,width:number):[number,number]{
- if(layout==='custom')return [clamp(Math.floor(columns)||2,1,8),clamp(Math.floor(rows)||2,1,8)];
- if(layout==='hotspot')return width<600?[1,3]:[3,2];
- if(layout!=='auto'){const [c,r]=layout.split('x').map(Number);if(c&&r)return [c,r]}
- const c=width<600?1:width<1000?2:Math.min(4,Math.max(1,Math.ceil(Math.sqrt(count))));return [c,Math.min(4,Math.max(1,Math.ceil(count/c)))];
+export function gridSize(layout:string,columns:number,rows:number,count:number,width:number,dual=false):[number,number]{
+ const narrow=width<600,minimum=dual?488:260;
+ const maxColumns=Math.max(1,Math.floor((width+12)/(minimum+12)));
+ let c:number,r:number;
+ if(layout==='custom'){c=clamp(Math.floor(columns)||2,1,8);r=clamp(Math.floor(rows)||2,1,8)}
+ else if(layout==='hotspot'){c=3;r=2}
+ else if(layout!=='auto'&&/^\d+x\d+$/.test(layout)){[c,r]=layout.split('x').map(Number)}
+ else{c=Math.min(4,Math.max(1,Math.ceil(Math.sqrt(count))),maxColumns);r=Math.min(4,Math.max(1,Math.ceil(count/c)))}
+ return [Math.min(c!,maxColumns),narrow?Math.min(r!,2):r!];
+}
+export function pageCapacity(layout:string,columns:number,rows:number):number{
+ return Math.max(1,columns*rows-(layout==='hotspot'&&columns>1&&rows>1?3:0));
 }
 export function hotspotCandidate(records:Recording[],ids:string[],time:number,fromExclusive?:number):string|undefined{
  let result:string|undefined,start=-Infinity;

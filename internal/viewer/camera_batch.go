@@ -90,6 +90,6 @@ func (a *App) saveCameraBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	a.index.last = map[string]time.Time{}
 	a.index.mu.Unlock()
-	a.queueScan(scanJob{date: input.Date, batch: strings.Join(ids, ",")}, true)
+	a.queueScan(scanJob{date: input.Date, batch: strings.Join(ids, ","), manual: true}, true)
 	jsonOut(w, 201, input.Cameras)
 }

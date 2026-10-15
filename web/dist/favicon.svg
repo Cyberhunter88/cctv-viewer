@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="tile" x1="8" y1="2" x2="56" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#253d38"/>
+      <stop offset="1" stop-color="#0c171a"/>
+    </linearGradient>
+    <linearGradient id="housing" x1="24" y1="16" x2="34" y2="37" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d4ffe1"/>
+      <stop offset="1" stop-color="#76cda1"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="44" y1="20" x2="49" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5bd9cc"/>
+      <stop offset="1" stop-color="#173b43"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="16" fill="url(#tile)"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="15.5" stroke="#b3f5cf" stroke-opacity=".16"/>
+  <path d="M31 33 27 46H15" stroke="#84cda9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="10" y="39" width="6" height="15" rx="2" fill="#b1ebcb"/>
+  <g transform="rotate(18 32 27)">
+    <path d="M11 17a4 4 0 0 1 4-4h28v24H16a5 5 0 0 1-5-5V17Z" fill="url(#housing)"/>
+    <path d="M10 14a3 3 0 0 1 3-3h34a3 3 0 0 1 3 3v4H10v-4Z" fill="#d4ffe1"/>
+    <ellipse cx="44" cy="27" rx="9" ry="12" fill="#81caa7"/>
+    <ellipse cx="45" cy="27" rx="6.5" ry="9" fill="#0c2027"/>
+    <ellipse cx="45" cy="27" rx="3.5" ry="5.5" fill="url(#glass)"/>
+    <ellipse cx="44" cy="24.5" rx="1.3" ry="2" fill="#d7fff2" fill-opacity=".9"/>
+    <path d="M16 30h10" stroke="#3e8e74" stroke-width="2" stroke-linecap="round"/>
+  </g>
+</svg>

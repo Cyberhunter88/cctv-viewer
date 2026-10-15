@@ -27,7 +27,7 @@ test('search result opens the right hotspot page',async({page})=>{
  const day=await(await page.request.get('/api/day?date=2026-10-14')).json();
  await page.route('**/api/search*',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({results:[{id:'search-hit',cameraId:'camera-6',cameraName:'Kamera 6',filename:'hit.mp4',start:day.recordings[0].start,duration:10}],total:1,offset:0,limit:100,hasMore:false})}));
  await page.locator('#layout').selectOption('hotspot');await page.locator('#search-button').click();await page.locator('#search-form input[name=q]').fill('hit');await page.locator('#search-submit').click();await page.locator('.search-result').click();
- await expect(page.locator('#page-display')).toHaveText('2 / 2');await expect(page.locator('.camera-group .tile-title')).toContainText('Kamera 6');
+ await expect(page.locator('#page-display')).toHaveText('2 / 2');await expect(page.locator('.camera-group .tile-title').filter({hasText:'Kamera 6'})).toBeVisible();
 });
 test('keyboard shortcuts leave focused buttons to their native action',async({page})=>{
  await login(page);await page.locator('#search-button').focus();await page.keyboard.press('Space');await expect(page.locator('#search-dialog')).toBeVisible();await expect(page.locator('#play')).toHaveAttribute('aria-label','Abspielen');
