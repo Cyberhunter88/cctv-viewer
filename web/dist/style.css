@@ -1663,3 +1663,101 @@ dialog .dialog-heading { top:-28px; }
  .rail-heading { flex-direction:column; gap:10px; }
  .rail-heading .rail-logo { flex:none; padding:6px; }
 }
+
+/* Scroll inside the dialog so native scrollbars cannot square off its corners. */
+dialog:where([id]) { padding:0; overflow:hidden; max-height:calc(100dvh - 24px); }
+.dialog-body { padding:28px; overflow:auto; overscroll-behavior:contain; max-height:calc(100dvh - 26px); min-width:0; }
+#preferences-dialog { padding:0; }
+#preferences-dialog .dialog-body { padding:24px; }
+dialog .dialog-heading,#preferences-dialog .dialog-heading { top:-28px; margin-top:-10px; padding-block:10px; }
+#preferences-dialog .dialog-heading { top:-24px; }
+.preferences-footer { position:sticky; bottom:-24px; background:var(--panel); border-top:1px solid var(--line); padding-block:16px; margin-top:20px; z-index:2; }
+.preferences-footer > .muted { flex-basis:100%; }
+.preferences-save-actions { display:flex; gap:8px; margin-left:auto; }
+.rail-bottom { display:flex; align-items:center; gap:4px; }
+.rail-bottom .account-menu { flex:1; min-width:0; }
+.logout-button { flex:none; width:44px; height:44px; padding:11px; border-radius:8px; }
+.logout-button svg { display:block; width:22px; height:22px; }
+.logout-button:hover { background:var(--surface); color:var(--error); }
+.rail-collapsed .rail-bottom { flex-direction:column; }
+#camera-dialog { width:min(1120px,calc(100vw - 24px)); max-width:1120px; }
+#camera-dialog .dialog-heading p { margin:6px 0 12px; }
+.management-link { display:block; margin:0 0 18px auto; min-height:44px; }
+.camera-workspace { display:grid; grid-template-columns:minmax(300px,.85fr) minmax(0,1.15fr); gap:28px; align-items:start; }
+.camera-overview { min-width:0; }
+.camera-list-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+.camera-list-heading h3 { margin:0; }
+.camera-add-actions { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+#camera-list { display:grid; gap:10px; }
+#camera-list .camera-entry { display:block; overflow:hidden; border-radius:10px; background:var(--panel); min-width:0; }
+#camera-list .camera-entry.is-selected { border-color:var(--accent); box-shadow:inset 3px 0 var(--accent); background:var(--selected); }
+#camera-list .camera-edit { display:flex; flex-direction:column; align-items:flex-start; text-align:left; gap:7px; width:100%; min-height:84px; padding:14px 16px; color:var(--text); }
+.camera-name { font-size:14px; overflow-wrap:anywhere; }
+.camera-status { font-size:11px; color:var(--muted); }
+.camera-status.is-offline { color:var(--error); }
+.camera-edit-label { font-size:11px; color:var(--accent); }
+.camera-entry-actions { display:flex; flex-wrap:wrap; border-top:1px solid var(--line); padding:2px 6px; gap:2px; }
+#camera-list .camera-entry-actions button { min-width:44px; min-height:44px; border:0; border-radius:6px; padding:8px; font-size:12px; }
+#camera-list .camera-entry button:hover { background:var(--surface); }
+#camera-list .camera-entry button:disabled { opacity:.4; }
+#camera-list .camera-entry .delete { margin-left:auto; }
+.camera-empty { color:var(--muted); padding:20px; border:1px dashed var(--line); border-radius:10px; line-height:1.6; }
+.camera-maintenance { margin-top:22px; border-top:1px solid var(--line); padding-top:16px; }
+.camera-maintenance h4 { margin:0 0 8px; }
+.camera-maintenance .dialog-actions { flex-wrap:wrap; justify-content:flex-start; }
+#camera-form { margin:0; gap:12px; min-width:0; border-left:1px solid var(--line); padding-left:28px; }
+#camera-form h3 { margin:8px 0; font-size:20px; overflow-wrap:anywhere; }
+#camera-form h4 { margin:10px 0 0; }
+#camera-form label { margin:0; }
+#camera-form .form-row { gap:12px; }
+#camera-form #browse-folder { min-height:44px; align-self:flex-start; padding-inline:0; }
+#camera-form fieldset { min-width:0; margin:0; padding:14px; border:1px solid var(--line); border-radius:8px; }
+#camera-form fieldset label { margin-top:12px; }
+.camera-advanced { border:1px solid var(--line); border-radius:8px; padding:12px; }
+.camera-advanced summary { min-height:24px; cursor:pointer; font-weight:600; }
+#camera-form .camera-advanced label { margin-top:16px; }
+.camera-editor-actions { flex-wrap:wrap; justify-content:flex-start; padding-top:14px; border-top:1px solid var(--line); }
+.camera-editor-actions button { min-height:44px; }
+.camera-editor-actions button[type=submit] { margin-left:auto; }
+#camera-back { display:none; }
+button:focus-visible,summary:focus-visible { outline:2px solid var(--accent); outline-offset:-3px; }
+@media(min-width:701px) and (max-width:1100px) {
+ .rail-bottom { flex-direction:column; }
+}
+@media(max-width:899px) {
+ #camera-dialog { width:min(680px,calc(100vw - 24px)); }
+ .camera-workspace { display:block; }
+ #camera-form { display:none; border:0; padding:0; }
+ #camera-dialog.camera-editing #camera-form { display:grid; }
+ #camera-dialog.camera-editing .camera-overview { display:none; }
+ #camera-back { display:block; padding-left:0; min-height:44px; margin-bottom:14px; }
+}
+@media(max-width:700px) {
+ .dialog-body,#preferences-dialog .dialog-body { padding:18px; }
+ dialog .dialog-heading,#preferences-dialog .dialog-heading { top:-18px; }
+ #preferences-dialog { max-height:calc(100dvh - 24px); }
+ .preferences-footer { bottom:-18px; }
+ .preferences-footer > .button { width:auto; }
+ .preferences-save-actions { flex-wrap:wrap; }
+ .preferences-save-actions .button { width:auto; }
+ .rail-bottom { flex-direction:row; }
+ #user-name { display:none; }
+ #camera-form .form-row { grid-template-columns:minmax(0,1fr); }
+ .camera-editor-actions button[type=submit] { margin-left:0; }
+}
+.rail-collapsed .rail-bottom .account-menu { width:100%; flex:none; }
+.rail-collapsed .account-menu summary { justify-content:center; }
+@media(min-width:701px) and (max-width:1100px) {
+ .rail-bottom .account-menu { width:100%; flex:none; }
+ .rail-bottom #user-name,.rail-bottom .account-chevron { display:none; }
+ .rail-bottom .account-menu summary { justify-content:center; }
+}
+@media(max-width:700px) {
+ .rail-bottom,.rail-collapsed .rail-bottom { flex-direction:row; }
+ .rail-bottom .account-menu,.rail-collapsed .rail-bottom .account-menu { width:auto; flex:none; }
+}
+#camera-dialog .dialog-heading > div { flex:1; min-width:0; }
+.camera-intro { display:flex; align-items:center; justify-content:space-between; gap:8px 16px; flex-wrap:wrap; margin-bottom:18px; }
+#camera-dialog .camera-intro p { margin:0; }
+.camera-intro .management-link { margin:0; padding-inline:0; min-height:36px; }
+#camera-list .camera-entry-actions .move-button { font-size:18px; }
