@@ -54,7 +54,15 @@ def prepare(repository, tag, event_path, output_path, target_commit=""):
 
 
 def upload_assets(repository, tag, *paths):
-    release = json.loads(command("gh", "api", f"repos/{repository}/releases/tags/{tag}"))
+    # GitHub's "by tag" endpoint omits draft releases (404), even though the
+    # release was just created by this workflow. The authenticated release list
+    # includes drafts, so resolve the exact release there before inspecting assets.
+    pages = json.loads(command("gh", "api", "--paginate", "--slurp",
+                               f"repos/{repository}/releases?per_page=100"))
+    release = next((release for page in pages for release in page
+                    if release.get("tag_name") == tag), None)
+    if release is None:
+        raise RuntimeError(f"GitHub-Release {tag} wurde nicht gefunden; Assets werden nicht hochgeladen")
     existing = {asset["name"] for asset in release["assets"]}
     for item in paths:
         path = Path(item)
