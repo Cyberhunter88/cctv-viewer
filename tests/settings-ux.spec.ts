@@ -94,7 +94,7 @@ for(const dpr of [1,2])test.describe(`dialog corners at device scale ${dpr}`,()=
      expect(m.radii.every(r=>r==='14px')).toBe(true);expect(m.overflow).toBe('hidden');expect(m.bodyOverflow).toBe(false);await expect(page.locator('#'+close)).toBeInViewport();
      await page.screenshot({path:info.outputPath(`${id}-${theme}-${width}-dpr${dpr}.png`)});await page.locator('#'+close).click();
     }
-    await page.locator('#settings-button').click();await page.locator('#open-management').click();await expect(page.locator('#management-dialog')).toBeVisible();
+    await page.locator('#settings-button').click();await page.locator('#open-management').click();await expect(page.locator('#management-dialog')).toBeVisible();await expect(page.locator('#management-dialog')).toHaveCSS('overflow','hidden');
     await page.locator('#management-dialog .dialog-body').evaluate(el=>el.scrollTop=el.scrollHeight);await expect(page.locator('#management-close')).toBeInViewport();await page.screenshot({path:info.outputPath(`management-${theme}-${width}-dpr${dpr}.png`)});await page.locator('#management-close').click();
     await page.locator('#account-menu summary').click();await page.locator('#password-button').click();await expect(page.locator('#password-dialog .dialog-body')).toBeVisible();await page.locator('#password-close').click();
    }

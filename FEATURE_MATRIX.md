@@ -9,7 +9,7 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Referenzfunktion | Umsetzung | Nachweis |
 |---|---|---|
 | Ton pro Ansicht | Eine hörbare Quelle; AAC bei komprimierter Wiedergabe, Tonhöhe bleibt erhalten | Go: AudioTransports; Browser: audio |
-| Weitwinkel + Zoom pro Kamera | Getrennte MP4s über Kennungen und Aufnahmezeiten; Zoom-Zeitversatz; Zoom-Schalter neben Ton; Vollbild bleibt bei Größenänderungen erhalten | Go: DualViewClassificationAndPersistence; Browser: dual |
+| Weitwinkel + Zoom pro Kamera | Getrennte MP4s über Kennungen und Aufnahmezeiten; Zoom-Zeitversatz; Zoom-Schalter neben Ton; ab 720 px Kamerabreite nebeneinander, darunter untereinander; Vollbild bleibt bei Größenänderungen erhalten | Go: DualViewClassificationAndPersistence; Browser: dual |
 | Sammelanlage und parallele Kamerascans | Bis zu 64 Quellen je Anlage; maximal drei Kameras parallel; Fortschritt | Go: BatchAtomicAndParallelCameraScan; Browser: dual |
 | Synchronisierte Kameras und gemeinsame Uhr | Erhalten, unabhängige Fehlerbehandlung | Browser: viewer |
 | Tag, Datum, Heute, Aufnahmelücken | Erhalten, Berliner 23-/25-Stunden-Tage | Go: Timestamps; Browser: viewer |
@@ -17,6 +17,7 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Timeline-Zoom, Verschieben, Vorschaubilder | Erhalten; Touch, Tastatur (Space, Pfeile, J/K/L, F), Umschalt+Ziehen, Hover-Uhrzeit, paralleles Laden | Browser: viewer, archive |
 | Übersichtstimeline und verstellbare Höhe | Ergänzt | Browser: archive |
 | Automatische/feste/eigene Raster und Kameraseiten | Ergänzt, eigene Raster bis 8 × 8 | Frontend: view-state; Browser: viewer, archive |
+| Wiedergabediagnose | Eigener Dialog über persönliche Einstellungen; Aufzeichnung läuft beim Schließen weiter | Browser: preferences |
 | Persönliche Einstellungen auf allen Geräten | Kontospeicherung einschließlich Farbschema; Laden beim Anmelden/Neuladen; einmalige Browserübernahme | Go: Preferences; Browser: preferences |
 | Kameraauswahl und Zieh-Sortierung | Ergänzt; dauerhaft je Benutzerkonto gespeichert | Browser: archive; Frontend: view-state |
 | Bildverhältnisse 4:3, 16:9, Auto, Ausfüllen | Ergänzt | Browser: archive |

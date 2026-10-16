@@ -214,3 +214,40 @@ test('fullscreen survives viewport changes and closes with its control',async({p
  await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
  await expect(page.locator('.camera-tile')).toHaveCount(2);
 });
+
+test('diagnostics preserve drafts, keep recording when closed and export events',async({page})=>{
+ await login(page);await expect(page.locator('#quality')).toHaveValue('native');
+ await expect(page.locator('#recordings #playback-diagnostics')).toHaveCount(0);
+ await open(page);await page.locator('#pref-density').selectOption('compact');
+ await page.locator('#diagnostics-open').click();await expect(page.locator('#diagnostics-dialog')).toBeVisible();
+ await page.locator('#trace-enabled').check();await page.keyboard.press('Escape');
+ await expect(page.locator('#diagnostics-open')).toBeFocused();await expect(page.locator('#pref-density')).toHaveValue('compact');await expect(page.locator('#preferences-save')).toBeEnabled();
+ await page.locator('#diagnostics-open').click();await expect(page.locator('#trace-enabled')).toBeChecked();await expect(page.locator('#trace-status')).toContainText('Aufzeichnung läuft');
+ await page.locator('#trace-stop').click();const downloadPromise=page.waitForEvent('download');await page.locator('#trace-download').click();const download=await downloadPromise;expect(download.suggestedFilename()).toBe('wiedergabediagnose.json');
+ const stream=await download.createReadStream();const chunks:Buffer[]=[];for await(const chunk of stream!)chunks.push(Buffer.from(chunk));const report=JSON.parse(Buffer.concat(chunks).toString());expect(report.version).toBe(1);expect(report.events.some((event:{event:string})=>event.event==='start')).toBe(true);
+ await page.locator('#diagnostics-close').click();await page.locator('#preferences-save').click();await page.reload();await open(page);await expect(page.locator('#pref-density')).toHaveValue('compact');
+});
+
+test('dialog headings and settings actions stay fixed while content scrolls',async({page},info)=>{
+ await login(page);
+ for(const theme of ['light','dark'])for(const width of [390,1366]){
+  await page.setViewportSize({width,height:500});await open(page);await page.locator('#theme').selectOption(theme);await save(page);await open(page);
+  const dialog=page.locator('#preferences-dialog'),heading=dialog.locator('.dialog-heading'),footer=dialog.locator('.preferences-footer'),body=dialog.locator('.dialog-body');
+  const initial=await heading.boundingBox();await body.evaluate(el=>el.scrollTop=el.scrollHeight);expect((await heading.boundingBox())!.y).toBe(initial!.y);
+  await expect(page.locator('#preferences-close')).toBeInViewport();await expect(page.locator('#preferences-save')).toBeInViewport();
+  const content=await body.boundingBox(),actions=await footer.boundingBox();expect(content!.y+content!.height).toBeLessThanOrEqual(actions!.y+1);
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`fixed-dialog-${theme}-${width}.png`)});
+  await page.locator('#diagnostics-open').click();await expect(page.locator('#diagnostics-close')).toBeInViewport();
+  await page.locator('#diagnostics-dialog .dialog-body').evaluate(el=>el.scrollTop=el.scrollHeight);await expect(page.locator('#diagnostics-close')).toBeInViewport();
+  expect(await page.locator('#diagnostics-dialog .dialog-body').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`diagnostics-${theme}-${width}.png`)});await page.locator('#diagnostics-close').click();await expect(page.locator('#diagnostics-open')).toBeFocused();await page.locator('#preferences-close').click();
+ }
+});
+
+test('expanded fallback restores its icon and label on Escape',async({page})=>{
+ await page.addInitScript(()=>Object.defineProperty(document,'fullscreenEnabled',{get:()=>false}));
+ await login(page);const tile=page.locator('.camera-tile').first(),button=tile.locator('.tile-expand');
+ const original=await button.locator('path').getAttribute('d');await button.click();await expect(tile).toHaveClass(/expanded/);await expect(button).toHaveAccessibleName('Vergrößerte Ansicht schließen');expect(await button.locator('path').getAttribute('d')).not.toBe(original);
+ await page.keyboard.press('Escape');await expect(tile).not.toHaveClass(/expanded/);await expect(button).toHaveAccessibleName('Ansicht vergrößern');await expect(button.locator('path')).toHaveAttribute('d',original!);
+});

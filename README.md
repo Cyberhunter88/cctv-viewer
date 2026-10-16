@@ -238,6 +238,10 @@ Probe-Lauf mindestens 30 Sekunden alt sein. Die Stabilitätserkennung ist eine H
 
 ## Ansicht, Suche und Wiedergabe
 
+Die Wiedergabediagnose öffnet sich über **Persönliche Einstellungen → Diagnose**.
+Eine gestartete Aufzeichnung läuft beim Schließen des Diagnosedialogs weiter;
+zum Beenden und Herunterladen den Dialog erneut öffnen.
+
 Für zwei Objektive im selben Aufnahmeordner muss pro Kamera **Weitwinkel + Zoom**
 aktiviert sein, auch wenn zunächst nur Weitwinkel angezeigt werden soll. Bei **Eine Ansicht**
 werden alle passenden Dateien gemeinsam abgespielt, einschließlich früher beginnender
@@ -263,11 +267,11 @@ Synchronisierung erfolgt keine Bildanalyse. Unterschiedliche Dateizeitstempel ve
 zu derselben Kamera. Um 06:13:13 läuft Zoom bereits eine Sekunde.
 Ein zusätzlicher Zoom-Zeitversatz korrigiert dessen Uhr in
 Zehntelsekunden; negative Werte verschieben früher. Zunächst erscheint nur Weitwinkel.
-Der Schalter „Zoom anzeigen“ öffnet die zweite Ansicht daneben; „Zoom schließen“
+Der Schalter „Zoom anzeigen“ öffnet die zweite Ansicht; „Zoom schließen“
 gibt deren Wiedergabe wieder frei. Nach einem Neuladen ist Zoom geschlossen.
 Fehlt Weitwinkel, bleibt seine Kachel als Aufnahmelücke sichtbar; Zoom ersetzt sie
 nicht automatisch. Bei geöffnetem Zoom steht Weitwinkel links und Zoom rechts;
-auf schmalen Kacheln stehen beide untereinander. Das Raster zählt Kameras.
+unter 720 Pixel Kamerabreite stehen beide untereinander. Das Raster zählt Kameras.
 Eine fehlende oder fehlerhafte Ansicht stoppt die andere Ansicht nicht.
 Doppelklick oder die Vergrößern-Schaltfläche öffnet eine Ansicht groß; Escape
 stellt die Rasteransicht wieder her. Browserdecoder können geringfügig abweichen.
@@ -322,7 +326,8 @@ Kamera, Berliner Zeitraum und Mindestdauer begrenzen die Ergebnisse. Die Suche z
 100 Treffer pro Seite; „Weitere Treffer laden“ lädt die nächste Seite. Treffer öffnen Kamera, Tag und Aufnahmezeitpunkt. Noch nicht
 indexierte Tage zuerst öffnen oder einen vollständigen manuellen Scan starten.
 
-Original liefert unterstützte MP4/MOV-Dateien unverändert mit HTTP-Range. Auflösung,
+Original ist die Standardauswahl für Weitwinkel und Zoom. Unterstützte MP4/MOV-Dateien
+werden unverändert mit HTTP-Range geliefert. Auflösung,
 Bildrate und Bitrate entsprechen dabei der Datei auf dem NAS. Bestehende persönliche
 Qualitätseinstellungen werden einmalig auf Original umgestellt; spätere Änderungen
 bleiben gespeichert. Bei nicht unterstützten Quellformaten muss ein reduziertes
