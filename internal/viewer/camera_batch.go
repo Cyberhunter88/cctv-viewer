@@ -96,7 +96,7 @@ func (a *App) saveCameraBatch(w http.ResponseWriter, r *http.Request) {
 	if e == nil {
 		defer tx.Rollback()
 		for _, c := range input.Cameras {
-			_, e = tx.Exec(`INSERT INTO cameras(id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, c.ID, c.Name, c.Folder, c.Pattern, c.Timezone, c.Offset, c.Format, c.Prefix, c.IndexingMode, c.DirectoryPattern, c.ViewMode, c.WideMarker, c.ZoomMarker, c.ZoomOffset)
+		_, e = tx.Exec(`INSERT INTO cameras(id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset,supports_zoom) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, c.ID, c.Name, c.Folder, c.Pattern, c.Timezone, c.Offset, c.Format, c.Prefix, c.IndexingMode, c.DirectoryPattern, c.ViewMode, c.WideMarker, c.ZoomMarker, c.ZoomOffset, c.SupportsZoom)
 			if e != nil {
 				break
 			}

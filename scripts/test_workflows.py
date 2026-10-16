@@ -49,19 +49,40 @@ class WorkflowContractTest(unittest.TestCase):
         gate = self.job('test')
         self.assertIn('name: Anwendung prüfen', gate)
         self.assertIn('if: always()', gate)
-        self.assertIn('needs: [checks, browser, build, publish-commit]', gate)
-        for result in ('CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT'):
+        self.assertIn('needs: [code-checks, test-server, browser, build, publish-commit]', gate)
+        for result in ('CODE_RESULT', 'SERVER_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT'):
             self.assertIn(f'test "${result}" = success', gate)
         self.assertIn('if [ "$MAIN_PUSH" = true ]', gate)
-        self.assertIn('needs: [checks, browser]', self.job('build'))
+        self.assertIn('needs: [code-checks, browser]', self.job('build'))
+        self.assertIn('needs: test-server', self.job('browser'))
+
+    def test_browser_test_server_builds_fresh_frontend_early_and_suites_are_sharded(self):
+        server = self.job('test-server')
+        browser = self.job('browser')
+        self.assertIn('npm ci && npm run build', server)
+        self.assertLess(server.index('npm run build'), server.index('go build -o bin/cctv ./cmd/cctv'))
+        self.assertIn('go build -o bin/cctv ./cmd/cctv', server)
+        self.assertIn('name: browser-test-server', server)
+        self.assertIn('needs.test-server.outputs.commit', browser)
+        self.assertIn('playwright install-deps', browser)
+        self.assertIn('sudo apt-get install -y ffmpeg', browser)
+        self.assertEqual(browser.count('browser: '), 4)
+        self.assertEqual(browser.count('shard: '), 4)
+        self.assertIn('npm run test:browser -- --shard=${{ matrix.shard }}/2', browser)
+        self.assertIn('browser-test-results-${{ matrix.browser }}-${{ matrix.shard }}', browser)
+        config = (ROOT / 'playwright.config.ts').read_text()
+        self.assertIn('globalTimeout:8*60*1000', config)
 
     def test_required_check_cannot_succeed_after_any_failed_prerequisite(self):
         shell = self.job('test').split('        run: |\n', 1)[1]
         shell = "\n".join(line[10:] for line in shell.splitlines())
         for main in (False, True):
-            for values in itertools.product(('success', 'failure', 'skipped', 'cancelled'), repeat=4 if main else 2):
-                results = dict(zip(('CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT'), values))
+            results_checked = ('CODE_RESULT', 'SERVER_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT')
+            required = results_checked if main else results_checked[:3]
+            for values in itertools.product(('success', 'failure', 'skipped', 'cancelled'), repeat=len(required)):
+                results = dict(zip(required, values))
                 env = dict(os.environ, MAIN_PUSH=str(main).lower(), BUILD_RESULT='skipped', PUBLISH_RESULT='skipped')
+                env.update(CODE_RESULT='success', SERVER_RESULT='success', BROWSER_RESULT='success')
                 env.update(results)
                 result = subprocess.run(['bash', '-e', '-c', shell], env=env, capture_output=True)
                 self.assertEqual(result.returncode == 0, all(value == 'success' for value in values), (main, results))

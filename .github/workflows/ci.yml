@@ -19,8 +19,37 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  checks:
-    name: Code prüfen und Testserver bauen
+  test-server:
+    name: Browser-Testserver bauen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      commit: ${{ steps.meta.outputs.commit }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.10.0'
+          cache: npm
+      - run: npm ci && npm run build
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: mkdir -p bin && go build -o bin/cctv ./cmd/cctv
+      - id: meta
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-test-server
+          path: bin/cctv
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 1
+  code-checks:
+    name: Code prüfen
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -34,12 +63,13 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
+          cache: true
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.10.0'
           cache: npm
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg shellcheck
-      - name: Workflows, Shell und Python statisch prüfen
+      - name: Workflow, Shell und Python statisch prüfen
         run: |
           curl --fail --silent --show-error --location --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tar.gz"
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check -
@@ -49,8 +79,13 @@ jobs:
           bash -n scripts/promote_image.sh scripts/smoke.sh
           python3 -m compileall -q scripts
       - run: npm ci && npm run typecheck && npm test && npm run build
-      - run: go vet ./... && go test -race ./...
-      - run: go build -o bin/cctv ./cmd/cctv
+      - run: go vet ./...
+      - name: Race-Tests nur bei Main-Push
+        if: github.event_name != 'pull_request'
+        run: go test -race ./...
+      - name: Race-Tests bei PRs
+        if: github.event_name == 'pull_request'
+        run: go test ./...
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - id: meta
         run: |
@@ -59,16 +94,9 @@ jobs:
             echo "image=ghcr.io/${GITHUB_REPOSITORY,,}"
             echo "version=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
           } >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: browser-test-server
-          path: bin/cctv
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 1
   browser:
-    name: Browser prüfen (${{ matrix.browser }})
-    needs: checks
+    name: Browser prüfen (${{ matrix.browser }}, shard ${{ matrix.shard }}/2)
+    needs: test-server
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -77,12 +105,20 @@ jobs:
         include:
           - browser: chrome
             engine: chromium
+            shard: 1
+          - browser: chrome
+            engine: chromium
+            shard: 2
           - browser: webkit
             engine: webkit
+            shard: 1
+          - browser: webkit
+            engine: webkit
+            shard: 2
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.checks.outputs.commit }}
+          ref: ${{ needs.test-server.outputs.commit }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.10.0'
@@ -93,21 +129,31 @@ jobs:
           name: browser-test-server
           path: bin
       - run: chmod +x bin/cctv
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
-      - run: npm run test:browser
+      - name: Playwright Cache
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            playwright-${{ matrix.browser }}-
+      - name: Browser- und Systemabhängigkeiten installieren
+        run: |
+          npx playwright install-deps ${{ matrix.browser }}
+          sudo apt-get install -y ffmpeg
+          npx playwright install ${{ matrix.browser }}
+      - run: npm run test:browser -- --shard=${{ matrix.shard }}/2
         env:
           CTV_TEST_ENGINE: ${{ matrix.engine }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: browser-test-results-${{ matrix.browser }}
+          name: browser-test-results-${{ matrix.browser }}-${{ matrix.shard }}
           path: test-results/
           retention-days: 7
   build:
     name: Docker prüfen (${{ matrix.arch }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [checks, browser]
+    needs: [code-checks, browser]
     permissions:
       contents: read
       packages: write
@@ -124,7 +170,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.checks.outputs.commit }}
+          ref: ${{ needs.code-checks.outputs.commit }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -134,9 +180,9 @@ jobs:
       - id: source
         name: Vorhandenes Commit-Image wiederverwenden
         env:
-          IMAGE: ${{ needs.checks.outputs.image }}
-          VERSION: ${{ needs.checks.outputs.version }}
-          COMMIT: ${{ needs.checks.outputs.commit }}
+          IMAGE: ${{ needs.code-checks.outputs.image }}
+          VERSION: ${{ needs.code-checks.outputs.version }}
+          COMMIT: ${{ needs.code-checks.outputs.commit }}
           ARCH: ${{ matrix.arch }}
         run: python3 scripts/image_registry.py resolve "$IMAGE" "$VERSION" "$COMMIT" "$ARCH"
       - id: image
@@ -146,22 +192,22 @@ jobs:
           context: .
           push: true
           platforms: linux/${{ matrix.arch }}
-          tags: ${{ needs.checks.outputs.image }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
-          build-args: VERSION=${{ needs.checks.outputs.version }}
+          tags: ${{ needs.code-checks.outputs.image }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+          build-args: VERSION=${{ needs.code-checks.outputs.version }}
           provenance: mode=max
           sbom: true
-          cache-from: type=gha,scope=commit-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=commit-${{ matrix.arch }}
+          cache-from: type=gha,scope=commit-all
+          cache-to: type=gha,mode=max,scope=commit-all
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ needs.checks.outputs.commit }}
+            org.opencontainers.image.revision=${{ needs.code-checks.outputs.commit }}
             org.opencontainers.image.licenses=MIT
-            org.opencontainers.image.version=${{ needs.checks.outputs.version }}
+            org.opencontainers.image.version=${{ needs.code-checks.outputs.version }}
       - name: Genau das gebaute Image per Digest prüfen
         env:
-          IMAGE_REF: ${{ steps.source.outputs.ref || format('{0}@{1}', needs.checks.outputs.image, steps.image.outputs.digest) }}
-          VERSION: ${{ needs.checks.outputs.version }}
-          COMMIT: ${{ needs.checks.outputs.commit }}
+          IMAGE_REF: ${{ steps.source.outputs.ref || format('{0}@{1}', needs.code-checks.outputs.image, steps.image.outputs.digest) }}
+          VERSION: ${{ needs.code-checks.outputs.version }}
+          COMMIT: ${{ needs.code-checks.outputs.commit }}
           ARCH: ${{ matrix.arch }}
         run: |
           docker pull "$IMAGE_REF"
@@ -176,19 +222,19 @@ jobs:
   publish-commit:
     name: Commit-Image bereitstellen
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [checks, build]
+    needs: [code-checks, build]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
     timeout-minutes: 10
     concurrency:
-      group: commit-image-${{ needs.checks.outputs.commit }}
+      group: commit-image-${{ needs.code-checks.outputs.commit }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.checks.outputs.commit }}
+          ref: ${{ needs.code-checks.outputs.commit }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: image-proof-*-${{ github.run_attempt }}
@@ -202,9 +248,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Geprüftes Multiarch-Image für den Commit veröffentlichen
         env:
-          IMAGE: ${{ needs.checks.outputs.image }}
-          COMMIT: ${{ needs.checks.outputs.commit }}
-          VERSION: ${{ needs.checks.outputs.version }}
+          IMAGE: ${{ needs.code-checks.outputs.image }}
+          COMMIT: ${{ needs.code-checks.outputs.commit }}
+          VERSION: ${{ needs.code-checks.outputs.version }}
         run: python3 scripts/image_registry.py publish-commit "$IMAGE" "$VERSION" "$COMMIT" "$RUNNER_TEMP/image-proofs" "$RUNNER_TEMP/commit-image-proof.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -216,19 +262,21 @@ jobs:
     # Keep this name stable: main already requires this exact status check.
     name: Anwendung prüfen
     if: always()
-    needs: [checks, browser, build, publish-commit]
+    needs: [code-checks, test-server, browser, build, publish-commit]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - name: Alle für das Ereignis erforderlichen Prüfungen verlangen
         env:
-          CODE_RESULT: ${{ needs.checks.result }}
+          CODE_RESULT: ${{ needs.code-checks.result }}
+          SERVER_RESULT: ${{ needs.test-server.result }}
           BROWSER_RESULT: ${{ needs.browser.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           PUBLISH_RESULT: ${{ needs.publish-commit.result }}
           MAIN_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           test "$CODE_RESULT" = success
+          test "$SERVER_RESULT" = success
           test "$BROWSER_RESULT" = success
           if [ "$MAIN_PUSH" = true ]; then
             test "$BUILD_RESULT" = success
