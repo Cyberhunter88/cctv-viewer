@@ -78,6 +78,17 @@ with tempfile.TemporaryDirectory(prefix='cctv-ui-') as directory:
             file=folder/('CAM_'+stamp+'_20261014'+stamp+'_'+view+'.mp4')
             shutil.copyfile(root/'recordings/Testkamera-A/2026/10/14/08-30-00.mp4',file)
             os.utime(file,(time.time()-120,time.time()-120))
+    # Distinct perspectives and staggered starts catch accidental zoom-first playback.
+    folder = root/'recordings/WideStart/2026/10/14'
+    folder.mkdir(parents=True)
+    zoom = root/'zoom-start.mp4'
+    subprocess.run(['ffmpeg','-nostdin','-v','error','-f','lavfi','-i',
+                    'color=c=green:size=160x90:rate=15','-t','30','-c:v','libx264',
+                    '-threads','1','-pix_fmt','yuv420p','-y',str(zoom)],check=True)
+    for stamp, view in [('083000','wide'),('083005','zoom'),('083100','wide'),('083105','zoom')]:
+        file = folder/('CAM_20261014'+stamp+'_'+view+'.mp4')
+        shutil.copyfile(zoom if view=='zoom' else root/'recordings/Testkamera-A/2026/10/14/08-30-00.mp4',file)
+        os.utime(file,(time.time()-120,time.time()-120))
     # Unregistered fixtures for six-camera layouts and native aspect ratios.
     for index, dimensions in enumerate(['320x180', '240x180', '180x320']):
         template = root/('aspect-'+str(index)+'.mp4')

@@ -5,6 +5,11 @@ export function playbackRecordings(records:Recording[],cameras:{id:string;viewMo
  const modes=new Map(cameras.map(c=>[c.id,c.viewMode]));
  return records.filter(r=>r.kind!=='image'&&modes.has(r.cameraId)&&(modes.get(r.cameraId)!=='dual'||r.view==='wide'||r.view==='zoom'));
 }
+// Hidden zoom clips must not become timeline or navigation targets.
+export function displayedRecordings(records:Recording[],cameras:{id:string;viewMode?:string;supportsZoom?:boolean}[],openZoom:ReadonlySet<string>):Recording[]{
+ const modes=new Map(cameras.map(c=>[c.id,c]));
+ return records.filter(r=>{const c=modes.get(r.cameraId);return c&&(c.viewMode!=='dual'||r.view==='wide'||r.view==='zoom'&&c.supportsZoom!==false&&openZoom.has(c.id))});
+}
 export function firstRecordingStart(records:Recording[],fallback:number):number{
  let start=Infinity;for(const r of records)start=Math.min(start,r.start);return start===Infinity?fallback:Math.max(fallback,start);
 }

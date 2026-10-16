@@ -26,3 +26,8 @@ test('personal preferences validate persisted input and retain old defaults',()=
  assert.deepEqual(validView({density:'tiny',showNames:'false',showCodec:0,seekStep:99,timelineHeight:'200'},[]),{});
  assert.equal(defaultView().showThumbnails,true);assert.equal(defaultView().seekStep,5);
 });
+
+test('rail preference and original migration version stay separate from legacy collapsed',()=>{
+ assert.deepEqual(validView({collapsed:false,railCollapsed:true,originalQualityVersion:1},[]),{collapsed:false,railCollapsed:true,originalQualityVersion:1});
+ assert.deepEqual(validView({railCollapsed:'false',originalQualityVersion:2},[]),{});
+});

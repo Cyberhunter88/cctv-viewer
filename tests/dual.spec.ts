@@ -6,7 +6,7 @@ test.afterEach(async({page})=>{
  if(page.isClosed())return;
  const sessionResponse=await page.request.get('/api/session');if(!sessionResponse.ok())return;
  const session=await sessionResponse.json(),cameras=await(await page.request.get('/api/cameras')).json();
- for(const camera of cameras.filter((c:{name:string})=>['DualTestA','DualTestB','Dual isolation'].includes(c.name)))await page.request.delete('/api/cameras/'+camera.id,{headers:{'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin}});
+ for(const camera of cameras.filter((c:{name:string})=>['DualTestA','DualTestB','Dual isolation','Wide start'].includes(c.name)))await page.request.delete('/api/cameras/'+camera.id,{headers:{'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin}});
 });
 async function login(page:Page){await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:20000});await expect(page.locator('#rescan')).toBeEnabled({timeout:20000})}
 
@@ -41,7 +41,7 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  await page.locator('.thumb').first().click();await page.locator('#play').click();
  await expect.poll(()=>page.locator('.camera-group.dual video').first().evaluate(v=>v.currentTime)).toBeGreaterThan(1);
  const times=await firstGroup.locator('video').evaluateAll(v=>v.map(x=>x.currentTime));expect(Math.abs(times[0]-times[1])).toBeLessThan(1);
- await page.locator('#play').click();await page.locator('.camera-group.dual video').first().dblclick();await expect(page.locator('.camera-tile.expanded')).toHaveCount(1);await page.keyboard.press('Escape');await expect(page.locator('.camera-tile.expanded')).toHaveCount(0);
+ await page.locator('#play').click();await page.locator('.camera-group.dual video').first().dblclick();await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(true);await page.evaluate(()=>document.exitFullscreen());await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(false);
  await page.screenshot({path:'/tmp/cctv-dual-ui.png',fullPage:true});
  // On phones only two camera groups fit per page. Keep this check focused on paired views.
  for(const name of ['Testkamera-A','Testkamera-B'])await page.locator('#camera-filters').getByRole('button',{name,exact:true}).click();
@@ -119,4 +119,48 @@ test('a failed or missing zoom leaves wide playback running without repeated req
   if(!page.isClosed())await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));
   await page.request.delete('/api/cameras/'+camera.id,{headers});
  }
+});
+
+test('closed zoom cannot flash or become a start or seek target',async({page})=>{
+ await login(page);const session=await(await page.request.get('/api/session')).json();
+ const headers={'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin};
+ const response=await page.request.post('/api/cameras',{headers,data:{name:'Wide start',folder:'WideStart',format:'automatic',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:'dual',supportsZoom:true,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:-10}});
+ expect(response.ok(),await response.text()).toBe(true);const camera=await response.json();
+ await page.reload();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('6 Aufnahmen');
+ for(const name of await page.locator('#camera-filters .filter.selected').allTextContents())if(name!=='Wide start')await page.locator('#camera-filters').getByRole('button',{name,exact:true}).click();
+ const day=await(await page.request.get('/api/day?date=2026-10-14')).json();
+ const zoomIds=new Set(day.recordings.filter((r:any)=>r.cameraId===camera.id&&r.view==='zoom').map((r:any)=>r.id));
+ const requested:string[]=[];page.on('request',r=>{const match=r.url().match(/\/api\/recordings\/([^/]+)\/file/);if(match)requested.push(match[1]);if(r.url().endsWith('/api/streams')&&r.method()==='POST')requested.push(r.postDataJSON().recording)});
+ await page.locator('#date').dispatchEvent('change');await expect(page.locator('#clock')).toHaveText('08:30:00');
+ const tile=page.locator('.camera-group.dual .camera-tile'),video=tile.locator('video');
+ await expect(tile.locator('.tile-title')).toContainText('Weitwinkel');await expect(video).toHaveCount(1);
+ await expect.poll(()=>video.evaluate(v=>[v.videoWidth,v.videoHeight])).toEqual([320,180]);await expect(tile).not.toHaveClass(/frame-pending/);
+ for(const quality of ['native','balanced','fast']){
+  await page.locator('#quality').selectOption(quality);
+  await expect(tile).not.toHaveClass(/frame-pending/,{timeout:20000});
+  let unblock=()=>{};const responseGate=new Promise<void>(resolve=>{unblock=resolve});
+  await page.route(quality==='native'?'**/api/recordings/*/file':'**/api/streams',async route=>{await responseGate;await route.continue()});
+  await page.locator('#timeline').focus();
+  try{
+   await page.keyboard.press('Shift+ArrowRight');await page.keyboard.press('Shift+ArrowLeft');await page.keyboard.press('Shift+ArrowRight');
+   await expect(page.locator('#clock')).toHaveText('08:31:00');await expect(video).toHaveCSS('visibility','hidden');
+  }finally{unblock()}
+  await expect(tile).not.toHaveClass(/frame-pending/,{timeout:20000});
+  await expect(video).toHaveCSS('visibility','visible');
+  const expected=quality==='native'?[320,180]:quality==='balanced'?[160,90]:[96,54];await expect.poll(()=>video.evaluate(v=>[v.videoWidth,v.videoHeight])).toEqual(expected);
+  await page.unroute(quality==='native'?'**/api/recordings/*/file':'**/api/streams');
+  await page.keyboard.press('Shift+ArrowLeft');await expect(page.locator('#clock')).toHaveText('08:30:00');
+ }
+ expect(requested.length).toBeGreaterThan(0);expect(requested.some(id=>zoomIds.has(id))).toBe(false);
+ await page.locator('#quality').selectOption('native');
+ await page.locator('.zoom-toggle').click();await expect(page.locator('.camera-group.dual video')).toHaveCount(2);
+ await expect.poll(()=>page.locator('.camera-group.dual video').last().evaluate(v=>[v.videoWidth,v.videoHeight])).toEqual([160,90]);
+ await page.locator('.zoom-toggle').click();await page.locator('#speed').selectOption('16');
+ await page.locator('#play').click();await tile.locator('.tile-expand').click();
+ await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
+ const secondWide=day.recordings.filter((r:any)=>r.cameraId===camera.id&&r.view==='wide').sort((a:any,b:any)=>a.start-b.start)[1];
+ await expect(video).toHaveAttribute('src','/api/recordings/'+secondWide.id+'/file',{timeout:15000});
+ await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
+ await page.keyboard.press('f');await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
+
 });

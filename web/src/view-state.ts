@@ -1,6 +1,6 @@
 import {clamp,recordingAt,latestStartBetween,type Recording} from './timeline.ts';
 export const layouts=['auto','1x1','2x1','2x2','3x2','3x3','4x3','4x4','hotspot','custom'];
-export interface ViewState {cameras:string[];order:string[];layout:string;quality:string;speed:string;preload:string;aspect:string;columns:number;rows:number;autoHotspot:boolean;collapsed:boolean;timelineHeight:number;hotspot?:string;density:'comfortable'|'compact';showNames:boolean;showTimestamps:boolean;showCodec:boolean;showOverview:boolean;showThumbnails:boolean;shortcuts:boolean;seekStep:number}
+export interface ViewState {cameras:string[];order:string[];layout:string;quality:string;speed:string;preload:string;aspect:string;columns:number;rows:number;autoHotspot:boolean;collapsed:boolean;railCollapsed?:boolean;originalQualityVersion?:number;timelineHeight:number;hotspot?:string;density:'comfortable'|'compact';showNames:boolean;showTimestamps:boolean;showCodec:boolean;showOverview:boolean;showThumbnails:boolean;shortcuts:boolean;seekStep:number}
 export function validView(value:unknown,ids:string[]):Partial<ViewState>{
  if(!value||typeof value!=='object')return {};
  const v=value as Partial<ViewState>,out:Partial<ViewState>={};
@@ -14,6 +14,8 @@ export function validView(value:unknown,ids:string[]):Partial<ViewState>{
  if(['4/3','16/9','auto','fill'].includes(v.aspect||''))out.aspect=v.aspect;
  for(const key of ['columns','rows'] as const)if(Number.isInteger(v[key])&&v[key]!>=1&&v[key]!<=8)out[key]=v[key];
  for(const key of ['autoHotspot','collapsed','showNames','showTimestamps','showCodec','showOverview','showThumbnails','shortcuts'] as const)if(typeof v[key]==='boolean')out[key]=v[key];
+ if(typeof v.railCollapsed==='boolean')out.railCollapsed=v.railCollapsed;
+ if(v.originalQualityVersion===1)out.originalQualityVersion=1;
  if(typeof v.hotspot==='string'&&ids.includes(v.hotspot))out.hotspot=v.hotspot;
  if(v.density==='comfortable'||v.density==='compact')out.density=v.density;
  if([5,10,30].includes(v.seekStep!))out.seekStep=v.seekStep;
@@ -44,4 +46,4 @@ export function recordingBoundary(records:Recording[],ids:string[],time:number,d
 }
 export function moveCamera(order:string[],source:string,target:string):string[]{const sourceIndex=order.indexOf(source),targetIndex=order.indexOf(target);if(sourceIndex<0||targetIndex<0||source===target)return [...order];const result=order.filter(id=>id!==source);result.splice(targetIndex,0,source);return result}
 
-export function defaultView():ViewState{return {cameras:[],order:[],layout:'auto',quality:'native',speed:'1',preload:'metadata',aspect:'auto',columns:2,rows:2,autoHotspot:false,collapsed:true,timelineHeight:240,density:'comfortable',showNames:true,showTimestamps:true,showCodec:true,showOverview:true,showThumbnails:true,shortcuts:true,seekStep:5}}
+export function defaultView():ViewState{return {cameras:[],order:[],layout:'auto',quality:'native',speed:'1',preload:'metadata',aspect:'auto',columns:2,rows:2,autoHotspot:false,collapsed:true,originalQualityVersion:1,timelineHeight:240,density:'comfortable',showNames:true,showTimestamps:true,showCodec:true,showOverview:true,showThumbnails:true,shortcuts:true,seekStep:5}}
