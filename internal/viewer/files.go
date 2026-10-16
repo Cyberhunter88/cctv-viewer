@@ -90,9 +90,27 @@ func recordingView(c Camera, filename string) string {
 	relative := strings.ToLower(strings.TrimPrefix(filename, c.Folder+"/"))
 	wide := c.WideMarker != "" && strings.Contains(relative, strings.ToLower(c.WideMarker))
 	zoom := c.ZoomMarker != "" && strings.Contains(relative, strings.ToLower(c.ZoomMarker))
-	if wide == zoom {
+
+	// Kamera hat keinen Zoom-Marker -> Nur Weitwinkel möglich
+	if c.ZoomMarker == "" {
+		if wide {
+			return "wide"
+		}
+		// Kein Wide-Marker gefunden -> Fallback zu wide (besser als unknown)
+		return "wide"
+	}
+
+	// Beide Marker gesetzt, aber keiner stimmt -> unknown (echte Unklarheit)
+	if !wide && !zoom {
 		return "unknown"
 	}
+
+	// Beide Marker gefunden -> unklar
+	if wide && zoom {
+		return "unknown"
+	}
+
+	// Eindeutige Zuordnung
 	if wide {
 		return "wide"
 	}
