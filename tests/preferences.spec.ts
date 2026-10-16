@@ -1,4 +1,4 @@
-import {test,expect,type Page} from './fixtures';
+import {test,expect,savePreferences as save,type Page} from './fixtures';
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.40'}});
 // Each case uses a distinct synthetic client; the expanded suite must not
 // consume another case's login quota.
@@ -19,12 +19,6 @@ async function legacyAccount(page:Page){
  const created=await page.request.post('/api/admin/users',{headers,data:{username,password:'synthetic preference test password',role:'admin',create:true}});expect(created.ok(),await created.text()).toBe(true);
  const signedIn=await page.request.post('/auth/local',{headers:{Origin:new URL(page.url()).origin},data:{username,password:'synthetic preference test password'}});expect(signedIn.ok()).toBe(true);
  return (await page.request.get('/api/session')).json();
-}
-async function save(page:Page){
- if(await page.locator('#preferences-save').isEnabled())await page.locator('#preferences-save').click();else await page.locator('#preferences-close').click();
- // Saving awaits the account API before closing and restoring opener focus.
- await expect(page.locator('#preferences-dialog')).toBeHidden();
- await expect(page.locator('#preferences-button')).toBeFocused();
 }
 async function open(page:Page){await page.locator('#preferences-button').click();await expect(page.locator('#preferences-dialog')).toBeVisible()}
 test('legacy settings migrate, personal preferences persist and reset',async({page})=>{

@@ -1,4 +1,4 @@
-import {test,expect,type Page} from './fixtures';
+import {test,expect,savePreferences,type Page} from './fixtures';
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.20'}});
 async function login(page:Page){
  await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#rescan')).toBeEnabled({timeout:20000});
@@ -68,7 +68,7 @@ test('light, dark and system modes persist and redraw canvas and dialogs',async(
  await page.locator('#login-theme').selectOption('dark');await page.reload();await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  await login(page);
  for(const theme of ['light','dark']){
-  await page.locator('#preferences-button').click();await page.locator('#theme').selectOption(theme);if(await page.locator('#preferences-save').isEnabled())await page.locator('#preferences-save').click();else await page.locator('#preferences-close').click();await page.locator('#preferences-button').click();await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
+  await page.locator('#preferences-button').click();await page.locator('#theme').selectOption(theme);await savePreferences(page);await page.locator('#preferences-button').click();await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
   const contrasts=await page.evaluate(()=>{
    const parse=(value:string)=>value.match(/[\d.]+/g)!.map(Number);
    const luminance=(rgb:number[])=>rgb.slice(0,3).map(x=>{const s=x/255;return s<=.04045?s/12.92:((s+.055)/1.055)**2.4}).reduce((n,x,i)=>n+x*[.2126,.7152,.0722][i],0);
@@ -86,5 +86,5 @@ test('light, dark and system modes persist and redraw canvas and dialogs',async(
   const expected=theme==='light'?[220,229,234]:[37,53,64];
   for(let i=0;i<3;i++)expect(Math.abs(background[i]-expected[i])).toBeLessThanOrEqual(2);
  }
- await page.locator('#preferences-button').click();await page.locator('#theme').selectOption('system');await page.locator('#preferences-save').click();await page.emulateMedia({colorScheme:'dark'});await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await page.emulateMedia({colorScheme:'light'});await expect(page.locator('html')).toHaveAttribute('data-theme','light');await page.reload();await expect(page.locator('#theme')).toHaveValue('system');
+ await page.locator('#preferences-button').click();await page.locator('#theme').selectOption('system');await savePreferences(page);await page.emulateMedia({colorScheme:'dark'});await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await page.emulateMedia({colorScheme:'light'});await expect(page.locator('html')).toHaveAttribute('data-theme','light');await page.reload();await expect(page.locator('#theme')).toHaveValue('system');
 });
