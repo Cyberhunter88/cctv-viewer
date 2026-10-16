@@ -66,7 +66,7 @@ test('a failed or missing zoom leaves wide playback running without repeated req
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);
  const session=await(await page.request.get('/api/session')).json();
  const headers={'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin};
- const response=await page.request.post('/api/cameras',{headers,data:{name:'Dual isolation',folder:'DualFront',format:'automatic',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:'dual',wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:-5}});
+ const response=await page.request.post('/api/cameras',{headers,data:{name:'Dual isolation',folder:'DualFront',format:'automatic',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:'dual',supportsZoom:true,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:-5}});
  expect(response.ok(),await response.text()).toBe(true);const camera=await response.json();
  try{
   await page.reload();await page.locator('#date').fill('2026-10-14');
