@@ -66,7 +66,7 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 
 ## GHCR-Veröffentlichung
 
-Die Release-Promotion übernimmt den geprüften Multiarch-Digest einschließlich Attestierungen ohne Neubau. Die manuelle Bereinigung bietet eine Vorschau und schützt Releases, Commit-Nachweise und Manifest-Abhängigkeiten.
+Die Release-Promotion übernimmt den geprüften Multiarch-Digest einschließlich Attestierungen ohne Neubau. Die manuelle Bereinigung trennt Installations- und Build-Paket. Im Build-Paket bleiben mindestens 30 Tage, die letzten zehn erfolgreichen Main-Commits, der aktuelle Main-Stand sowie ins Release-Paket übernommene Digests und deren Manifest-Abhängigkeiten erhalten. Eine wöchentliche Vorschau mit Leserechten zeigt Kandidaten und Schutzgründe; Löschungen benötigen weiterhin explizite Versions-IDs. PR und Main verwenden dieselbe Codeprüfungs-Action. Actions-Zusammenfassungen zeigen Prüfergebnisse und den Stand einzelner Release-Schritte einschließlich Wiederaufnahmehinweisen.
 
 ## Prüfgrenzen
 

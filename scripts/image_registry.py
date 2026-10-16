@@ -125,8 +125,12 @@ def publish_commit(image, version, commit, directory, output):
                  platforms=expected, run_id=int(os.environ["GITHUB_RUN_ID"]),
                  run_attempt=int(os.environ["GITHUB_RUN_ATTEMPT"]))
     Path(output).write_text(json.dumps(proof, indent=2) + "\n")
-    summary(f"## Geprüftes Commit-Image\n`{target}`\n\nDigest: `{actual['digest']}`\n\n"
-            + "\n".join(f"- linux/{arch}: `{digest}`" for arch, digest in expected.items()))
+    summary(f"## Geprüftes Commit-Image\n`{target}`\n\nVersion: `{version}` · Commit: `{commit}`\n\n"
+            f"Digest: `{actual['digest']}`\n\n"
+            + "\n".join(f"- linux/{arch}: `{digest}`" for arch, digest in expected.items())
+            + "\n\nNach erfolgreichem Abschluss des gesamten Main-Laufs kann der Eigentümer das Release "
+            f"manuell mit Version `v{version}` und Commit `{commit}` starten. "
+            "Der zugehörige Commit-Image-Nachweis wird 90 Tage aufbewahrt.")
 
 
 def checked_proof(image, version, commit, path):
