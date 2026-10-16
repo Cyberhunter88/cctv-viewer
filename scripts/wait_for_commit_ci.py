@@ -7,12 +7,15 @@ import sys
 import time
 
 
-REQUIRED_JOBS = {"Code prüfen", "Browser-Testserver bauen",
+REQUIRED_JOBS = {"Code prüfen", "Browser prüfen (chrome)", "Browser prüfen (webkit)",
                  "Docker prüfen (amd64)", "Docker prüfen (arm64)",
-                 "Commit-Image bereitstellen", "Anwendung prüfen"} | {
-                     f"Browser prüfen ({browser}, shard {shard}/2)"
-                     for browser in ("chrome", "webkit") for shard in (1, 2)
-                 }
+                 "Commit-Image bereitstellen", "Anwendung prüfen"}
+# Previously tested main commits retain their original, complete job contract.
+LEGACY_REQUIRED_JOBS = (REQUIRED_JOBS - {"Browser prüfen (chrome)", "Browser prüfen (webkit)"}) | {
+    "Browser-Testserver bauen",
+    *(f"Browser prüfen ({browser}, shard {shard}/2)"
+      for browser in ("chrome", "webkit") for shard in (1, 2)),
+}
 
 
 def verify_jobs(repository, run):
@@ -22,7 +25,8 @@ def verify_jobs(repository, run):
                             check=True, capture_output=True, text=True)
     jobs = [job for page in json.loads(result.stdout) for job in page["jobs"]]
     passed = {job["name"] for job in jobs if job["conclusion"] == "success"}
-    if not REQUIRED_JOBS.issubset(passed) or any(job["conclusion"] != "success" for job in jobs):
+    if (not any(required.issubset(passed) for required in (REQUIRED_JOBS, LEGACY_REQUIRED_JOBS))
+            or any(job["conclusion"] != "success" for job in jobs)):
         raise RuntimeError("Commit-CI ist unvollständig: Code, beide Browser, beide Docker-Smoke-Tests, "
                            "Commit-Image und Abschlussprüfung müssen erfolgreich sein. " + run["html_url"])
 

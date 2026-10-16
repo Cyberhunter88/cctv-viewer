@@ -46,7 +46,6 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertNotRegex(self.ci, r'gh release (?:create|edit)|(?m:^\s+(?:bash )?scripts/promote_image.sh\b)|:latest')
 
     def test_build_caches_keep_race_and_platform_outputs_separate(self):
-        self.assertNotIn('cache-dependency-path:', self.job('test-server'))
         self.assertIn('cache-dependency-path: |\n            go.sum\n            .github/workflows/ci.yml',
                       self.job('code-checks'))
         build = self.job('build')
@@ -61,42 +60,47 @@ class WorkflowContractTest(unittest.TestCase):
     def test_release_job_contract_matches_workflow_names_and_browser_matrix(self):
         from wait_for_commit_ci import REQUIRED_JOBS
         names = {re.search(r"^    name: (.+)$", self.job(job), re.M)[1]
-                 for job in ('test-server', 'code-checks', 'build', 'publish-commit', 'test')}
+                 for job in ('code-checks', 'build', 'publish-commit', 'test')}
         names.remove('Docker prüfen (${{ matrix.arch }})')
         names.update(f'Docker prüfen ({arch})' for arch in ('amd64', 'arm64'))
         browser = self.job('browser')
         template = re.search(r"^    name: (.+)$", browser, re.M)[1]
-        entries = re.findall(r"- browser: (\w+)\n            engine: \w+\n            shard: (\d+)", browser)
-        self.assertEqual(len(entries), 4)
-        names.update(template.replace('${{ matrix.browser }}', engine)
-                     .replace('${{ matrix.shard }}', shard) for engine, shard in entries)
+        entries = re.findall(r"- browser: (\w+)\n            engine: \w+", browser)
+        self.assertEqual(entries, ["chrome", "webkit"])
+        names.update(template.replace('${{ matrix.browser }}', engine) for engine in entries)
         self.assertEqual(REQUIRED_JOBS, names)
+        self.assertEqual(len(names), 7)
+        self.assertEqual(len(names - {"Docker prüfen (amd64)", "Docker prüfen (arm64)",
+                                     "Commit-Image bereitstellen"}), 4)
+        definitions = re.findall(r"^  ([a-z][a-z-]*):$", self.ci.split("jobs:\n", 1)[1], re.M)
+        self.assertEqual(set(definitions), {"code-checks", "browser", "build", "publish-commit", "test"})
 
     def test_required_check_covers_tests_and_main_image_publication(self):
         gate = self.job('test')
         self.assertIn('name: Anwendung prüfen', gate)
         self.assertIn('if: always()', gate)
-        self.assertIn('needs: [code-checks, test-server, browser, build, publish-commit]', gate)
-        for result in ('CODE_RESULT', 'SERVER_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT'):
+        self.assertIn('needs: [code-checks, browser, build, publish-commit]', gate)
+        for result in ('CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT'):
             self.assertIn(f'test "${result}" = success', gate)
         self.assertIn('if [ "$MAIN_PUSH" = true ]', gate)
         self.assertIn('needs: [code-checks, browser]', self.job('build'))
-        self.assertIn('needs: test-server', self.job('browser'))
+        self.assertIn('needs: code-checks', self.job('browser'))
 
-    def test_browser_test_server_builds_fresh_frontend_early_and_suites_are_sharded(self):
-        server = self.job('test-server')
+    def test_code_job_builds_fresh_server_and_both_browsers_run_full_suites(self):
+        self.assertNotIn("  test-server:", self.ci)
+        server = self.job('code-checks')
         browser = self.job('browser')
-        self.assertIn('npm ci && npm run build', server)
+        self.assertIn('npm ci && npm run typecheck && npm test && npm run build', server)
         self.assertLess(server.index('npm run build'), server.index('go build -o bin/cctv ./cmd/cctv'))
         self.assertIn('go build -o bin/cctv ./cmd/cctv', server)
         self.assertIn('name: browser-test-server', server)
-        self.assertIn('needs.test-server.outputs.commit', browser)
+        self.assertIn('needs.code-checks.outputs.commit', browser)
         self.assertIn('playwright install-deps', browser)
         self.assertIn('sudo apt-get install -y ffmpeg', browser)
-        self.assertEqual(browser.count('browser: '), 4)
-        self.assertEqual(browser.count('shard: '), 4)
-        self.assertIn('npm run test:browser -- --shard=${{ matrix.shard }}/2', browser)
-        self.assertIn('browser-test-results-${{ matrix.browser }}-${{ matrix.shard }}', browser)
+        self.assertEqual(browser.count('browser: '), 2)
+        self.assertNotIn('shard', browser)
+        self.assertIn('run: npm run test:browser', browser)
+        self.assertIn('browser-test-results-${{ matrix.browser }}', browser)
         config = (ROOT / 'playwright.config.ts').read_text()
         self.assertIn('globalTimeout:8*60*1000', config)
 
@@ -105,12 +109,12 @@ class WorkflowContractTest(unittest.TestCase):
         shell = "\n".join(line[10:] for line in shell.splitlines())
         cases = []
         for main in (False, True):
-            results_checked = ('CODE_RESULT', 'SERVER_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT')
-            required = results_checked if main else results_checked[:3]
+            results_checked = ('CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT')
+            required = results_checked if main else results_checked[:2]
             for values in itertools.product(('success', 'failure', 'skipped', 'cancelled'), repeat=len(required)):
                 results = dict(zip(required, values))
                 env = dict(os.environ, MAIN_PUSH=str(main).lower(), BUILD_RESULT='skipped', PUBLISH_RESULT='skipped')
-                env.update(CODE_RESULT='success', SERVER_RESULT='success', BROWSER_RESULT='success')
+                env.update(CODE_RESULT='success', BROWSER_RESULT='success')
                 env.update(results)
                 # Execute the same exhaustive cases in isolated subshells. Avoid
                 # starting a fresh Bash executable for every status combination.
