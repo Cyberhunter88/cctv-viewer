@@ -22,6 +22,13 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  await expect(page.locator('#batch-selected input')).toHaveCount(2);
  await page.locator('#batch-save').click();await expect(page.locator('#batch-dialog')).not.toBeVisible();
  await expect(page.locator('#recording-count')).toContainText('6 Aufnahmen',{timeout:20000});await expect(page.locator('#rescan')).toBeEnabled({timeout:20000});
+ await page.locator('#settings-button').click();
+ await page.locator('#camera-list').getByRole('button',{name:'DualFront',exact:true}).click();
+ await page.locator('#preview').click();
+ await expect(page.locator('#preview-result')).toContainText('Kennungen: Weitwinkel _wide, Zoom _zoom');
+ await expect(page.locator('#preview-result')).toContainText(' · Weitwinkel');
+ await expect(page.locator('#preview-result')).toContainText(' · Zoom');
+ await page.locator('#close-dialog').click();
  await expect(page.locator('.camera-group.dual')).toHaveCount(2);
  for(const group of await page.locator('.camera-group.dual').all()){
   await expect(group.locator('video')).toHaveCount(1);await expect(group.locator('.tile-title')).toContainText('Weitwinkel');

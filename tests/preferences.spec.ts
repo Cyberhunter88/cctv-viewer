@@ -25,6 +25,10 @@ for(const role of ['admin','viewer'])test(`${role} responsive shell and settings
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
  if(role==='viewer')await page.route('**/api/session',async route=>{const response=await route.fetch();if(response.status()!==200)return route.fulfill({response});const session=await response.json();await route.fulfill({response,json:{...session,role:'viewer',preferenceKey:'viewer-redesign'}})});
  await login(page);if(role==='viewer')await expect(page.locator('#settings-button')).toBeHidden();else await expect(page.locator('#settings-button')).toBeVisible();
+ const navigation=page.getByRole('navigation',{name:'Hauptnavigation'});
+ await expect(navigation.getByRole('button',{name:'Aufnahmen suchen'})).toHaveCount(1);
+ await expect(navigation.getByRole('button',{name:'Persönliche Einstellungen'})).toHaveCount(1);
+ await expect(page.locator('#header-preferences, #mobile-toolbar')).toHaveCount(0);
  for(const theme of ['light','dark']){
   for(const width of [390,768,1440,1920]){
    await page.setViewportSize({width,height:1000});await open(page);await page.locator('#theme').selectOption(theme);

@@ -242,7 +242,12 @@ Pro Kamera kann **Weitwinkel + Zoom** aktiviert werden. Beide MP4-Dateien liegen
 im selben Kameraordner oder dessen Unterordnern. Zwei einstellbare Kennungen
 (z. B. `_wide`/`_zoom`, `wide/`/`zoom/` oder nach Prüfung `_00_`/`_01_`)
 identifizieren die Ansicht anhand des relativen Pfads, ohne Beachtung der
-Großschreibung. „Erkennung prüfen“ zeigt die Zuordnung und Aufnahmezeit.
+Großschreibung. Beim Einrichten oder Bearbeiten vergleicht der Viewer bis zu
+drei zeitlich passende Bildpaare. Wenn der größere Bildausschnitt eindeutig
+erkennbar ist, korrigiert er vertauschte Kennungen automatisch. Bei einem
+unklaren Vergleich bleiben die Kennungen unverändert und der Grund wird
+angezeigt. „Erkennung prüfen“ zeigt Beispiele beider Ansichten, unklare
+Dateien und die Aufnahmezeit.
 Dateien ohne Kennung oder mit beiden Kennungen bleiben unklar und werden keiner
 Ansicht zugeordnet. Eine Kennung wie `_00_` hat keine fest vorgegebene Bedeutung;
 vor dem Speichern je eine Datei beider Perspektiven mit „Erkennung prüfen“ kontrollieren.
