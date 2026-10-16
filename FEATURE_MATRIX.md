@@ -33,7 +33,7 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Persistente Scanplanung, inkrementelle stabile Dateien | Ergänzt; interaktive Warteschlange bevorzugt | Go: IncrementalScanAndReconciliation, SchedulePersists |
 | Offline-Quellen, Löschabgleich, große Verzeichnisse | Erhalten/erweitert, maximal 2 Mio. Einträge | Go: OfflineSourcePreservesIndex, IncrementalScan, LargeSyntheticPartition |
 | Suche mit Kamera, Zeitraum, Mindestdauer | Geschützte API und Dialog; Öffnen eines Treffers, Trefferzähler, recordings(start)-Index | Go: SearchRebuild; Browser: features |
-| Original/Ausgewogen/Schnell, konfigurierbare Profile | Ergänzt; Original unverändert | Go: ProfilesSpeedTransport; Browser: viewer |
+| Original/Ausgewogen/Schnell, konfigurierbare Profile | Original unverändert; einmalige Umstellung auf Original, reduzierte Profile ausdrücklich wählbar | Go: ProfilesSpeedTransport; Browser: viewer |
 | Metadaten-/automatisches Vorladen | Ergänzt und gespeichert | Browser: archive |
 | Serverseitige beschleunigte komprimierte Wiedergabe | Faktor bis 16×; hohe Geschwindigkeiten mit Keyframes am Clipbeginn | Go: ProfilesSpeedTransport |
 | Fragmentiertes MP4 / natives HLS | Ergänzt; Auswahl über Browserfähigkeit | Go: ProfilesSpeedTransport; Browser: viewer |
@@ -71,3 +71,8 @@ Benchmarkzusage abgeleitet. HTTP-Streamingtests decken HLS und fragmentiertes MP
 bei mehreren Geschwindigkeiten ab. Browser- und Containerergebnisse werden im
 Abschlussbericht separat benannt; eine vorhandene CI-Konfiguration ist kein
 Nachweis eines bereits erfolgreich ausgeführten Containerlaufs.
+
+Die Aufnahmeansicht unterstützt echtes Browser-Vollbild per Schaltfläche,
+Doppelklick und Taste F. Die einklappbare Seitenleiste enthält das Kontomenü;
+Datum, Kameraauswahl und Seitensteuerung sind für Laptopbreiten kompakt angeordnet.
+Bei geschlossenem Zoom verwendet die Zeitleiste ausschließlich die Weitwinkelansicht.
