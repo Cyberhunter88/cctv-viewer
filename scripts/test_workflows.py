@@ -49,19 +49,22 @@ class WorkflowContractTest(unittest.TestCase):
         gate = self.job('test')
         self.assertIn('name: Anwendung prüfen', gate)
         self.assertIn('if: always()', gate)
-        self.assertIn('needs: [checks, browser, build, publish-commit]', gate)
-        for result in ('CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT'):
+        self.assertIn('needs: [static-checks, code-checks, browser, build, publish-commit]', gate)
+        for result in ('STATIC_RESULT', 'CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT'):
             self.assertIn(f'test "${result}" = success', gate)
         self.assertIn('if [ "$MAIN_PUSH" = true ]', gate)
-        self.assertIn('needs: [checks, browser]', self.job('build'))
+        self.assertIn('needs: [code-checks, browser]', self.job('build'))
 
     def test_required_check_cannot_succeed_after_any_failed_prerequisite(self):
         shell = self.job('test').split('        run: |\n', 1)[1]
         shell = "\n".join(line[10:] for line in shell.splitlines())
         for main in (False, True):
-            for values in itertools.product(('success', 'failure', 'skipped', 'cancelled'), repeat=4 if main else 2):
-                results = dict(zip(('CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT'), values))
+            results_checked = ('STATIC_RESULT', 'CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT')
+            required = results_checked if main else results_checked[:3]
+            for values in itertools.product(('success', 'failure', 'skipped', 'cancelled'), repeat=len(required)):
+                results = dict(zip(required, values))
                 env = dict(os.environ, MAIN_PUSH=str(main).lower(), BUILD_RESULT='skipped', PUBLISH_RESULT='skipped')
+                env.update(STATIC_RESULT='success', CODE_RESULT='success', BROWSER_RESULT='success')
                 env.update(results)
                 result = subprocess.run(['bash', '-e', '-c', shell], env=env, capture_output=True)
                 self.assertEqual(result.returncode == 0, all(value == 'success' for value in values), (main, results))
