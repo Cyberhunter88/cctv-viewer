@@ -16,12 +16,12 @@ import (
 )
 
 func TestReolinkTimestamp(t *testing.T) {
-	for _, prefix := range []string{"", "Eingang"} {
+	for _, prefix := range []string{"", "Testkamera-A"} {
 		c := Camera{Format: "reolink", Prefix: prefix, Timezone: "Europe/Berlin", Offset: 5}
 		for _, name := range []string{
-			"2026/10/14/Eingang_00_20261014061217.mp4",
-			"2026/10/14/Andere Kamera_01_20261014061217.MP4",
-			"2026/10/14/Eingang_01_20261014061217.jpg",
+			"2026/10/14/Testkamera-A_00_20261014061217.mp4",
+			"2026/10/14/Andere Testkamera_01_20261014061217.MP4",
+			"2026/10/14/Testkamera-A_01_20261014061217.jpg",
 			"2026/10/14/Bild_mit_Unterstrichen_12_20261014061217.JPG",
 			"2026/10/14/Other_00_20261014061217.JPEG",
 		} {
@@ -31,9 +31,9 @@ func TestReolinkTimestamp(t *testing.T) {
 			}
 		}
 		for _, name := range []string{
-			"2026/10/13/Eingang_00_20261014061217.mp4",
-			"2026/10/25/Eingang_00_20261025023000.mp4",
-			"2026/03/29/Eingang_00_20260329023000.jpg",
+			"2026/10/13/Testkamera-A_00_20261014061217.mp4",
+			"2026/10/25/Testkamera-A_00_20261025023000.mp4",
+			"2026/03/29/Testkamera-A_00_20260329023000.jpg",
 			"2026/10/14/Other_00_20261014253000.mp4",
 			"2026/10/14/Other_00_20261014061217.mp4.bak",
 			"2026/10/14/Other_00_20261014061217.png",
@@ -52,7 +52,7 @@ func TestReolinkWithoutPrefix(t *testing.T) {
 		t.Run("prefix="+prefix, func(t *testing.T) {
 			a := testApp(t)
 			cookie, session := login(t, a)
-			c := Camera{Name: "Eingang", Folder: "Reolink/Eingang", Format: "reolink", Prefix: prefix, Timezone: "Europe/Berlin"}
+			c := Camera{Name: "Testkamera-A", Folder: "Reolink/Testkamera-A", Format: "reolink", Prefix: prefix, Timezone: "Europe/Berlin"}
 			folder := filepath.Join(a.config().RecordingsDir, c.Folder, "2026/10/14")
 			testVideo(t, filepath.Join(folder, "Video_00_20261014061217.MP4"), false)
 			writeJPEG(t, filepath.Join(folder, "Anderer Name_01_20261014061217.JPG"))

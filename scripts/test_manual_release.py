@@ -33,7 +33,10 @@ class ManualReleaseTest(unittest.TestCase):
 
         def command(*args, **kwargs):
             if args[:2] == ("gh", "api"):
-                return json.dumps(self.release) if self.release is not None else None
+                self.assertEqual(args, ("gh", "api", "--paginate", "--slurp",
+                                        "repos/example/viewer/releases?per_page=100"))
+                return json.dumps([[{"tag_name": "v0.0.1"}],
+                                   [self.release] if self.release is not None else []])
             return original(*args, **kwargs)
         self.mock = patch("manual_release.command", side_effect=command).start()
         self.addCleanup(patch.stopall)
@@ -126,7 +129,7 @@ class ManualReleaseTest(unittest.TestCase):
 
     def test_wrong_draft_or_release_without_tag_is_rejected(self):
         for draft in [False, True]:
-            self.release = {"prerelease": False, "draft": draft, "target_commitish": "b" * 40}
+            self.release = {"tag_name": "v1.2.3", "prerelease": False, "draft": draft, "target_commitish": "b" * 40}
             with self.assertRaisesRegex(ValueError, "keinen passenden"):
                 self.prepare()
 
@@ -137,7 +140,7 @@ class ManualReleaseTest(unittest.TestCase):
         self.git("push", "-q", "origin", "main")
         release, _ = self.prepare("v1.2.3-beta.1")
         self.assertTrue(release["prerelease"])
-        self.release = {"prerelease": False}
+        self.release = {"tag_name": "v1.2.3-beta.1", "prerelease": False}
         with self.assertRaisesRegex(ValueError, "Vorabversionsstatus"):
             self.prepare("v1.2.3-beta.1")
 

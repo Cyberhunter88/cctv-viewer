@@ -6,7 +6,7 @@ test.afterEach(async({page})=>{
  if(page.isClosed())return;
  const sessionResponse=await page.request.get('/api/session');if(!sessionResponse.ok())return;
  const session=await sessionResponse.json(),cameras=await(await page.request.get('/api/cameras')).json();
- for(const camera of cameras.filter((c:{name:string})=>['DualFront','DualBack','Dual isolation'].includes(c.name)))await page.request.delete('/api/cameras/'+camera.id,{headers:{'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin}});
+ for(const camera of cameras.filter((c:{name:string})=>['DualTestA','DualTestB','Dual isolation'].includes(c.name)))await page.request.delete('/api/cameras/'+camera.id,{headers:{'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin}});
 });
 async function login(page:Page){await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:20000});await expect(page.locator('#rescan')).toBeEnabled({timeout:20000})}
 
@@ -18,12 +18,12 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  await page.locator('#camera-form input[name=wideMarker]').fill('_wide');await page.locator('#camera-form input[name=zoomMarker]').fill('_zoom');
  await page.locator('#camera-form input[name=zoomOffset]').fill('-5');
  await page.locator('#batch-open').click();
- for(const folder of ['DualFront','DualBack'])await page.getByRole('checkbox',{name:'Kameraordner '+folder+' auswählen',exact:true}).check();
+ for(const folder of ['DualTestA','DualTestB'])await page.getByRole('checkbox',{name:'Kameraordner '+folder+' auswählen',exact:true}).check();
  await expect(page.locator('#batch-selected input')).toHaveCount(2);
  await page.locator('#batch-save').click();await expect(page.locator('#batch-dialog')).not.toBeVisible();
  await expect(page.locator('#recording-count')).toContainText('6 Aufnahmen',{timeout:20000});await expect(page.locator('#rescan')).toBeEnabled({timeout:20000});
  await page.locator('#settings-button').click();
- await page.locator('#camera-list').getByRole('button',{name:'DualFront',exact:true}).click();
+ await page.locator('#camera-list').getByRole('button',{name:'DualTestA',exact:true}).click();
  await page.locator('#preview').click();
  await expect(page.locator('#preview-result')).toContainText('Kennungen: Weitwinkel _wide, Zoom _zoom');
  await expect(page.locator('#preview-result')).toContainText(' · Weitwinkel');
@@ -44,7 +44,7 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  await page.locator('#play').click();await page.locator('.camera-group.dual video').first().dblclick();await expect(page.locator('.camera-tile.expanded')).toHaveCount(1);await page.keyboard.press('Escape');await expect(page.locator('.camera-tile.expanded')).toHaveCount(0);
  await page.screenshot({path:'/tmp/cctv-dual-ui.png',fullPage:true});
  // On phones only two camera groups fit per page. Keep this check focused on paired views.
- for(const name of ['Eingang','Garten'])await page.locator('#camera-filters').getByRole('button',{name,exact:true}).click();
+ for(const name of ['Testkamera-A','Testkamera-B'])await page.locator('#camera-filters').getByRole('button',{name,exact:true}).click();
  await page.setViewportSize({width:390,height:844});await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:'/tmp/cctv-dual-mobile.png',fullPage:true});
  for(const width of [980,1440,390]){
   await page.setViewportSize({width,height:844});
@@ -66,7 +66,7 @@ test('a failed or missing zoom leaves wide playback running without repeated req
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);
  const session=await(await page.request.get('/api/session')).json();
  const headers={'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin};
- const response=await page.request.post('/api/cameras',{headers,data:{name:'Dual isolation',folder:'DualFront',format:'automatic',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:'dual',supportsZoom:true,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:-5}});
+ const response=await page.request.post('/api/cameras',{headers,data:{name:'Dual isolation',folder:'DualTestA',format:'automatic',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:'dual',supportsZoom:true,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:-5}});
  expect(response.ok(),await response.text()).toBe(true);const camera=await response.json();
  try{
   await page.reload();await page.locator('#date').fill('2026-10-14');

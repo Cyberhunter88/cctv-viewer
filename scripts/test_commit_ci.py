@@ -3,7 +3,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from wait_for_commit_ci import wait_for_ci, REQUIRED_JOBS
+from wait_for_commit_ci import wait_for_ci
 
 SHA = "a" * 40
 
@@ -15,7 +15,17 @@ def run(status="completed", conclusion="success", **kwargs):
 
 
 def jobs():
-    return subprocess.CompletedProcess([], 0, stdout=json.dumps([{"jobs": [{"name": name, "conclusion": "success"} for name in REQUIRED_JOBS]}]))
+    names = (
+        "Code prüfen", "Browser-Testserver bauen",
+        "Browser prüfen (chrome, shard 1/2)", "Browser prüfen (chrome, shard 2/2)",
+        "Browser prüfen (webkit, shard 1/2)", "Browser prüfen (webkit, shard 2/2)",
+        "Docker prüfen (amd64)", "Docker prüfen (arm64)",
+        "Commit-Image bereitstellen", "Anwendung prüfen",
+    )
+    return subprocess.CompletedProcess([], 0, stdout=json.dumps([
+        {"jobs": [{"name": name, "conclusion": "success"} for name in names]}
+    ]))
+
 
 
 def response(runs):
@@ -76,12 +86,20 @@ class CommitCITest(unittest.TestCase):
 
     @patch("wait_for_commit_ci.subprocess.run")
     def test_green_workflow_with_skipped_or_missing_build_is_not_enough(self, gh):
-        for failed in ["Docker prüfen (arm64)", "Browser prüfen (webkit)", "Commit-Image bereitstellen"]:
-            incomplete = json.loads(jobs().stdout)
-            incomplete[0]["jobs"] = [job for job in incomplete[0]["jobs"] if job["name"] != failed]
-            gh.side_effect = [response([run()]), subprocess.CompletedProcess([], 0, stdout=json.dumps(incomplete))]
-            with self.assertRaisesRegex(RuntimeError, "unvollständig"):
-                wait_for_ci("example/repo", SHA)
+        for job in json.loads(jobs().stdout)[0]["jobs"]:
+            for conclusion in (None, "failure", "cancelled", "skipped"):
+                with self.subTest(job=job["name"], conclusion=conclusion):
+                    incomplete = json.loads(jobs().stdout)
+                    if conclusion is None:
+                        incomplete[0]["jobs"] = [item for item in incomplete[0]["jobs"]
+                                                  if item["name"] != job["name"]]
+                    else:
+                        next(item for item in incomplete[0]["jobs"]
+                             if item["name"] == job["name"])["conclusion"] = conclusion
+                    gh.side_effect = [response([run()]), subprocess.CompletedProcess(
+                        [], 0, stdout=json.dumps(incomplete))]
+                    with self.assertRaisesRegex(RuntimeError, "unvollständig"):
+                        wait_for_ci("example/repo", SHA)
 
     @patch("wait_for_commit_ci.subprocess.run")
     def test_success_exports_exact_run_attempt_for_artifact_download(self, gh):

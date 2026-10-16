@@ -175,7 +175,7 @@ func TestViewerPermissionsAndExpiry(t *testing.T) {
 }
 func fixture(t *testing.T, a *App, codec string) Camera {
 	t.Helper()
-	folder := "Eingang"
+	folder := "Testkamera-A"
 	os.MkdirAll(filepath.Join(a.cfg.RecordingsDir, folder, "2026/10/14"), 0700)
 	file := filepath.Join(a.cfg.RecordingsDir, folder, "2026/10/14/08-30-00.mp4")
 	args := []string{"-nostdin", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=10", "-t", "3", "-c:v", codec, "-threads", "1", "-pix_fmt", "yuv420p"}
@@ -188,7 +188,7 @@ func fixture(t *testing.T, a *App, codec string) Camera {
 	}
 	past := time.Now().Add(-time.Minute)
 	os.Chtimes(file, past, past)
-	c := Camera{ID: "entrance", Name: "Eingang", Folder: folder, Pattern: "{YYYY}/{MM}/{DD}/{hh}-{mm}-{ss}.mp4", Timezone: "Europe/Berlin"}
+	c := Camera{ID: "camera-a", Name: "Testkamera-A", Folder: folder, Pattern: "{YYYY}/{MM}/{DD}/{hh}-{mm}-{ss}.mp4", Timezone: "Europe/Berlin"}
 	if e := a.db.SaveCamera(c); e != nil {
 		t.Fatal(e)
 	}

@@ -4,7 +4,7 @@ async function setup(page:Page,dual=false){
  await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();
  const session=await(await page.request.get('/api/session')).json(),headers={'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin},ids:string[]=[];
  try{
- for(const folder of dual?['AudioDual']:['Audio/Eingang','Audio/Garten']){
+ for(const folder of dual?['AudioDual']:['Audio/Testkamera-A','Audio/Testkamera-B']){
   const r=await page.request.post('/api/cameras',{headers,data:{name:folder,folder,format:dual?'automatic':'custom',pattern:'{YYYY}/{MM}/{DD}/{hh}-{mm}-{ss}.mp4',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:dual?'dual':'single',supportsZoom:dual,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:0}});expect(r.ok(),await r.text()).toBe(true);ids.push((await r.json()).id);
  }
  await page.evaluate(({key,ids})=>localStorage.setItem('cctv-view:'+key,JSON.stringify({cameras:ids,order:ids,layout:'2x1',quality:'native'})),{key:session.preferenceKey,ids});
@@ -63,7 +63,7 @@ test('enabling audio on a recording without a track keeps video playing',async({
  const cleanup=await setup(page);
  try{
   while(await page.locator('#camera-filters .selected').count())await page.locator('#camera-filters .selected').first().click();
-  await page.locator('#camera-filters').getByRole('button',{name:'Eingang',exact:true}).click();
+  await page.locator('#camera-filters').getByRole('button',{name:'Testkamera-A',exact:true}).click();
   await expect(page.locator('video')).toHaveCount(1);await page.locator('.tile-audio').click();await page.locator('#play').click();
   for(const quality of ['native','balanced','fast']){
    await page.locator('#quality').selectOption(quality);

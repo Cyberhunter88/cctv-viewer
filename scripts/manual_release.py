@@ -19,6 +19,15 @@ def command(*args, missing_ok=False):
     return result.stdout.strip()
 
 
+def find_release(repository, tag):
+    # The by-tag endpoint returns 404 for drafts. The authenticated, paginated
+    # list includes both drafts and published releases.
+    pages = json.loads(command("gh", "api", "--paginate", "--slurp",
+                               f"repos/{repository}/releases?per_page=100"))
+    return next((release for page in pages for release in page
+                 if release.get("tag_name") == tag), None)
+
+
 def prepare(repository, tag, event_path, output_path, target_commit=""):
     _, suffix = parse(tag)
     if target_commit and not re.fullmatch(r"[0-9a-f]{40}", target_commit):
@@ -36,8 +45,8 @@ def prepare(repository, tag, event_path, output_path, target_commit=""):
     version = tag[1:]
     if package["version"] != version or lock.get("version") != version or lock.get("packages", {}).get("", {}).get("version") != version:
         raise ValueError(f"Release-Version {version} stimmt nicht mit package.json/package-lock.json des gewählten Commits überein. Version im Feature-Branch ändern, testen und manuell nach main mergen.")
-    existing = command("gh", "api", f"repos/{repository}/releases/tags/{tag}", missing_ok=True)
-    release = json.loads(existing) if existing is not None else {"tag_name": tag, "prerelease": bool(suffix)}
+    existing = find_release(repository, tag)
+    release = existing if existing is not None else {"tag_name": tag, "prerelease": bool(suffix)}
     if bool(release.get("prerelease")) != bool(suffix):
         raise ValueError("Vorabversionsstatus und Release-Tag müssen übereinstimmen")
     remote_tag = command("git", "ls-remote", "--tags", "origin", f"refs/tags/{tag}")
@@ -54,13 +63,7 @@ def prepare(repository, tag, event_path, output_path, target_commit=""):
 
 
 def upload_assets(repository, tag, *paths):
-    # GitHub's "by tag" endpoint omits draft releases (404), even though the
-    # release was just created by this workflow. The authenticated release list
-    # includes drafts, so resolve the exact release there before inspecting assets.
-    pages = json.loads(command("gh", "api", "--paginate", "--slurp",
-                               f"repos/{repository}/releases?per_page=100"))
-    release = next((release for page in pages for release in page
-                    if release.get("tag_name") == tag), None)
+    release = find_release(repository, tag)
     if release is None:
         raise RuntimeError(f"GitHub-Release {tag} wurde nicht gefunden; Assets werden nicht hochgeladen")
     existing = {asset["name"] for asset in release["assets"]}

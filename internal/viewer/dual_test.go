@@ -25,7 +25,7 @@ func TestDualViewClassificationAndPersistence(t *testing.T) {
 	if e != nil || saved.ZoomOffset != -2.5 || saved.ViewMode != "dual" {
 		t.Fatalf("roundtrip: %+v %v", saved, e)
 	}
-	for filename, want := range map[string]string{"Zoom Kamera/Eingang_00_20261014010548.mp4": "wide", "Zoom Kamera/Eingang_01_20261014120659.mp4": "zoom", "Zoom Kamera/CAM_00_01_20261014083000.mp4": "unknown", "Zoom Kamera/20261014083000.mp4": "unknown"} {
+	for filename, want := range map[string]string{"Zoom Kamera/Testkamera-A_00_20261014010548.mp4": "wide", "Zoom Kamera/Testkamera-A_01_20261014120659.mp4": "zoom", "Zoom Kamera/CAM_00_01_20261014083000.mp4": "unknown", "Zoom Kamera/20261014083000.mp4": "unknown"} {
 		if got := recordingView(saved, filename); got != want {
 			t.Fatalf("%s: %s", filename, got)
 		}
@@ -124,13 +124,13 @@ func TestDualMarkersFollowCameraConfiguration(t *testing.T) {
 	}
 }
 
-func TestReolinkGardenUnequalStarts(t *testing.T) {
+func TestReolinkTestCameraBUnequalStarts(t *testing.T) {
 	a := testApp(t)
-	c := Camera{ID: "garden", IndexingMode: "full", Name: "Reolink Garten", Folder: "Reolink Garten", Format: "automatic", Timezone: "Europe/Berlin", ViewMode: "dual", WideMarker: "_00_", ZoomMarker: "_01_"}
+	c := Camera{ID: "camera-b", IndexingMode: "full", Name: "Reolink Testkamera-B", Folder: "Reolink Testkamera-B", Format: "automatic", Timezone: "Europe/Berlin", ViewMode: "dual", WideMarker: "_00_", ZoomMarker: "_01_"}
 	if err := a.db.SaveCamera(c); err != nil {
 		t.Fatal(err)
 	}
-	names := []string{"Reolink Garten_00_20261015061313.mp4", "Reolink Garten_01_20261015061312.mp4"}
+	names := []string{"Reolink Testkamera-B_00_20261015061313.mp4", "Reolink Testkamera-B_01_20261015061312.mp4"}
 	for i, name := range names {
 		want := []string{"wide", "zoom"}[i]
 		full := c.Folder + "/" + name
@@ -178,7 +178,7 @@ func TestReolinkGardenUnequalStarts(t *testing.T) {
 	if err != nil || len(records) != 2 || records[0].Start != records[1].Start {
 		t.Fatalf("clock correction: %+v %v", records, err)
 	}
-	w := request(a, "GET", fmt.Sprintf("/api/search?camera=garden&from=%.0f&to=%.0f", starts["wide"], starts["wide"]), nil, cookie, session.CSRF)
+	w := request(a, "GET", fmt.Sprintf("/api/search?camera=camera-b&from=%.0f&to=%.0f", starts["wide"], starts["wide"]), nil, cookie, session.CSRF)
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}

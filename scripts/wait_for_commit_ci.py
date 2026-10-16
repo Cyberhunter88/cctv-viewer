@@ -7,9 +7,12 @@ import sys
 import time
 
 
-REQUIRED_JOBS = {"Code prüfen und Testserver bauen", "Browser prüfen (chrome)",
-                 "Browser prüfen (webkit)", "Docker prüfen (amd64)", "Docker prüfen (arm64)",
-                 "Commit-Image bereitstellen", "Anwendung prüfen"}
+REQUIRED_JOBS = {"Code prüfen", "Browser-Testserver bauen",
+                 "Docker prüfen (amd64)", "Docker prüfen (arm64)",
+                 "Commit-Image bereitstellen", "Anwendung prüfen"} | {
+                     f"Browser prüfen ({browser}, shard {shard}/2)"
+                     for browser in ("chrome", "webkit") for shard in (1, 2)
+                 }
 
 
 def verify_jobs(repository, run):
