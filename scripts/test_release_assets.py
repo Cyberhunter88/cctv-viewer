@@ -15,7 +15,8 @@ class ReleaseAssetsTest(unittest.TestCase):
             path.write_bytes(current)
             def command(*args, **kwargs):
                 if args[:2] == ("gh", "api"):
-                    return json.dumps({"assets": [{"name": filename}] if exists else []})
+                    return json.dumps([[{"tag_name": "v1.2.3", "draft": True,
+                                         "assets": [{"name": filename}] if exists else []}]])
                 if args[:3] == ("gh", "release", "download"):
                     (Path(args[-1]) / filename).write_bytes(previous)
                     return ""
@@ -27,6 +28,12 @@ class ReleaseAssetsTest(unittest.TestCase):
     def test_identical_existing_asset_is_reused(self):
         calls = self.upload()
         self.assertFalse(any(call.args[:3] == ("gh", "release", "upload") for call in calls))
+
+    def test_draft_release_is_resolved_from_paginated_release_list(self):
+        calls = self.upload()
+        self.assertIn(("gh", "api", "--paginate", "--slurp",
+                       "repos/example/viewer/releases?per_page=100"),
+                      [call.args for call in calls])
 
     def test_missing_asset_is_uploaded_without_clobber(self):
         calls = self.upload(exists=False)
@@ -44,6 +51,15 @@ class ReleaseAssetsTest(unittest.TestCase):
         self.assertFalse(any(call.args[:3] == ("gh", "release", "upload") for call in calls))
         with self.assertRaisesRegex(ValueError, "widerspricht"):
             self.upload("release-proof.json", json.dumps(dict(proof, digest="other")).encode(), json.dumps(proof).encode())
+
+    def test_missing_release_is_reported_before_upload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "compose.yaml"
+            path.write_text("compose")
+            with patch("manual_release.command", return_value="[[], []]") as mock:
+                with self.assertRaisesRegex(RuntimeError, "wurde nicht gefunden"):
+                    upload_assets("example/viewer", "v1.2.3", str(path))
+            self.assertEqual(mock.call_count, 1)
 
 
 if __name__ == '__main__':
