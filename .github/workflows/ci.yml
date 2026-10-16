@@ -2,22 +2,14 @@ name: CCTV Viewer bauen und prüfen
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_call:
-    inputs:
-      ref:
-        type: string
-        required: false
-        default: ""
 permissions:
   contents: read
 defaults:
   run:
     shell: bash
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.run_id }}
+  cancel-in-progress: false
 jobs:
   code-checks:
     name: Code prüfen
@@ -30,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
@@ -62,9 +54,6 @@ jobs:
           bash -n scripts/promote_image.sh scripts/smoke.sh
           python3 -m compileall -q scripts
       - run: npm ci && npm run typecheck && npm test && npm run build
-      - name: Browser-Testserver bauen
-        if: github.event_name == 'pull_request'
-        run: mkdir -p bin && go build -o bin/cctv ./cmd/cctv
       - run: go vet ./...
       - name: Go-Race-Tests
         run: go test -race ./...
@@ -76,63 +65,6 @@ jobs:
             echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-builds"
             echo "version=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
           } >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: github.event_name == 'pull_request'
-        with:
-          name: browser-test-server
-          path: bin/cctv
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 1
-  browser:
-    name: Browser prüfen (${{ matrix.browser }})
-    if: github.event_name == 'pull_request'
-    needs: code-checks
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - browser: chrome
-            engine: chromium
-          - browser: webkit
-            engine: webkit
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ needs.code-checks.outputs.commit }}
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: '24.10.0'
-          cache: npm
-      - run: npm ci
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: browser-test-server
-          path: bin
-      - run: chmod +x bin/cctv
-      - name: Playwright Cache
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            playwright-${{ matrix.browser }}-
-      - name: Browser- und Systemabhängigkeiten installieren
-        run: |
-          npx playwright install-deps ${{ matrix.browser }}
-          sudo apt-get install -y ffmpeg
-          npx playwright install ${{ matrix.browser }}
-      - run: npm run test:browser
-        env:
-          CTV_TEST_ENGINE: ${{ matrix.engine }}
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure()
-        with:
-          name: browser-test-results-${{ matrix.browser }}
-          path: test-results/
-          retention-days: 7
   build:
     name: Docker prüfen (${{ matrix.arch }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -242,27 +174,19 @@ jobs:
           if-no-files-found: error
           retention-days: 90
   test:
-    # Keep this name stable: main already requires this exact status check.
+    # Keep this name stable: main requires this exact status check.
     name: Anwendung prüfen
     if: always()
-    needs: [code-checks, browser, build, publish-commit]
+    needs: [code-checks, build, publish-commit]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - name: Alle für das Ereignis erforderlichen Prüfungen verlangen
+      - name: Alle erforderlichen Prüfungen verlangen
         env:
           CODE_RESULT: ${{ needs.code-checks.result }}
-          BROWSER_RESULT: ${{ needs.browser.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           PUBLISH_RESULT: ${{ needs.publish-commit.result }}
-          MAIN_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-          PR_EVENT: ${{ github.event_name == 'pull_request' }}
         run: |
           test "$CODE_RESULT" = success
-          if [ "$MAIN_PUSH" = true ]; then
-            test "$BROWSER_RESULT" = skipped
-            test "$BUILD_RESULT" = success
-            test "$PUBLISH_RESULT" = success
-          elif [ "$PR_EVENT" = true ]; then
-            test "$BROWSER_RESULT" = success
-          fi
+          test "$BUILD_RESULT" = success
+          test "$PUBLISH_RESULT" = success

@@ -12,10 +12,11 @@ ROOT = Path(__file__).resolve().parent.parent
 class WorkflowContractTest(unittest.TestCase):
     def setUp(self):
         self.ci = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.pr = (ROOT / ".github/workflows/pr.yml").read_text()
         self.release = (ROOT / ".github/workflows/release.yml").read_text()
 
-    def job(self, name):
-        return re.search(rf"^  {name}:\n.*?(?=^  [a-z][a-z-]*:|\Z)", self.ci, re.M | re.S)[0]
+    def job(self, name, pr=False):
+        return re.search(rf"^  {name}:\n.*?(?=^  [a-z][a-z-]*:|\Z)", self.pr if pr else self.ci, re.M | re.S)[0]
 
     def test_release_can_only_be_started_manually_on_main(self):
         triggers = self.release.split("on:\n", 1)[1].split("permissions:\n", 1)[0]
@@ -37,7 +38,14 @@ class WorkflowContractTest(unittest.TestCase):
 
     def test_pr_and_main_run_ci_but_only_main_push_may_write_images(self):
         self.assertIn('  push:\n    branches: [main]', self.ci)
-        self.assertIn('  pull_request:\n    branches: [main]', self.ci)
+        self.assertIn('  pull_request:\n    branches: [main]', self.pr)
+        self.assertNotIn('  pull_request:', self.ci)
+        self.assertNotIn('  push:', self.pr)
+        self.assertNotIn('packages: write', self.pr)
+        self.assertNotIn('  browser:', self.ci)
+        self.assertNotIn('  build:', self.pr)
+        self.assertNotIn('  publish-commit:', self.pr)
+        self.assertNotIn('workflow_call:', self.ci + self.pr)
         for name in ('build', 'publish-commit'):
             job = self.job(name)
             self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", job)
@@ -63,7 +71,7 @@ class WorkflowContractTest(unittest.TestCase):
                  for job in ('code-checks', 'build', 'publish-commit', 'test')}
         names.remove('Docker prüfen (${{ matrix.arch }})')
         names.update(f'Docker prüfen ({arch})' for arch in ('amd64', 'arm64'))
-        browser = self.job('browser')
+        browser = self.job('browser', pr=True)
         template = re.search(r"^    name: (.+)$", browser, re.M)[1]
         entries = re.findall(r"- browser: (\w+)\n            engine: \w+", browser)
         self.assertEqual(entries, ["chrome", "webkit"])
@@ -74,32 +82,30 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertEqual(len(names - {"Docker prüfen (amd64)", "Docker prüfen (arm64)",
                                      "Commit-Image bereitstellen"}), 4)
         definitions = re.findall(r"^  ([a-z][a-z-]*):$", self.ci.split("jobs:\n", 1)[1], re.M)
-        self.assertEqual(set(definitions), {"code-checks", "browser", "build", "publish-commit", "test"})
+        self.assertEqual(set(definitions), {"code-checks", "build", "publish-commit", "test"})
 
     def test_required_check_covers_tests_and_main_image_publication(self):
-        gate = self.job('test')
-        self.assertIn('name: Anwendung prüfen', gate)
-        self.assertIn('if: always()', gate)
-        self.assertIn('needs: [code-checks, browser, build, publish-commit]', gate)
-        for result in ('CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT'):
-            self.assertIn(f'test "${result}" = success', gate)
-        self.assertIn('if [ "$MAIN_PUSH" = true ]', gate)
+        for pr, required in ((False, ['code-checks', 'build', 'publish-commit']),
+                             (True, ['code-checks', 'browser'])):
+            gate = self.job('test', pr=pr)
+            self.assertIn('name: Anwendung prüfen', gate)
+            self.assertIn('if: always()', gate)
+            self.assertIn('needs: [' + ', '.join(required) + ']', gate)
         self.assertIn('needs: code-checks', self.job('build'))
-        self.assertNotIn('browser]', self.job('build'))
-        self.assertIn("if: github.event_name == 'pull_request'", self.job('browser'))
-        self.assertIn('needs: code-checks', self.job('browser'))
+        self.assertIn('needs: code-checks', self.job('browser', pr=True))
 
     def test_code_job_builds_fresh_server_and_both_browsers_run_full_suites(self):
         self.assertNotIn("  test-server:", self.ci)
-        server = self.job('code-checks')
-        browser = self.job('browser')
+        server = self.job('code-checks', pr=True)
+        browser = self.job('browser', pr=True)
         self.assertIn('npm ci && npm run typecheck && npm test && npm run build', server)
         self.assertLess(server.index('npm run build'), server.index('go build -o bin/cctv ./cmd/cctv'))
         self.assertIn('go build -o bin/cctv ./cmd/cctv', server)
         self.assertIn('name: browser-test-server', server)
-        self.assertIn("- name: Browser-Testserver bauen\n        if: github.event_name == 'pull_request'", server)
+        self.assertNotIn("if: github.event_name", server)
+        self.assertNotIn("Browser-Testserver bauen", self.job("code-checks"))
         upload = server.split('      - uses: actions/upload-artifact@', 1)[1]
-        self.assertIn("if: github.event_name == 'pull_request'", upload)
+        self.assertNotIn("if: github.event_name", upload)
         self.assertIn('needs.code-checks.outputs.commit', browser)
         self.assertIn('playwright install-deps', browser)
         self.assertIn('sudo apt-get install -y ffmpeg', browser)
@@ -111,28 +117,25 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('globalTimeout:8*60*1000', config)
 
     def test_required_check_cannot_succeed_after_any_failed_prerequisite(self):
-        shell = self.job('test').split('        run: |\n', 1)[1]
-        shell = "\n".join(line[10:] for line in shell.splitlines())
-        cases = []
-        for main in (False, True):
-            results_checked = ('CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT')
-            required = ('CODE_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT') if main else results_checked[:2]
+        for pr, required in ((False, ('CODE_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT')),
+                             (True, ('CODE_RESULT', 'BROWSER_RESULT'))):
+            shell = self.job('test', pr=pr).split('        run: |\n', 1)[1]
+            shell = "\n".join(line[10:] for line in shell.splitlines())
             for values in itertools.product(('success', 'failure', 'skipped', 'cancelled'), repeat=len(required)):
-                results = dict(zip(required, values))
-                env = dict(os.environ, MAIN_PUSH=str(main).lower(), PR_EVENT=str(not main).lower(), BUILD_RESULT='skipped', PUBLISH_RESULT='skipped')
-                env.update(CODE_RESULT='success', BROWSER_RESULT='skipped' if main else 'success')
-                env.update(results)
-                # Execute the same exhaustive cases in isolated subshells. Avoid
-                # starting a fresh Bash executable for every status combination.
-                exports = "\n".join(f"export {key}={env[key]}" for key in
-                                    ('MAIN_PUSH', 'PR_EVENT', *results_checked))
-                expected = 0 if all(value == 'success' for value in values) else 1
-                cases.append(f"(\nset -e\n{exports}\n{shell}\n)\n"
-                             f"actual=$?\nif [ \"$actual\" -ne {expected} ]; then\n"
-                             f"  echo 'Unexpected gate result: main={main}, {values}' >&2\n"
-                             "  exit 1\nfi\n")
-        result = subprocess.run(['bash'], input="\n".join(cases), text=True, capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+                result = subprocess.run(['bash', '-e', '-c', shell],
+                                        env=dict(os.environ, **dict(zip(required, values))), capture_output=True)
+                self.assertEqual(result.returncode == 0, all(value == 'success' for value in values),
+                                 (pr, values, result.stderr))
+
+    def test_pr_and_main_share_code_validation_steps(self):
+        main = self.job('code-checks')
+        pr = self.job('code-checks', pr=True)
+        for check in ('npm ci && npm run typecheck && npm test && npm run build',
+                      'go vet ./...', 'go test -race ./...',
+                      "python3 -m unittest discover -s scripts -p 'test_*.py'",
+                      '"$RUNNER_TEMP/actionlint"', 'shellcheck scripts/promote_image.sh scripts/smoke.sh'):
+            self.assertIn(check, main)
+            self.assertIn(check, pr)
 
     def test_architecture_smoke_precedes_evidence_upload_and_uses_digest(self):
         job = self.job('build')
@@ -187,7 +190,7 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('actions: read', cleanup)
 
     def test_every_third_party_action_is_pinned_to_a_commit(self):
-        for workflow in (self.ci, self.release, (ROOT / ".github/workflows/cleanup-images.yml").read_text()):
+        for workflow in (self.ci, self.pr, self.release, (ROOT / ".github/workflows/cleanup-images.yml").read_text()):
             for action in re.findall(r'uses: (\S+)', workflow):
                 self.assertRegex(action, r'^[^@]+@[a-f0-9]{40}$')
 
