@@ -3,6 +3,8 @@ node_modules
 bin
 data
 .env
+.env.*
+!.env.example
 *.db*
 web/dist/app.js
 web/dist/app.js.map
@@ -16,3 +18,16 @@ playwright-report/
 TEST_REPORT.md
 UI_REVIEW.md
 *.log
+
+coverage.out
+coverage
+__pycache__
+*.pyc
+*.tsbuildinfo
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
