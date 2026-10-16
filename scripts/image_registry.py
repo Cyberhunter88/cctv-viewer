@@ -63,6 +63,11 @@ def verify(image, index, version, commit, arches=ARCHES):
             raise ValueError(f"Image-Version für {arch} stimmt nicht mit package.json/Release {version} überein")
         if labels.get("org.opencontainers.image.revision") != commit:
             raise ValueError(f"Image-Commit für {arch} stimmt nicht mit {commit} überein")
+    for child in index.get("manifests", []):
+        if child.get("platform", {}).get("os") == "unknown":
+            attestation = json.loads(docker("inspect", f"{image}@{child['digest']}", "--raw"))
+            if not isinstance(attestation, dict):
+                raise ValueError("Ungültiges SBOM/Provenienz-Manifest")
     return found
 
 
@@ -126,12 +131,17 @@ def publish_commit(image, version, commit, directory, output):
 
 def checked_proof(image, version, commit, path):
     proof = json.loads(Path(path).read_text())
-    expected = dict(schema=1, image=image, version=version, commit=commit,
+    source_image = proof.get("image")
+    # Accept historical proofs from the release package as well as new build
+    # proofs, but never take an arbitrary registry location from an artifact.
+    if source_image not in (image, image + "-builds"):
+        raise ValueError("Buildnachweis gehört nicht zum freigegebenen GHCR-Paket")
+    expected = dict(schema=1, image=source_image, version=version, commit=commit,
                     run_id=int(os.environ["CI_RUN_ID"]), run_attempt=int(os.environ["CI_RUN_ATTEMPT"]))
     if any(proof.get(key) != value for key, value in expected.items()):
         raise ValueError("Buildnachweis gehört nicht zur freigegebenen Commit-CI/Version")
-    index = manifest(f"{image}:sha-{commit}")
-    if index["digest"] != proof.get("digest") or verify(image, index, version, commit) != proof.get("platforms"):
+    index = manifest(f"{source_image}:sha-{commit}")
+    if index["digest"] != proof.get("digest") or verify(source_image, index, version, commit) != proof.get("platforms"):
         raise ValueError("Commit-Image wurde verändert oder stimmt nicht mit den geprüften AMD64-/ARM64-Images überein")
     return proof
 
@@ -167,24 +177,40 @@ def promotion_plan(image, version, commit, proof_path, releases_path):
     return proof, allowed
 
 
+def copy_release(source, destination):
+    # --all includes platform and BuildKit attestation manifests. Refuse format
+    # conversion so the exact tested index and child digests remain unchanged.
+    result = subprocess.run(["skopeo", "copy", "--all", "--preserve-digests",
+                             "docker://" + source, "docker://" + destination],
+                            capture_output=True, text=True)
+    if result.returncode:
+        raise RuntimeError("Geprüftes Multiarch-Image konnte nicht unverändert kopiert werden: "
+                           + result.stderr.strip())
+
+
 def promote(image, version, commit, proof_path, releases_path, check_only=False):
     proof, tags = promotion_plan(image, version, commit, proof_path, releases_path)
     if check_only:
         print("Release-Vorabprüfung erfolgreich; keine Tags verändert.")
         return
+    source = f"{proof['image']}@{proof['digest']}"
     ref = f"{image}@{proof['digest']}"
     for tag in tags:
         current = manifest(f"{image}:{tag}", missing_ok=True)
         if current is None or current["digest"] != proof["digest"]:
-            docker("create", "-t", f"{image}:{tag}", ref)
-        if manifest(f"{image}:{tag}")["digest"] != proof["digest"]:
-            raise ValueError(f"Digest von {tag} stimmt nicht mit dem geprüften Commit-Image überein")
-    proof.update(release="v" + version, tags=tags)
+            if proof["image"] != image and tag == version:
+                copy_release(source, f"{image}:{tag}")
+            else:
+                docker("create", "-t", f"{image}:{tag}", ref)
+        actual = manifest(f"{image}:{tag}")
+        if actual["digest"] != proof["digest"] or verify(image, actual, version, commit) != proof["platforms"]:
+            raise ValueError(f"Digest/Plattformen von {tag} stimmen nicht mit dem geprüften Commit-Image überein")
+    proof.update(source_image=proof["image"], image=image, release="v" + version, tags=tags)
     Path(os.environ["RELEASE_PROOF"]).write_text(json.dumps(proof, indent=2) + "\n")
     write_output(latest=str("latest" in tags).lower())
     summary(f"## Release v{version}\n\nCommit: `{commit}`\n\n"
             f"Geprüfte CI: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{proof['run_id']}/attempts/{proof['run_attempt']}\n\n"
-            f"Image: `{ref}`\n\nTags: " + ", ".join(f"`{tag}`" for tag in tags) + "\n\n"
+            f"Build-Quelle: `{source}`\n\nImage: `{ref}`\n\nTags: " + ", ".join(f"`{tag}`" for tag in tags) + "\n\n"
             + "\n".join(f"- linux/{arch}: `{digest}`" for arch, digest in proof['platforms'].items())
             + "\n\nVersionszeiger werden nur vorwärts gesetzt. `release-proof.json` dokumentiert die Zuordnung.")
 

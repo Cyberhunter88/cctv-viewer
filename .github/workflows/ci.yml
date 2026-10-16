@@ -72,7 +72,7 @@ jobs:
         run: |
           {
             echo "commit=$(git rev-parse HEAD)"
-            echo "image=ghcr.io/${GITHUB_REPOSITORY,,}"
+            echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-builds"
             echo "version=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
           } >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

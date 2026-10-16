@@ -92,6 +92,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Werkzeuge für unveränderte Multiarch-Kopien installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends skopeo
       - name: Arbeitsdateien festlegen
         run: |
           {
@@ -105,9 +109,9 @@ jobs:
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RELEASES_FILE"
           CHECK_ONLY=true bash scripts/promote_image.sh
           digest=$(python3 -c 'import json,os; print(json.load(open(os.environ["PROOF_FILE"]))["digest"])')
-          mkdir -p "$RUNNER_TEMP/anonymous-docker"
-          DOCKER_CONFIG="$RUNNER_TEMP/anonymous-docker" docker pull "$IMAGE@$digest" || { echo 'Anonymer GHCR-Pull fehlgeschlagen. Paket einmalig auf Public stellen und Workflow mit derselben Version und demselben Commit erneut starten.'; exit 1; }
-          ./scripts/smoke.sh "$IMAGE@$digest" "$VERSION" "$COMMIT" amd64
+          source_image=$(python3 -c 'import json,os; print(json.load(open(os.environ["PROOF_FILE"]))["image"])')
+          docker pull "$source_image@$digest"
+          ./scripts/smoke.sh "$source_image@$digest" "$VERSION" "$COMMIT" amd64
       - name: Release und Konfiguration als Entwurf vorbereiten
         env:
           CREATE_RELEASE: ${{ needs.prepare.outputs.create_release }}
@@ -122,6 +126,11 @@ jobs:
       - id: promote
         name: Geprüftes Multiarch-Image ohne Neubau übernehmen
         run: bash scripts/promote_image.sh
+      - name: Öffentlichen Release-Download prüfen
+        run: |
+          digest=$(python3 -c 'import json,os; print(json.load(open(os.environ["RELEASE_PROOF"]))["digest"])')
+          mkdir -p "$RUNNER_TEMP/anonymous-docker"
+          DOCKER_CONFIG="$RUNNER_TEMP/anonymous-docker" docker pull "$IMAGE@$digest" || { echo 'Anonymer GHCR-Pull fehlgeschlagen. Release-Paket einmalig auf Public stellen und Workflow mit derselben Version und demselben Commit erneut starten.'; exit 1; }
       - name: Konfiguration und Digest-Nachweis anhängen
         run: python3 scripts/manual_release.py assets "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$RUNNER_TEMP/compose.yaml" "$RUNNER_TEMP/config.env.example" "$RELEASE_PROOF"
       - name: Vollständigen Entwurf offiziell veröffentlichen
