@@ -387,8 +387,10 @@ Sicherung nicht enthalten. Originalaufnahmen werden nicht verändert.
 Der vollständige Ablauf steht in [CI/CD und manuelle Releases](docs/CI-CD.md).
 PRs gegen `main` führen Code- und Browser-Prüfungen aus. Nach dem manuellen Merge
 prüft die CI den tatsächlichen Main-Commit erneut und veröffentlicht nach nativen
-AMD64-/ARM64-Smoke-Tests ausschließlich `ghcr.io/cyberhunter88/cctv-viewer:sha-<Commit-SHA>`.
+AMD64-/ARM64-Smoke-Tests ausschließlich `ghcr.io/cyberhunter88/cctv-viewer-builds:sha-<Commit-SHA>`.
 Der geschützte Statuscheck bleibt „Anwendung prüfen“.
+
+Geprüfte Main-Builds und interne Tags liegen im separaten GHCR-Paket `cctv-viewer-builds`. Das Installationspaket `cctv-viewer` enthält neue Veröffentlichungen mit Versions-Tags und stabilen Aliases; die Compose-Adresse bleibt unverändert. Historische interne Einträge lassen sich mit dem manuellen Vorschau-/Bereinigungsworkflow gezielt prüfen. Details stehen in [docs/CI-CD.md](docs/CI-CD.md).
 
 Offizielle Releases und Docker-Versionstags entstehen ausschließlich über
 **Actions → Release und Docker veröffentlichen → Run workflow** auf Branch `main`.

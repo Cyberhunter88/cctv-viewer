@@ -44,7 +44,7 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Wiedergabestatus, Sitzungsdiagnose, Diagnose-Download | Geschützt, Eigentümerprüfung, begrenztes JSON ohne Secrets/Pfade | Go: ProfilesSpeedTransport; Browser: regressions |
 | Geordnetes Beenden/Neustart | Bestehender Shutdown, persistenter Scanplan | Go: OIDC-/Persistenztests; Container-CI |
 | Datenbanksicherung | Eigenständige Sicherung vor Migration mit committed WAL-Daten | Go: ReplacementMigrationBackupAndDormantData |
-| Docker, AMD64/ARM64, lesende Aufnahme-Mounts | Bestehende Verpackung erhalten | Container-Smoke/Release-CI |
+| Docker, AMD64/ARM64, lesende Aufnahme-Mounts | Getrennte GHCR-Build-/Release-Pakete; Multiarch-Promotion ohne Neubau | Container-Smoke/Release-CI und Registry-Simulation |
 
 ## Bewusste Abweichungen und Ausschlüsse
 
@@ -62,6 +62,10 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Clip-Export und Timeline-Exportauswahl | Entfernt einschließlich APIs und Hintergrundaufträgen |
 | JPG/JPEG-Einzelbilder und zugehörige Originalansicht | Entfernt; Originaldateien unverändert |
 | Digitaler Zoom, separate Vollbildbedienung | Entfernt |
+
+## GHCR-Veröffentlichung
+
+Die Release-Promotion übernimmt den geprüften Multiarch-Digest einschließlich Attestierungen ohne Neubau. Die manuelle Bereinigung bietet eine Vorschau und schützt Releases, Commit-Nachweise und Manifest-Abhängigkeiten.
 
 ## Prüfgrenzen
 

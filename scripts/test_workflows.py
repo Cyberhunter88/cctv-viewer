@@ -150,8 +150,30 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('commit-image-proof-$CI_RUN_ATTEMPT', self.release)
         self.assertIn('DOCKER_CONFIG="$RUNNER_TEMP/anonymous-docker" docker pull "$IMAGE@$digest"', self.release)
 
+    def test_ci_publishes_only_to_the_separate_build_package(self):
+        self.assertIn('echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-builds"', self.ci)
+        self.assertIn('echo "image=ghcr.io/${GITHUB_REPOSITORY,,}"', self.release)
+        self.assertIn('docker pull "$source_image@$digest"', self.release)
+        self.assertIn('skopeo', self.release)
+        self.assertLess(self.release.index('name: Geprüftes Multiarch-Image'),
+                        self.release.index('name: Öffentlichen Release-Download prüfen'))
+        self.assertLess(self.release.index('name: Öffentlichen Release-Download prüfen'),
+                        self.release.index('manual_release.py assets'))
+
+    def test_cleanup_is_explicit_manual_and_serialized_with_release(self):
+        cleanup = (ROOT / '.github/workflows/cleanup-images.yml').read_text()
+        self.assertIn('workflow_dispatch:', cleanup)
+        self.assertNotRegex(cleanup, r'(?m)^  (push|pull_request|schedule|workflow_run):')
+        self.assertIn("if: github.ref == 'refs/heads/main'", cleanup)
+        self.assertIn('default: false', cleanup)
+        self.assertIn('group: docker-publication', cleanup)
+        self.assertIn('cancel-in-progress: false', cleanup)
+        self.assertIn('--delete-version-id', cleanup)
+        self.assertIn('ghcr-cleanup-plan', cleanup)
+        self.assertIn('actions: read', cleanup)
+
     def test_every_third_party_action_is_pinned_to_a_commit(self):
-        for workflow in (self.ci, self.release):
+        for workflow in (self.ci, self.release, (ROOT / ".github/workflows/cleanup-images.yml").read_text()):
             for action in re.findall(r'uses: (\S+)', workflow):
                 self.assertRegex(action, r'^[^@]+@[a-f0-9]{40}$')
 

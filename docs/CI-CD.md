@@ -36,10 +36,10 @@ Der Push des tatsächlichen Merge-Commits auf `main` führt alle Tests erneut au
 Nach beiden Smoke-Tests werden die geprüften Digests zu einem Multiarch-Index zusammengefasst. SBOM- und Provenienz-Manifeste bleiben erhalten. Die CI veröffentlicht ausschließlich:
 
 ```text
-ghcr.io/cyberhunter88/cctv-viewer:sha-<vollständiger-40-stelliger-commit-sha>
+ghcr.io/cyberhunter88/cctv-viewer-builds:sha-<vollständiger-40-stelliger-commit-sha>
 ```
 
-Interne Tags `build-<run>-<attempt>-<arch>` und `candidate-<run>-<attempt>` dienen der Zusammenstellung; sie sind keine Releases. Der endgültige Commit-Tag wird nicht überschrieben. Bei Wiederholung verwendet die CI ein bereits vorhandenes vollständiges Commit-Image, prüft beide Architekturen erneut und erstellt einen neuen Nachweis, ohne einen zweiten Docker-Build anzustoßen. Ein beschädigter oder widersprüchlicher Commit-Tag führt zum Abbruch.
+Interne Tags `build-<run>-<attempt>-<arch>` und `candidate-<run>-<attempt>` liegen ebenfalls ausschließlich im separaten Paket `cctv-viewer-builds`. Sie dienen der Zusammenstellung und sind keine Releases. Das Installationspaket `cctv-viewer` erhält durch Main-CI keine neuen Tags. Der endgültige Commit-Tag wird nicht überschrieben. Bei Wiederholung verwendet die CI ein bereits vorhandenes vollständiges Commit-Image, prüft beide Architekturen erneut und erstellt einen neuen Nachweis, ohne einen zweiten Docker-Build anzustoßen. Ein beschädigter oder widersprüchlicher Commit-Tag führt zum Abbruch.
 
 Unter **Actions → CCTV Viewer bauen und prüfen** den Lauf für den exakten Merge-SHA kontrollieren. Erst wenn der ganze Lauf erfolgreich ist, steht der Commit für ein Release bereit. Der Lauf enthält das Artefakt `commit-image-proof-<attempt>` mit `commit-image-proof.json`: Version, Commit, Run-ID/-Versuch, Multiarch-Digest und beide geprüften Plattform-Digests. Es wird 90 Tage aufbewahrt, soweit die Repository-Richtlinie das zulässt. Ist es abgelaufen, den vollständigen Main-CI-Lauf erneut ausführen; vorhandene Commit-Images werden wiederverwendet. „Re-run all jobs“ verwenden, damit Jobs und Nachweis demselben Versuch angehören.
 
@@ -75,15 +75,22 @@ Der Release-Workflow verändert keine Version und schreibt nicht nach `main`. We
 
 Der Workflow verlangt Main-Zugehörigkeit und wartet maximal 30 Minuten auf den neuesten Push-CI-Lauf für exakt diesen SHA. Ein grüner PR-Lauf genügt nicht. Auch ein insgesamt grüner Workflow genügt nicht, wenn einer der erforderlichen Code-, Browser-, Docker-, Commit-Image- oder Abschlussjobs fehlt bzw. übersprungen wurde. Vollständige erfolgreiche Läufe älterer Commits mit separatem Testserver-Job und vier Browser-Shards bleiben ebenfalls gültig. Der Nachweis wird aus genau dessen Run-Versuch geladen und mit den Registry-Digests und OCI-Labels beider Architekturen verglichen. Ein vorhandener Git-Tag muss auf denselben Commit zeigen, auch bei annotierten Tags. Ein vorhandener Docker-Versionstag muss auf denselben Multiarch-Digest zeigen.
 
-Nach diesen Prüfungen wird zusätzlich der anonyme Download des Commit-Images und dessen Start auf AMD64 geprüft. Danach wird ein Release-Entwurf mit automatisch generierten Release Notes angelegt. Das geprüfte Multiarch-Image wird per Digest übernommen, ohne Neubau. Assets werden hochgeladen; erst dann wird der Entwurf offiziell veröffentlicht. Bei Wiederholung werden passende Entwürfe, bereits korrekte Tags und identische Assets weiterverwendet. Abweichende Assets werden abgelehnt. Ein bestehender Release-Nachweis bleibt bei einem erneuten CI-Lauf erhalten, sofern Version, Commit und alle Image-Digests unverändert sind.
+Nach diesen Prüfungen wird das Commit-Image mit Workflow-Zugangsdaten heruntergeladen und auf AMD64 gestartet. Danach wird ein Release-Entwurf mit automatisch generierten Release Notes angelegt. Das geprüfte Multiarch-Image wird aus `cctv-viewer-builds` mit `skopeo copy --all --preserve-digests` in `cctv-viewer` kopiert, ohne Neubau und ohne Formatumwandlung. Beide Plattformen und die SBOM-/Provenienz-Manifeste werden übernommen; Index-Digest, Plattform-Digests und OCI-Labels werden am Ziel erneut geprüft. Dann wird der anonyme Download des Release-Images geprüft. Assets werden hochgeladen; erst dann wird der Entwurf offiziell veröffentlicht. Bei Wiederholung werden passende Entwürfe, bereits korrekte Tags und identische Assets weiterverwendet. Abweichende Assets werden abgelehnt. Ein bestehender Release-Nachweis bleibt bei einem erneuten CI-Lauf erhalten, sofern Version, Commit und alle Image-Digests unverändert sind. Historische Commit-Nachweise mit `image=ghcr.io/cyberhunter88/cctv-viewer` bleiben gültig. Als Build-Quelle sind ausschließlich das Release-Paket selbst und dessen festes Schwesterpaket mit Suffix `-builds` zugelassen; beliebige Paketnamen aus Artefakten werden abgelehnt.
 
 Die Assets stammen aus dem gewählten Release-Commit:
 
 - `compose.yaml`;
 - `config.env.example`, mit auf die Release-Version gesetztem `CTV_VERSION`;
-- `release-proof.json` mit Commit, CI-Lauf/-Versuch, Index-/Plattform-Digests und den freigegebenen Tags.
+- `release-proof.json` mit Release-Paket `image`, Build-Quelle `source_image`, Commit, CI-Lauf/-Versuch, Index-/Plattform-Digests und den freigegebenen Tags. Alte Nachweise ohne `source_image` bleiben kompatibel.
 
 ## 5. Docker-Tags und Nachvollziehbarkeit
+
+| GHCR-Paket | Tags | Verwendung |
+| --- | --- | --- |
+| `cctv-viewer` | vollständige Version, stabile Versions-Aliases, `latest` | Installation und Releases |
+| `cctv-viewer-builds` | `sha-*`, `build-*`, `candidate-*` | geprüfte Main-Builds und Release-Vorbereitung |
+
+Die Compose-Adresse bleibt `ghcr.io/cyberhunter88/cctv-viewer:${CTV_VERSION:-latest}`. Das Build-Paket darf privat bleiben. Die Trennung gilt für neue Builds nach dem Merge dieser Pipeline. Historische Tags werden dadurch nicht verschoben oder entfernt.
 
 Bei einem neuesten stabilen Release `v0.6.0` entstehen `0.6.0`, `0.6`, `0` und `latest`. Alle zeigen auf denselben geprüften Multiarch-Digest. Versions-Tags sind unveränderlich. `0.6` zeigt nur auf die höchste veröffentlichte stabile Version innerhalb von `0.6`, `0` entsprechend innerhalb von Major `0`. `latest` zeigt auf die höchste stabile Version insgesamt. Vorabversionen erhalten ausschließlich ihren vollständigen Versionstag.
 
@@ -96,6 +103,26 @@ docker inspect --format '{{index .Config.Labels "org.opencontainers.image.versio
 ```
 
 Der `latest`-Digest lässt sich dem unveränderlichen Versions-Tag, dessen OCI-Versions-/Commit-Labels und dem Release-Asset `release-proof.json` zuordnen. Zum dauerhaft reproduzierbaren Einsatz kann statt eines Tags `ghcr.io/cyberhunter88/cctv-viewer@sha256:<digest>` verwendet werden. Server werden durch diese Workflows nicht automatisch aktualisiert.
+
+### Alte interne GHCR-Einträge gezielt bereinigen
+
+Der separate Workflow **Alte interne Docker-Images bereinigen** wird ausschließlich manuell auf `main` gestartet. Er bereinigt nur das bestehende Installationspaket; Commit-Images im Build-Paket bleiben erhalten.
+
+1. Zuerst ohne aktiviertes **apply** und ohne **version_ids** starten. Das Artefakt `ghcr-cleanup-plan` enthält die Vorschau.
+2. Die dortigen Kandidaten prüfen. Zulässig sind ausschließlich Versionen, deren sämtliche Tags `build-<run>-<attempt>-<arch>` oder `candidate-<run>-<attempt>` entsprechen und die seit mindestens 14 Tagen unverändert sind.
+3. Für eine Löschung erneut starten, **apply** aktivieren und ausschließlich die geprüften numerischen GHCR-Versions-IDs durch Leerzeichen getrennt angeben.
+
+Versionen mit `latest`, Versions-Tags, `sha-*`, unbekannten Tags oder ohne Tags bleiben erhalten. Von beibehaltenen Manifesten direkt oder indirekt referenzierte Versionen sind ebenfalls geschützt; dazu gehören Plattform-, SBOM-, Provenienz- und Subject-Referenzen. Bei fehlenden/unbekannten Manifesten, fehlenden Berechtigungen, verändertem Inventar oder laufender/wartender CI beziehungsweise Release-Pipeline wird abgebrochen. Eine Teilauswahl darf keine Referenz eines beibehaltenen Kandidaten beschädigen. Es gibt keinen Zeitplan und keine pauschale Löschung ungetaggter Versionen.
+
+GitHub löscht über diese API ganze Paketversionen mit sämtlichen zugehörigen Tags. Deshalb bleibt eine historische Zeile mit beispielsweise `0.7.0`, `latest`, `sha-*` und `candidate-*` zusammen geschützt. Nach dem Wechsel entstehen solche internen Tags im Release-Paket nicht mehr. Die Prüfung erfolgt unmittelbar vor der Löschung erneut; während des kurzen Löschlaufs keine Main-Pushes oder manuellen Registry-Änderungen starten. Cleanup und Release teilen sich die Veröffentlichungssperre.
+
+Die Vorschau lässt sich auch lokal erzeugen; JSON-Ausgaben gehören in `.local-reports/`:
+
+```bash
+python3 scripts/cleanup_registry.py --repository Cyberhunter88/cctv-viewer --output .local-reports/ghcr-cleanup-plan.json
+```
+
+Erforderlich sind `gh` mit Paket-Lesezugriff und angemeldetes Skopeo. Zum Löschen benötigt der Zugang Paket-Adminrechte; der manuelle Workflow verwendet dafür den Repository-`GITHUB_TOKEN`. Keine Tokens oder Zugangsdaten in Befehlsargumente, Reports oder das Repository schreiben.
 
 ## 6. Fehler beheben und sicher erneut starten
 
@@ -127,13 +154,13 @@ Das ändert keine Registry-Tags und verschiebt `latest` nicht. Falls nötig das 
 
 - **Branch Protection / Ruleset für main:** Pull Request verlangen, Status **Anwendung prüfen** als erforderlichen GitHub-Actions-Check eintragen, Branch vor Merge aktuell verlangen, Regeln auch für Administratoren erzwingen, Force-Push und Löschen verbieten. Keine automatischen Merges aktivieren; der Eigentümer mergt manuell. Diese Einstellungen sind bei GitHub zu kontrollieren und werden nicht durch den Workflow geändert.
 - **Actions-Berechtigungen:** Die Workflows deklarieren minimale Job-Rechte. Tests benötigen `contents: read`; nur Main-Build/Commit-Publikation benötigen `packages: write`; nur die manuelle Release-Publikation erhält zusätzlich `contents: write`. Für die Prüfung und den Download von CI-Artefakten ist `actions: read` nötig. Kein persönlicher Access-Token und kein zusätzliches Secret sind erforderlich.
-- **GHCR-Paket:** Das Paket mit diesem Repository verbinden, dem Repository unter „Manage Actions access“ Schreibzugriff geben und bei öffentlichem Download unter „Package settings → Change visibility“ einmalig **Public** wählen. Die Sichtbarkeit des Repositorys allein reicht dafür nicht aus. Die Pipeline ändert diese Einstellung nicht.
+- **GHCR-Pakete:** `cctv-viewer` und `cctv-viewer-builds` müssen mit diesem Repository verbunden sein und ihm unter „Manage Actions access“ Schreibzugriff geben. Das neue Build-Paket wird beim ersten Main-Build angelegt und darf privat bleiben. Das Installationspaket `cctv-viewer` unter „Package settings → Change visibility“ einmalig **Public** stellen. Die Sichtbarkeit des Repositorys allein reicht dafür nicht aus. Die Pipeline ändert die Sichtbarkeit nicht. Die manuelle Bereinigung benötigt zusätzlich Paket-Adminrechte; automatisch mit dem Workflow-Repository verbundene Pakete gewähren diese üblicherweise dem `GITHUB_TOKEN`. Bei abweichender Paketzuordnung Zugriff vor dem ersten Cleanup prüfen.
 - **Runner/Artefakte:** Native Ubuntu-AMD64- und Ubuntu-ARM64-Runner müssen verfügbar sein. Die Artefaktaufbewahrung muss die benötigte Zeit bis zum Release abdecken; dieser Workflow verlangt 90 Tage. Bei kürzerer Richtlinie rechtzeitig veröffentlichen oder die CI erneut ausführen. GHCR-Commit-Images und Release-Tags nicht durch automatische Aufräumregeln löschen.
 - **Release-Berechtigungen:** Nur berechtigte Maintainer sollen den Workflow starten können. Falls gewünscht kann zusätzlich eine GitHub-Environment-Freigabe eingerichtet werden; der vorliegende Ablauf benötigt keine neue Environment-Konfiguration.
 
 ## 9. Prüfungen und Grenzen
 
-Die Python-Suite prüft echte lokale Git-Historien für Main-Zugehörigkeit und Tag-Konflikte, simulierte CI-Antworten für fehlgeschlagene/fehlende Jobs sowie den echten Promotion-Einstiegspunkt gegen eine Registry-Simulation. Sie prüft beide Plattformen, Versions-/Commit-Labels, Digest-Gleichheit, Wiederholungen, ältere Releases, Vorabversionen, Alias-Konflikte und abgebrochene Veröffentlichungen. Die Workflow-Verträge sichern die Trigger, Berechtigungen, SHA-Pins und die Veröffentlichungsschranken ab.
+Die Python-Suite prüft zusätzlich die Paketgrenzen, unveränderte Cross-Package-Kopien einschließlich Attestierungen, Fehler während der Kopie, historische Nachweise und die konservative Bereinigung anhand von Manifestgraphen. Sie prüft echte lokale Git-Historien für Main-Zugehörigkeit und Tag-Konflikte, simulierte CI-Antworten für fehlgeschlagene/fehlende Jobs sowie den echten Promotion-Einstiegspunkt gegen eine Registry-Simulation. Sie prüft beide Plattformen, Versions-/Commit-Labels, Digest-Gleichheit, Wiederholungen, ältere Releases, Vorabversionen, Alias-Konflikte und abgebrochene Veröffentlichungen. Die Workflow-Verträge sichern die Trigger, Berechtigungen, SHA-Pins und die Veröffentlichungsschranken ab.
 
 ```bash
 python3 -m unittest discover -s scripts -p 'test_*.py'
@@ -145,3 +172,5 @@ shellcheck scripts/promote_image.sh scripts/smoke.sh
 ```
 
 Registry-Simulationen ersetzen weder einen echten Main-Build noch eine Veröffentlichung. PR-CI kann Code-/Browser-Prüfungen bestätigen; die nativen Docker-Smoke-Tests laufen erst nach dem manuellen Merge. Der erste produktive manuelle Release muss vom Eigentümer gestartet werden. Die Quellen beschreiben [Workflow-Concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency), [unverändertes Kopieren von Image-Indexes](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/) und [GHCR-Zugriff/Sichtbarkeit](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+
+Zur Registry-Kopie siehe [Skopeo copy](https://github.com/containers/skopeo/blob/main/docs/skopeo-copy.1.md); zu Paketversionen und Berechtigungen siehe [GitHub Packages REST API](https://docs.github.com/en/rest/packages/packages).

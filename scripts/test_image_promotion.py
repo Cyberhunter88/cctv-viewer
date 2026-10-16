@@ -48,6 +48,38 @@ else:
 '''
 
 
+SKOPEO = '''#!/usr/bin/env python3
+import copy, json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+assert args[:3] == ['copy', '--all', '--preserve-digests'], args
+source, destination = (arg.removeprefix('docker://') for arg in args[3:])
+state = Path(os.environ['REGISTRY_STATE'])
+registry = json.loads(state.read_text())
+if os.environ.get('COPY_MODE') == 'fail':
+    sys.exit('synthetic copy failure')
+origin = source.split('@')[0]
+target = destination.rsplit(':',1)[0]
+def transfer(ref):
+    value = copy.deepcopy(registry[ref])
+    registry[target + '@' + ref.split('@')[1]] = value
+    for child in value.get('manifests', []):
+        transfer(origin + '@' + child['digest'])
+    return value
+value = transfer(source)
+if os.environ.get('COPY_MODE') == 'changed-index':
+    value['digest'] = 'sha256:' + '9'*64
+if os.environ.get('COPY_MODE') == 'missing-arm64':
+    registry.pop(target + '@sha256:' + 'b'*64)
+if os.environ.get('COPY_MODE') == 'missing-attestation':
+    registry.pop(target + '@sha256:' + 'f'*64)
+registry[destination] = value
+registry.setdefault('_copies', []).append([source, destination])
+registry['_writes'].append(destination)
+state.write_text(json.dumps(registry))
+'''
+
+
 def index(digest=DIGEST, children=None):
     return {"digest": digest, "manifests": [dict(digest=value, platform={"os": "linux", "architecture": arch})
                                          for arch, value in (children or CHILDREN).items()]
@@ -68,9 +100,13 @@ class ImagePromotionTest(unittest.TestCase):
         executable = self.work / "docker"
         executable.write_text(DOCKER)
         executable.chmod(0o755)
+        executable = self.work / "skopeo"
+        executable.write_text(SKOPEO)
+        executable.chmod(0o755)
         self.registry = {f"{IMAGE}:sha-{COMMIT}": index(), f"{IMAGE}@{DIGEST}": index(), "_writes": []}
         for arch, child in CHILDREN.items():
             self.registry[f"{IMAGE}@{child}"] = config(arch)
+        self.registry[f"{IMAGE}@sha256:" + "f" * 64] = {"digest": "sha256:" + "f" * 64}
         self.proof = dict(schema=1, image=IMAGE, version="1.2.3", commit=COMMIT, digest=DIGEST,
                           platforms=CHILDREN, run_id=42, run_attempt=1)
         self.releases = []
@@ -110,6 +146,62 @@ class ImagePromotionTest(unittest.TestCase):
         proof = json.loads(Path(self.env["RELEASE_PROOF"]).read_text())
         self.assertEqual(proof["platforms"], CHILDREN)
         self.assertEqual(proof["release"], "v1.2.3")
+
+    def use_build_package(self):
+        source = IMAGE + "-builds"
+        for key in list(self.registry):
+            if key.startswith(IMAGE + ":sha-") or key.startswith(IMAGE + "@"):
+                self.registry[source + key[len(IMAGE):]] = self.registry.pop(key)
+        self.proof["image"] = source
+        return source
+
+    def test_cross_package_release_copies_all_children_and_preserves_exact_digests(self):
+        source = self.use_build_package()
+        self.assert_ok(self.run_script())
+        self.assertEqual(self.registry["_copies"], [[f"{source}@{DIGEST}", f"{IMAGE}:1.2.3"]])
+        for digest in [*CHILDREN.values(), "sha256:" + "f" * 64]:
+            self.assertEqual(self.registry[f"{IMAGE}@{digest}"], self.registry[f"{source}@{digest}"])
+        for tag in ("1.2.3", "latest", "1", "1.2"):
+            self.assertEqual(self.registry[f"{IMAGE}:{tag}"], index())
+        self.assertFalse(any(":sha-" in ref or ":build-" in ref or ":candidate-" in ref for ref in self.registry["_writes"]))
+        proof = json.loads(Path(self.env["RELEASE_PROOF"]).read_text())
+        self.assertEqual((proof["image"], proof["source_image"]), (IMAGE, source))
+
+    def test_cross_package_preflight_is_read_only_and_foreign_proof_is_rejected(self):
+        self.use_build_package()
+        self.env["CHECK_ONLY"] = "true"
+        self.assert_ok(self.run_script())
+        self.assertNotIn("_copies", self.registry)
+        self.assertEqual(self.registry["_writes"], [])
+        self.proof["image"] = "ghcr.io/other/untrusted-builds"
+        self.assertNotEqual(self.run_script().returncode, 0)
+        self.assertEqual(self.registry["_writes"], [])
+
+    def test_cross_package_repeat_reuses_complete_release(self):
+        self.use_build_package()
+        self.assert_ok(self.run_script())
+        self.registry["_copies"].clear()
+        self.registry["_writes"].clear()
+        self.assert_ok(self.run_script())
+        self.assertEqual(self.registry["_copies"], [])
+        self.assertEqual(self.registry["_writes"], [])
+
+    def test_failed_or_incomplete_cross_package_copy_never_moves_aliases(self):
+        for mode in ("fail", "changed-index", "missing-arm64", "missing-attestation"):
+            with self.subTest(mode=mode):
+                self.setUp()
+                self.use_build_package()
+                self.env["COPY_MODE"] = mode
+                self.assertNotEqual(self.run_script().returncode, 0)
+                self.assertTrue(set(self.registry["_writes"]).issubset({f"{IMAGE}:1.2.3"}))
+                self.assertNotIn(f"{IMAGE}:latest", self.registry)
+
+    def test_cross_package_conflicting_existing_version_is_rejected_before_copy(self):
+        self.use_build_package()
+        self.add_previous(aliases=("latest", "1.2.3"))
+        before = copy.deepcopy(self.registry)
+        self.assertNotEqual(self.run_script().returncode, 0)
+        self.assertEqual(self.registry, before)
 
     def test_repeat_release_reuses_all_correct_artifacts_without_writes(self):
         for tag in ("1.2.3", "latest", "1", "1.2"):

@@ -46,7 +46,7 @@ class ReleaseAssetsTest(unittest.TestCase):
 
     def test_same_image_proof_from_later_ci_preserves_original_release_record(self):
         proof = dict(schema=1, image="image", version="1.2.3", commit="commit", digest="digest", platforms={"amd64": "a", "arm64": "b"}, release="v1.2.3", run_id=1)
-        newer = dict(proof, run_id=2)
+        newer = dict(proof, run_id=2, source_image="image-builds")
         calls = self.upload("release-proof.json", json.dumps(newer).encode(), json.dumps(proof).encode())
         self.assertFalse(any(call.args[:3] == ("gh", "release", "upload") for call in calls))
         with self.assertRaisesRegex(ValueError, "widerspricht"):
