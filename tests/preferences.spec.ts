@@ -106,3 +106,19 @@ test('menus scroll in short windows and keep close controls reachable',async({pa
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  }
 });
+
+
+test('tile controls retain keyboard focus when the responsive grid rebuilds',async({page})=>{
+ await login(page);
+ await page.locator('#video-grid').evaluate(el=>{
+  el.dataset.testRenders='0';
+  new MutationObserver(()=>el.dataset.testRenders=String(Number(el.dataset.testRenders)+1)).observe(el,{childList:true});
+ });
+ for(const [index,selector] of ['.tile-audio','.tile-title','.tile-expand'].entries()){
+  const control=page.locator(selector).first();await control.focus();await expect(control).toBeFocused();
+  const before=Number(await page.locator('#video-grid').getAttribute('data-test-renders'));
+  await page.setViewportSize({width:index%2?1440:1366,height:1000});
+  await expect.poll(async()=>Number(await page.locator('#video-grid').getAttribute('data-test-renders'))).toBeGreaterThan(before);
+  await expect(control).toBeFocused();
+ }
+});
