@@ -29,6 +29,7 @@ let toastTimer:ReturnType<typeof setTimeout>|undefined;
  let trace:{at:number;event:string;camera?:string;detail?:string}[]=[],tracing=false,traceStart=0;
  function log(event:string,camera?:string,detail?:string){if(tracing&&trace.length<20000)trace.push({at:Math.round(performance.now()-traceStart),event,camera,detail});}
 
+let fullscreenGridPending=false;
 async function toggleFullscreen(tile:HTMLElement){
  try{
   if(document.fullscreenElement){await document.exitFullscreen();return}
@@ -37,6 +38,7 @@ async function toggleFullscreen(tile:HTMLElement){
  }catch{notify('Vollbild konnte nicht geöffnet werden. Bitte erneut versuchen.')}
 }
 document.addEventListener('fullscreenchange',()=>{
+ if(!document.fullscreenElement&&fullscreenGridPending){fullscreenGridPending=false;renderGrid();update()}
  for(const tile of tiles.values()){const active=document.fullscreenElement===tile.container;const button=tile.container.querySelector('.tile-expand');if(button){button.setAttribute('aria-label',active?'Vollbild schließen':document.fullscreenEnabled?'Vollbild öffnen':'Ansicht vergrößern');button.textContent=active?'⤡':'⤢'}tile.applyAspect()}
 });
 function applyRail(){
@@ -101,7 +103,7 @@ class Tile {
   this.container.ondblclick=()=>void toggleFullscreen(this.container);
   const expand=element('button','tile-expand','⤢');expand.type='button';expand.setAttribute('aria-label',document.fullscreenEnabled?'Vollbild öffnen':'Ansicht vergrößern');expand.onclick=()=>void toggleFullscreen(this.container);this.audioButton.type='button';this.setAudio(false);
   this.audioButton.onclick=()=>{const enabled=audioTile!==this;if(audioTile)audioTile.setAudio(false);audioTile=enabled?this:undefined;this.setAudio(enabled);if(enabled&&playing)this.startPlayback()};
-  this.audioButton.ondblclick=e=>e.stopPropagation();expand.ondblclick=e=>e.stopPropagation();footer.append(this.audioButton,expand);
+  this.audioButton.ondblclick=e=>e.stopPropagation();expand.ondblclick=e=>e.stopPropagation();const actions=element('div','tile-actions');actions.append(this.audioButton,expand);footer.append(actions);
   this.video.addEventListener('error',()=>{if(this.record&&!this.loading){if($<HTMLSelectElement>('quality').value==='native'&&this.video.error?.code===4)this.fail('Originalformat im Browser nicht unterstützt. Bitte Ausgewogen oder Schnell wählen');else this.recover('Video konnte nicht geladen werden')}});
   this.video.addEventListener('loadedmetadata',()=>{this.applyAspect();this.align()});
   this.video.addEventListener('canplay',()=>{if(!this.failed){clearTimeout(this.stallTimer);clearTimeout(this.recoveryTimer);this.align();this.reveal();log('ready',camera.id)}});
@@ -171,6 +173,8 @@ function update(){if(!from)return;const timestamp=clock(cursor);if($('clock').te
 function frame(now:number){const matching=[...tiles.values()].filter(t=>t.current());const advancing=matching.length===0||matching.some(t=>t.failed||!t.loading&&t.video.readyState>=2);if(playing&&advancing){cursor+=(now-lastFrame)/1000*speed();if(cursor>=to){cursor=to-.001;pause()}else if(!visible().some(c=>recordingAt(displayedRecords,c.id,cursor))){const next=nextRecording(displayedRecords,visible().map(c=>c.id),cursor);if(next===undefined)pause();else cursor=next}if(cursor>viewEnd&&viewEnd-viewStart<to-from){const width=viewEnd-viewStart;viewStart=clamp(cursor-width/4,from,to-width);viewEnd=viewStart+width}update()}lastFrame=now;requestAnimationFrame(frame)}
 function refreshDisplayedRecords(){displayedRecords=displayedRecordings(playableRecords,cameras,openZoom)}
 function renderGrid(){
+ // Detaching the native fullscreen element ends fullscreen, including during viewport changes.
+ if(document.fullscreenElement&&$('video-grid').contains(document.fullscreenElement)){fullscreenGridPending=true;return}
  const focused=document.activeElement instanceof HTMLElement&&$('video-grid').contains(document.activeElement)?document.activeElement:undefined;
  refreshDisplayedRecords();
  const active=visible();for(const[id,t]of tiles)if(!active.some(c=>c.id===t.camera.id&& (c.viewMode==='dual'?(t.view==='wide'||t.view==='zoom'&&openZoom.has(c.id)):!t.view))){t.destroy();tiles.delete(id)}
@@ -179,12 +183,13 @@ function renderGrid(){
  const isHotspot=$<HTMLSelectElement>('layout').value==='hotspot';if(!active.some(c=>c.id===hotspot))hotspot=active[0]?.id;
  for(const c of active){
   const group=element('div','camera-group');group.id='camera-group-'+c.id;group.classList.toggle('dual',c.viewMode==='dual');group.classList.toggle('zoom-open',openZoom.has(c.id));group.classList.toggle('hotspot-primary',isHotspot&&c.id===hotspot&&cols>1&&grid()[1]>1);
+  let zoomToggle:HTMLButtonElement|undefined;
   if(c.viewMode==='dual' && c.supportsZoom !== false){
    const toggle=element('button','zoom-toggle',openZoom.has(c.id)?'Zoom schließen':'Zoom anzeigen');toggle.type='button';toggle.id='zoom-toggle-'+c.id;toggle.setAttribute('aria-label',`${c.name}: ${toggle.textContent}`);toggle.setAttribute('aria-expanded',String(openZoom.has(c.id)));toggle.setAttribute('aria-controls',group.id);
-   toggle.onclick=()=>{if(openZoom.has(c.id))openZoom.delete(c.id);else openZoom.add(c.id);page=Math.floor(ordered().findIndex(camera=>camera.id===c.id)/visiblePageCapacity());renderGrid();update();void thumbnails();$(toggle.id).focus()};group.append(toggle);
+   toggle.onclick=async()=>{if(document.fullscreenElement)await document.exitFullscreen();if(openZoom.has(c.id))openZoom.delete(c.id);else openZoom.add(c.id);page=Math.floor(ordered().findIndex(camera=>camera.id===c.id)/visiblePageCapacity());renderGrid();update();void thumbnails();$(toggle.id).focus()};toggle.ondblclick=e=>e.stopPropagation();zoomToggle=toggle;
   }
   for(const view of c.viewMode==='dual'?(c.supportsZoom===false?['wide']:(openZoom.has(c.id)?['wide','zoom']:['wide'])):[undefined]){
-   const key=c.id+':'+(view||'single');if(!tiles.has(key))tiles.set(key,new Tile(c,view));const tile=tiles.get(key)!;tile.camera=c;group.append(tile.container);tile.applyAspect();tile.video.preload=state.preload as 'metadata'|'auto';
+   const key=c.id+':'+(view||'single');if(!tiles.has(key))tiles.set(key,new Tile(c,view));const tile=tiles.get(key)!;tile.camera=c;tile.container.querySelector('.zoom-toggle')?.remove();if(view==='wide'&&zoomToggle)tile.audioButton.before(zoomToggle);group.append(tile.container);tile.applyAspect();tile.video.preload=state.preload as 'metadata'|'auto';
   }
   gridElement.append(group);if(isHotspot&&c.id===hotspot)gridElement.prepend(group);
  }
