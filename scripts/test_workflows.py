@@ -56,7 +56,7 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('needs: [code-checks, browser]', self.job('build'))
         self.assertIn('needs: test-server', self.job('browser'))
 
-    def test_browser_test_server_builds_fresh_frontend_early_and_matrix_stays_compact(self):
+    def test_browser_test_server_builds_fresh_frontend_early_and_suites_are_sharded(self):
         server = self.job('test-server')
         browser = self.job('browser')
         self.assertIn('npm ci && npm run build', server)
@@ -66,9 +66,10 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('needs.test-server.outputs.commit', browser)
         self.assertIn('playwright install-deps', browser)
         self.assertIn('sudo apt-get install -y ffmpeg', browser)
-        self.assertEqual(browser.count('browser: '), 2)
-        self.assertIn('npm run test:browser\n', browser)
-        self.assertIn('browser-test-results-${{ matrix.browser }}', browser)
+        self.assertEqual(browser.count('browser: '), 4)
+        self.assertEqual(browser.count('shard: '), 4)
+        self.assertIn('npm run test:browser -- --shard=${{ matrix.shard }}/2', browser)
+        self.assertIn('browser-test-results-${{ matrix.browser }}-${{ matrix.shard }}', browser)
         config = (ROOT / 'playwright.config.ts').read_text()
         self.assertIn('globalTimeout:8*60*1000', config)
 
