@@ -160,6 +160,14 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertLess(self.release.index('name: Öffentlichen Release-Download prüfen'),
                         self.release.index('manual_release.py assets'))
 
+    def test_aliases_wait_for_download_and_assets_and_use_canonical_release(self):
+        self.assertIn('release: ${{ steps.meta.outputs.release }}', self.release)
+        self.assertNotIn('release: ${{ inputs.version }}', self.release)
+        self.assertIn("VERSION_ONLY: 'true'", self.release)
+        final = self.release.index('name: Versions-Aliases nach Download und Assets freigeben')
+        self.assertLess(self.release.index('manual_release.py assets'), final)
+        self.assertLess(final, self.release.index('gh release edit'))
+
     def test_cleanup_is_explicit_manual_and_serialized_with_release(self):
         cleanup = (ROOT / '.github/workflows/cleanup-images.yml').read_text()
         self.assertIn('workflow_dispatch:', cleanup)

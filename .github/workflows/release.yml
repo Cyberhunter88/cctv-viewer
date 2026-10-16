@@ -30,7 +30,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       commit: ${{ steps.meta.outputs.commit }}
       image: ${{ steps.meta.outputs.image }}
-      release: ${{ inputs.version }}
+      release: ${{ steps.meta.outputs.release }}
       ci_run_id: ${{ steps.ci.outputs.ci_run_id }}
       ci_run_attempt: ${{ steps.ci.outputs.ci_run_attempt }}
     steps:
@@ -123,8 +123,9 @@ jobs:
           fi
           git show "$COMMIT:compose.yaml" > "$RUNNER_TEMP/compose.yaml"
           git show "$COMMIT:.env.example" | sed "s/^CTV_VERSION=.*/CTV_VERSION=$VERSION/" > "$RUNNER_TEMP/config.env.example"
-      - id: promote
-        name: Geprüftes Multiarch-Image ohne Neubau übernehmen
+      - name: Geprüftes Multiarch-Image ohne Neubau übernehmen
+        env:
+          VERSION_ONLY: 'true'
         run: bash scripts/promote_image.sh
       - name: Öffentlichen Release-Download prüfen
         run: |
@@ -133,6 +134,9 @@ jobs:
           DOCKER_CONFIG="$RUNNER_TEMP/anonymous-docker" docker pull "$IMAGE@$digest" || { echo 'Anonymer GHCR-Pull fehlgeschlagen. Release-Paket einmalig auf Public stellen und Workflow mit derselben Version und demselben Commit erneut starten.'; exit 1; }
       - name: Konfiguration und Digest-Nachweis anhängen
         run: python3 scripts/manual_release.py assets "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$RUNNER_TEMP/compose.yaml" "$RUNNER_TEMP/config.env.example" "$RELEASE_PROOF"
+      - id: promote
+        name: Versions-Aliases nach Download und Assets freigeben
+        run: bash scripts/promote_image.sh
       - name: Vollständigen Entwurf offiziell veröffentlichen
         env:
           IS_LATEST: ${{ steps.promote.outputs.latest }}
