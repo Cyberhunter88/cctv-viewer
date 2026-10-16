@@ -76,3 +76,9 @@ Die Aufnahmeansicht unterstützt echtes Browser-Vollbild per Schaltfläche,
 Doppelklick und Taste F. Die einklappbare Seitenleiste enthält das Kontomenü;
 Datum, Kameraauswahl und Seitensteuerung sind für Laptopbreiten kompakt angeordnet.
 Bei geschlossenem Zoom verwendet die Zeitleiste ausschließlich die Weitwinkelansicht.
+
+## Verwaltung und persönliche Einstellungen
+
+- Kameraverwaltung mit separater Liste und Editor, mobil als eigener Bearbeitungsschritt; Status, Scan und Sortierung pro Kamera.
+- Persönliche Einstellungen einschließlich Farbschema werden erst mit „Speichern“ übernommen. Ungespeicherte Änderungen können nach Rückfrage verworfen werden.
+- Abmelden ist direkt in der Seitenleiste erreichbar. Dialoge behalten ihre abgerundeten Ecken auch bei scrollendem Inhalt.

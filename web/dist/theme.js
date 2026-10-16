@@ -6,7 +6,10 @@
   try { const saved = localStorage.getItem(key); if (['system', 'light', 'dark'].includes(saved)) choice = saved; } catch {}
   function apply() {
     document.documentElement.dataset.theme = choice === 'system' ? (system.matches ? 'dark' : 'light') : choice;
-    document.querySelectorAll('[data-theme-select]').forEach(select => select.value = choice);
+    document.querySelectorAll('[data-theme-select]').forEach(select => {
+      if (select.id === 'theme' && select.closest('dialog')?.open) return;
+      select.value = choice;
+    });
     window.dispatchEvent(new Event('themechange'));
   }
   apply();
@@ -14,12 +17,18 @@
   addEventListener('storage', event => {
     if (event.key !== key) return;
     choice = ['light', 'dark'].includes(event.newValue) ? event.newValue : 'system';
-    const select = document.getElementById('theme'); if (select) select.value = choice;
+    apply();
+  });
+  addEventListener('themecommit', event => {
+    if (!['system', 'light', 'dark'].includes(event.detail)) return;
+    choice = event.detail;
+    try { localStorage.setItem(key, choice); } catch {}
     apply();
   });
   addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-theme-select]').forEach(select => {
       select.value = choice;
+      if (select.id === 'theme') return; // Personal settings are committed by their form.
       select.addEventListener('change', () => {
         choice = select.value;
         try { localStorage.setItem(key, choice); } catch {}
