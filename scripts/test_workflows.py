@@ -45,6 +45,33 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertNotIn('contents: write', self.ci)
         self.assertNotRegex(self.ci, r'gh release (?:create|edit)|(?m:^\s+(?:bash )?scripts/promote_image.sh\b)|:latest')
 
+    def test_build_caches_keep_race_and_platform_outputs_separate(self):
+        self.assertNotIn('cache-dependency-path:', self.job('test-server'))
+        self.assertIn('cache-dependency-path: |\n            go.sum\n            .github/workflows/ci.yml',
+                      self.job('code-checks'))
+        build = self.job('build')
+        self.assertIn('cache-from: type=gha,scope=commit-${{ matrix.arch }}', build)
+        self.assertIn('cache-to: type=gha,mode=max,scope=commit-${{ matrix.arch }}', build)
+
+    def test_race_tests_run_unconditionally_for_pr_and_main(self):
+        code = self.job('code-checks')
+        self.assertRegex(code, r"- name: Go-Race-Tests\n        run: go test -race \./\.\.\.")
+        self.assertNotRegex(code, r"run: go test \./\.\.\.")
+
+    def test_release_job_contract_matches_workflow_names_and_browser_matrix(self):
+        from wait_for_commit_ci import REQUIRED_JOBS
+        names = {re.search(r"^    name: (.+)$", self.job(job), re.M)[1]
+                 for job in ('test-server', 'code-checks', 'build', 'publish-commit', 'test')}
+        names.remove('Docker prüfen (${{ matrix.arch }})')
+        names.update(f'Docker prüfen ({arch})' for arch in ('amd64', 'arm64'))
+        browser = self.job('browser')
+        template = re.search(r"^    name: (.+)$", browser, re.M)[1]
+        entries = re.findall(r"- browser: (\w+)\n            engine: \w+\n            shard: (\d+)", browser)
+        self.assertEqual(len(entries), 4)
+        names.update(template.replace('${{ matrix.browser }}', engine)
+                     .replace('${{ matrix.shard }}', shard) for engine, shard in entries)
+        self.assertEqual(REQUIRED_JOBS, names)
+
     def test_required_check_covers_tests_and_main_image_publication(self):
         gate = self.job('test')
         self.assertIn('name: Anwendung prüfen', gate)
@@ -76,6 +103,7 @@ class WorkflowContractTest(unittest.TestCase):
     def test_required_check_cannot_succeed_after_any_failed_prerequisite(self):
         shell = self.job('test').split('        run: |\n', 1)[1]
         shell = "\n".join(line[10:] for line in shell.splitlines())
+        cases = []
         for main in (False, True):
             results_checked = ('CODE_RESULT', 'SERVER_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT')
             required = results_checked if main else results_checked[:3]
@@ -84,8 +112,17 @@ class WorkflowContractTest(unittest.TestCase):
                 env = dict(os.environ, MAIN_PUSH=str(main).lower(), BUILD_RESULT='skipped', PUBLISH_RESULT='skipped')
                 env.update(CODE_RESULT='success', SERVER_RESULT='success', BROWSER_RESULT='success')
                 env.update(results)
-                result = subprocess.run(['bash', '-e', '-c', shell], env=env, capture_output=True)
-                self.assertEqual(result.returncode == 0, all(value == 'success' for value in values), (main, results))
+                # Execute the same exhaustive cases in isolated subshells. Avoid
+                # starting a fresh Bash executable for every status combination.
+                exports = "\n".join(f"export {key}={env[key]}" for key in
+                                    ('MAIN_PUSH', *results_checked))
+                expected = 0 if all(value == 'success' for value in values) else 1
+                cases.append(f"(\nset -e\n{exports}\n{shell}\n)\n"
+                             f"actual=$?\nif [ \"$actual\" -ne {expected} ]; then\n"
+                             f"  echo 'Unexpected gate result: main={main}, {values}' >&2\n"
+                             "  exit 1\nfi\n")
+        result = subprocess.run(['bash'], input="\n".join(cases), text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_architecture_smoke_precedes_evidence_upload_and_uses_digest(self):
         job = self.job('build')

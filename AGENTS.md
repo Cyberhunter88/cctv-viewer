@@ -16,6 +16,13 @@
 - Ein ausdrücklich angeforderter Merge von `main` **in den Feature-Branch** ist zulässig. Konflikte sorgfältig auflösen und betroffene Prüfungen wiederholen; keine fremden Änderungen verwerfen.
 - Agenten starten keine offiziellen Releases und verändern weder veröffentlichte Versionstags noch `latest`. Deployment gehört nicht zum Entwicklungsworkflow.
 
+## Öffentliches Repository und lokale Artefakte
+
+- Lokale Prüfberichte, Abnahmeprotokolle, Screenshots und Diagnoseartefakte ausschließlich unter `.local-reports/` oder außerhalb des Repositorys ablegen. `.local-reports/` ist für Git und den Docker-Build ausgeschlossen. `TEST_REPORT.md` und `UI_REVIEW.md` im Projektstamm nicht erneut anlegen oder versionieren.
+- Öffentliche Dokumentation beschreibt Funktionen, Einrichtung und reproduzierbare Prüfungen. Keine temporären Logpfade, hostbezogenen Fehlerprotokolle, persönlichen Arbeitsnotizen oder veralteten lokalen Abnahmeergebnisse einchecken. Aktuelle Testergebnisse im PR beziehungsweise im Lieferbericht nennen; `FEATURE_MATRIX.md` als Funktionsübersicht pflegen.
+- Vor jedem Commit und Push die vorgesehenen Dateien und den gestagten Diff auf Secrets, echte Zugangsdaten, private Infrastrukturangaben und lokale Artefakte prüfen. Ausschlüsse nicht mit `git add -f` umgehen. `.env.example` enthält ausschließlich Platzhalter und ungefährliche Beispielwerte; synthetische Testzugangsdaten müssen eindeutig als solche erkennbar sein.
+- Bereits versionierte lokale Artefakte müssen aus der Versionierung entfernt werden; eine Ignore-Regel allein reicht dafür nicht. Bestehende lokale Inhalte dabei erhalten. Die Git-Historie nicht ohne ausdrücklichen Auftrag umschreiben.
+
 ## CI/CD ändern
 
 Die ausführliche Beschreibung steht in [docs/CI-CD.md](docs/CI-CD.md). Vor Änderungen die betroffenen bestehenden Dateien lesen, insbesondere:

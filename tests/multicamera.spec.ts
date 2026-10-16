@@ -8,7 +8,7 @@ async function six(page:Page,kind:'single'|'dual'|'mixed'){
  try{
   for(let i=0;i<6;i++){
    const dual=kind==='dual'||kind==='mixed'&&i%2===0;
-   const response=await page.request.post('/api/cameras',{headers,data:{name:i===5?'Zufahrt mit einem sehr langen Kameranamen':`Testkamera ${i+1}`,folder:`Six${dual?'Dual':'Single'}${i+1}`,format:'automatic',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:dual?'dual':'single',supportsZoom:dual,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:0}});
+   const response=await page.request.post('/api/cameras',{headers,data:{name:i===5?'Testkamera mit einem sehr langen Beispielnamen':`Testkamera ${i+1}`,folder:`Six${dual?'Dual':'Single'}${i+1}`,format:'automatic',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:dual?'dual':'single',supportsZoom:dual,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:0}});
    expect(response.ok(),await response.text()).toBe(true);ids.push((await response.json()).id);
   }
   await page.evaluate(({key,ids})=>localStorage.setItem('cctv-view:'+key,JSON.stringify({cameras:ids,order:ids,layout:'auto'})),{key:session.preferenceKey,ids});

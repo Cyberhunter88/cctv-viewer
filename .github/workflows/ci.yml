@@ -64,11 +64,24 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          # Keep race-instrumented test results separate from the server build.
+          cache-dependency-path: |
+            go.sum
+            .github/workflows/ci.yml
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.10.0'
           cache: npm
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg shellcheck
+      - name: Fehlende Prüfwerkzeuge installieren
+        run: |
+          missing=()
+          for tool in ffmpeg shellcheck; do
+            if ! command -v "$tool" >/dev/null 2>&1; then missing+=("$tool"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends "${missing[@]}"
+          fi
       - name: Workflow, Shell und Python statisch prüfen
         run: |
           curl --fail --silent --show-error --location --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tar.gz"
@@ -80,12 +93,8 @@ jobs:
           python3 -m compileall -q scripts
       - run: npm ci && npm run typecheck && npm test && npm run build
       - run: go vet ./...
-      - name: Race-Tests nur bei Main-Push
-        if: github.event_name != 'pull_request'
+      - name: Go-Race-Tests
         run: go test -race ./...
-      - name: Race-Tests bei PRs
-        if: github.event_name == 'pull_request'
-        run: go test ./...
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - id: meta
         run: |
@@ -196,8 +205,8 @@ jobs:
           build-args: VERSION=${{ needs.code-checks.outputs.version }}
           provenance: mode=max
           sbom: true
-          cache-from: type=gha,scope=commit-all
-          cache-to: type=gha,mode=max,scope=commit-all
+          cache-from: type=gha,scope=commit-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=commit-${{ matrix.arch }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ needs.code-checks.outputs.commit }}

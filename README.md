@@ -440,4 +440,4 @@ Unter „Indexierung · Details“ erscheinen Dateizähler und Status pro Kamera
 Warteschlange. Automatische Scans berücksichtigen auch rekursive Quellen und bei
 Tagesordnern die beiden vorherigen lokalen Tage.
 
-Prüfumfang, technische Grenzen und weitere Vorschläge: [UI-Sichtung](UI_REVIEW.md).
+Funktionsumfang und technische Prüfgrenzen: [Funktionsabgleich](FEATURE_MATRIX.md).

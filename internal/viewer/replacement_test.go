@@ -156,7 +156,7 @@ func TestSearchRebuildAndRemovedEndpoints(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 	for i := 0; i < 205; i++ {
-		_, e := a.db.Exec(`INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod) VALUES(?,?,?,?,2,'h264',1,1)`, fmt.Sprintf("page-%03d", i), c.ID, fmt.Sprintf("Eingang/search-%03d.mp4", i), float64(i))
+		_, e := a.db.Exec(`INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod) VALUES(?,?,?,?,2,'h264',1,1)`, fmt.Sprintf("page-%03d", i), c.ID, fmt.Sprintf("Testkamera-A/search-%03d.mp4", i), float64(i))
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -165,7 +165,7 @@ func TestSearchRebuildAndRemovedEndpoints(t *testing.T) {
 		offset, wantCount int
 		wantMore          bool
 	}{{0, 100, true}, {100, 100, true}, {200, 6, false}} {
-		w = request(a, "GET", fmt.Sprintf("/api/search?q=Eingang&offset=%d", tc.offset), nil, cookie, "")
+		w = request(a, "GET", fmt.Sprintf("/api/search?q=Testkamera-A&offset=%d", tc.offset), nil, cookie, "")
 		page = searchPage{}
 		if e := json.Unmarshal(w.Body.Bytes(), &page); e != nil || w.Code != 200 || len(page.Results) != tc.wantCount || page.Total != 206 || page.Offset != tc.offset || page.Limit != 100 || page.HasMore != tc.wantMore {
 			t.Fatalf("search page at %d: status=%d body=%s err=%v", tc.offset, w.Code, w.Body.String(), e)

@@ -40,20 +40,20 @@ test('large paired archives select their first start without argument expansion'
 });
 
 
-test('Reolink Garten perspectives share the clock despite unequal and changing clip boundaries',()=>{
+test('Reolink Testkamera-B perspectives share the clock despite unequal and changing clip boundaries',()=>{
  const items:Recording[]=[
-  {id:'Reolink Garten_00_20261015061313.mp4',cameraId:'garden',view:'wide',start:100,duration:10,codec:'h264'},
-  {id:'Reolink Garten_01_20261015061312.mp4',cameraId:'garden',view:'zoom',start:99,duration:8,codec:'h264'},
-  {id:'next-wide',cameraId:'garden',view:'wide',start:110,duration:10,codec:'h264'},
-  {id:'next-zoom',cameraId:'garden',view:'zoom',start:107,duration:9,codec:'h264'},
+  {id:'Reolink Testkamera-B_00_20261015061313.mp4',cameraId:'camera-b',view:'wide',start:100,duration:10,codec:'h264'},
+  {id:'Reolink Testkamera-B_01_20261015061312.mp4',cameraId:'camera-b',view:'zoom',start:99,duration:8,codec:'h264'},
+  {id:'next-wide',cameraId:'camera-b',view:'wide',start:110,duration:10,codec:'h264'},
+  {id:'next-zoom',cameraId:'camera-b',view:'zoom',start:107,duration:9,codec:'h264'},
  ];
- assert.equal(recordingAt(items,'garden',99,'wide'),undefined);
- const wide=recordingAt(items,'garden',100,'wide')!,zoom=recordingAt(items,'garden',100,'zoom')!;
+ assert.equal(recordingAt(items,'camera-b',99,'wide'),undefined);
+ const wide=recordingAt(items,'camera-b',100,'wide')!,zoom=recordingAt(items,'camera-b',100,'zoom')!;
  assert.equal(100-wide.start,0);assert.equal(100-zoom.start,1);
- assert.equal(recordingAt(items,'garden',108,'wide')?.id,wide.id);
- assert.equal(recordingAt(items,'garden',108,'zoom')?.id,'next-zoom');
- assert.equal(recordingAt(items,'garden',110,'wide')?.id,'next-wide');
- assert.equal(recordingAt(items,'garden',110,'zoom')?.id,'next-zoom');
- assert.equal(recordingAt(items,'garden',117,'zoom'),undefined);
- assert.equal(recordingAt(items,'garden',117,'wide')?.id,'next-wide');
+ assert.equal(recordingAt(items,'camera-b',108,'wide')?.id,wide.id);
+ assert.equal(recordingAt(items,'camera-b',108,'zoom')?.id,'next-zoom');
+ assert.equal(recordingAt(items,'camera-b',110,'wide')?.id,'next-wide');
+ assert.equal(recordingAt(items,'camera-b',110,'zoom')?.id,'next-zoom');
+ assert.equal(recordingAt(items,'camera-b',117,'zoom'),undefined);
+ assert.equal(recordingAt(items,'camera-b',117,'wide')?.id,'next-wide');
 });

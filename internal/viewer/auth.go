@@ -240,8 +240,6 @@ func (a *App) clientIP(r *http.Request) string {
 	return ip.String()
 }
 func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
-	a.authMu.RLock()
-	defer a.authMu.RUnlock()
 	if !a.config().LocalAdmin {
 		fail(w, 404, "Lokale Anmeldung deaktiviert")
 		return
@@ -255,13 +253,6 @@ func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, 429, "Zu viele Anmeldeversuche. Bitte später erneut versuchen.")
 		return
 	}
-	select {
-	case a.limits.active <- struct{}{}:
-		defer func() { <-a.limits.active }()
-	default:
-		fail(w, 429, "Anmeldung ausgelastet")
-		return
-	}
 	var input struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -271,6 +262,25 @@ func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(input.Password) > 1024 || len(input.Username) > 100 {
 		fail(w, 401, "Anmeldedaten ungültig")
+		return
+	}
+	// Never hold authentication locks or hashing slots while reading client data.
+	a.authMu.RLock()
+	defer a.authMu.RUnlock()
+	// Settings may have changed while the request body was arriving.
+	if !a.config().LocalAdmin {
+		fail(w, 404, "Lokale Anmeldung deaktiviert")
+		return
+	}
+	if r.Header.Get("Origin") != a.config().BaseURL {
+		fail(w, 403, "Ungültige Herkunft")
+		return
+	}
+	select {
+	case a.limits.active <- struct{}{}:
+		defer func() { <-a.limits.active }()
+	default:
+		fail(w, 429, "Anmeldung ausgelastet")
 		return
 	}
 	var hash, role string
@@ -435,6 +445,15 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	return decodeLimit(w, r, v, 16*1024)
 }
 func decodeLimit(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+	// Bound body reads independently of header/keep-alive timeouts. This does
+	// not impose a write timeout on long-running video responses.
+	controller := http.NewResponseController(w)
+	if e := controller.SetReadDeadline(time.Now().Add(10 * time.Second)); e != nil && !errors.Is(e, http.ErrNotSupported) {
+		fail(w, 400, "Anfrage nicht lesbar")
+		return false
+	}
+	// Keep the deadline for net/http's draining of any unread trailing body.
+	// The server resets it when it starts the next request on this connection.
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
