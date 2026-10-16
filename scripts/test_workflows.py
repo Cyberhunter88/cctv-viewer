@@ -49,22 +49,34 @@ class WorkflowContractTest(unittest.TestCase):
         gate = self.job('test')
         self.assertIn('name: Anwendung prüfen', gate)
         self.assertIn('if: always()', gate)
-        self.assertIn('needs: [static-checks, code-checks, browser, build, publish-commit]', gate)
-        for result in ('STATIC_RESULT', 'CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT'):
+        self.assertIn('needs: [static-checks, code-checks, test-server, browser, build, publish-commit]', gate)
+        for result in ('STATIC_RESULT', 'CODE_RESULT', 'SERVER_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT'):
             self.assertIn(f'test "${result}" = success', gate)
         self.assertIn('if [ "$MAIN_PUSH" = true ]', gate)
         self.assertIn('needs: [code-checks, browser]', self.job('build'))
+        self.assertIn('needs: test-server', self.job('browser'))
+
+    def test_browser_test_server_builds_early_and_browser_suite_is_bounded(self):
+        server = self.job('test-server')
+        browser = self.job('browser')
+        self.assertIn('go build -o bin/cctv ./cmd/cctv', server)
+        self.assertIn('name: browser-test-server', server)
+        self.assertIn('needs.test-server.outputs.commit', browser)
+        self.assertIn('playwright install-deps', browser)
+        self.assertIn('sudo apt-get install -y ffmpeg', browser)
+        config = (ROOT / 'playwright.config.ts').read_text()
+        self.assertIn('globalTimeout:8*60*1000', config)
 
     def test_required_check_cannot_succeed_after_any_failed_prerequisite(self):
         shell = self.job('test').split('        run: |\n', 1)[1]
         shell = "\n".join(line[10:] for line in shell.splitlines())
         for main in (False, True):
-            results_checked = ('STATIC_RESULT', 'CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT')
-            required = results_checked if main else results_checked[:3]
+            results_checked = ('STATIC_RESULT', 'CODE_RESULT', 'SERVER_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT')
+            required = results_checked if main else results_checked[:4]
             for values in itertools.product(('success', 'failure', 'skipped', 'cancelled'), repeat=len(required)):
                 results = dict(zip(required, values))
                 env = dict(os.environ, MAIN_PUSH=str(main).lower(), BUILD_RESULT='skipped', PUBLISH_RESULT='skipped')
-                env.update(STATIC_RESULT='success', CODE_RESULT='success', BROWSER_RESULT='success')
+                env.update(STATIC_RESULT='success', CODE_RESULT='success', SERVER_RESULT='success', BROWSER_RESULT='success')
                 env.update(results)
                 result = subprocess.run(['bash', '-e', '-c', shell], env=env, capture_output=True)
                 self.assertEqual(result.returncode == 0, all(value == 'success' for value in values), (main, results))

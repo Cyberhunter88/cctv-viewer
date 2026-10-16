@@ -36,8 +36,32 @@ jobs:
           shellcheck scripts/promote_image.sh scripts/smoke.sh
           bash -n scripts/promote_image.sh scripts/smoke.sh
           python3 -m compileall -q scripts
+  test-server:
+    name: Browser-Testserver bauen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      commit: ${{ steps.meta.outputs.commit }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: mkdir -p bin && go build -o bin/cctv ./cmd/cctv
+      - id: meta
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-test-server
+          path: bin/cctv
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 1
   code-checks:
-    name: Code prüfen und Testserver bauen
+    name: Code prüfen
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -65,7 +89,6 @@ jobs:
       - name: Race-Tests bei PRs
         if: github.event_name == 'pull_request'
         run: go test ./...
-      - run: go build -o bin/cctv ./cmd/cctv
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - id: meta
         run: |
@@ -74,16 +97,9 @@ jobs:
             echo "image=ghcr.io/${GITHUB_REPOSITORY,,}"
             echo "version=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
           } >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: browser-test-server
-          path: bin/cctv
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 1
   browser:
     name: Browser prüfen (${{ matrix.browser }})
-    needs: code-checks
+    needs: test-server
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -97,7 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.code-checks.outputs.commit }}
+          ref: ${{ needs.test-server.outputs.commit }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.10.0'
@@ -115,8 +131,11 @@ jobs:
           key: playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
           restore-keys: |
             playwright-${{ matrix.browser }}-
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Browser- und Systemabhängigkeiten installieren
+        run: |
+          npx playwright install-deps ${{ matrix.browser }}
+          sudo apt-get install -y ffmpeg
+          npx playwright install ${{ matrix.browser }}
       - run: npm run test:browser
         env:
           CTV_TEST_ENGINE: ${{ matrix.engine }}
@@ -238,7 +257,7 @@ jobs:
     # Keep this name stable: main already requires this exact status check.
     name: Anwendung prüfen
     if: always()
-    needs: [static-checks, code-checks, browser, build, publish-commit]
+    needs: [static-checks, code-checks, test-server, browser, build, publish-commit]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
@@ -246,6 +265,7 @@ jobs:
         env:
           STATIC_RESULT: ${{ needs.static-checks.result }}
           CODE_RESULT: ${{ needs.code-checks.result }}
+          SERVER_RESULT: ${{ needs.test-server.result }}
           BROWSER_RESULT: ${{ needs.browser.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           PUBLISH_RESULT: ${{ needs.publish-commit.result }}
@@ -253,6 +273,7 @@ jobs:
         run: |
           test "$STATIC_RESULT" = success
           test "$CODE_RESULT" = success
+          test "$SERVER_RESULT" = success
           test "$BROWSER_RESULT" = success
           if [ "$MAIN_PUSH" = true ]; then
             test "$BUILD_RESULT" = success
