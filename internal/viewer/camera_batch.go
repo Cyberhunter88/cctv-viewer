@@ -23,6 +23,30 @@ func (a *App) saveCameraBatch(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, e.Error())
 		return
 	}
+	for i := range input.Cameras {
+		c := &input.Cameras[i]
+		c.Detection = nil
+		if c.Format == "" {
+			c.Format = "automatic"
+		}
+		if c.ViewMode == "" {
+			c.ViewMode = "single"
+		}
+		if c.IndexingMode == "" {
+			c.IndexingMode = "partitioned"
+		}
+		if c.DirectoryPattern == "" {
+			c.DirectoryPattern = "{YYYY}/{MM}/{DD}"
+		}
+		if e := validateCamera(*c, a.root); e != nil {
+			fail(w, 400, c.Name+": "+e.Error())
+			return
+		}
+		if c.ViewMode == "dual" {
+			result := detectView(r.Context(), c, a.root)
+			c.Detection = &result
+		}
+	}
 	a.index.mu.Lock()
 	if a.index.status.Running {
 		a.index.mu.Unlock()
