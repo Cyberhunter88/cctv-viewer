@@ -243,7 +243,7 @@ func TestLegacyStoreMigration(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	_, e = db.Exec(`CREATE TABLE cameras(id TEXT PRIMARY KEY,name TEXT NOT NULL,folder TEXT NOT NULL,pattern TEXT NOT NULL,timezone TEXT NOT NULL,offset INTEGER NOT NULL DEFAULT 0);CREATE TABLE admins(username TEXT PRIMARY KEY,hash TEXT NOT NULL);INSERT INTO cameras VALUES('old','Old','old','pattern','UTC',0);INSERT INTO admins VALUES('old','original-hash');`)
+	_, e = db.Exec(`CREATE TABLE cameras(id TEXT PRIMARY KEY,name TEXT NOT NULL,folder TEXT NOT NULL,pattern TEXT NOT NULL,timezone TEXT NOT NULL,offset INTEGER NOT NULL DEFAULT 0,format TEXT NOT NULL DEFAULT 'custom',prefix TEXT NOT NULL DEFAULT '',indexing_mode TEXT NOT NULL DEFAULT 'partitioned',directory_pattern TEXT NOT NULL DEFAULT '{YYYY}/{MM}/{DD}',view_mode TEXT NOT NULL DEFAULT 'single',wide_marker TEXT NOT NULL DEFAULT '_00_',zoom_marker TEXT NOT NULL DEFAULT '_01_',zoom_offset REAL NOT NULL DEFAULT 0,supports_zoom INTEGER NOT NULL DEFAULT 1);CREATE TABLE admins(username TEXT PRIMARY KEY,hash TEXT NOT NULL);INSERT INTO cameras VALUES('old','Old','old','pattern','UTC',0,'custom','','partitioned','{YYYY}/{MM}/{DD}','single','_00_','_01_',0,1);INSERT INTO admins VALUES('old','original-hash');`)
 	db.Close()
 	if e != nil {
 		t.Fatal(e)

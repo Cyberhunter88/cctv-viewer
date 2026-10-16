@@ -18,6 +18,7 @@ type Camera struct {
 	WideMarker       string         `json:"wideMarker"`
 	ZoomMarker       string         `json:"zoomMarker"`
 	ZoomOffset       float64        `json:"zoomOffset"`
+	SupportsZoom       bool           `json:"supportsZoom"`
 	Detection        *ViewDetection `json:"detection,omitempty"`
 	ID               string         `json:"id"`
 	Name             string         `json:"name"`
@@ -270,7 +271,7 @@ func (s *Store) SaveCamera(c Camera) error {
 			return e
 		}
 	}
-	_, e = tx.Exec(`INSERT INTO cameras(id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,folder=excluded.folder,pattern=excluded.pattern,timezone=excluded.timezone,offset=excluded.offset,format=excluded.format,prefix=excluded.prefix,indexing_mode=excluded.indexing_mode,directory_pattern=excluded.directory_pattern,view_mode=excluded.view_mode,wide_marker=excluded.wide_marker,zoom_marker=excluded.zoom_marker,zoom_offset=excluded.zoom_offset`, c.ID, c.Name, c.Folder, c.Pattern, c.Timezone, c.Offset, cameraFormat(c), c.Prefix, c.IndexingMode, c.DirectoryPattern, c.ViewMode, c.WideMarker, c.ZoomMarker, c.ZoomOffset)
+	_, e = tx.Exec(`INSERT INTO cameras(id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset,supports_zoom) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,folder=excluded.folder,pattern=excluded.pattern,timezone=excluded.timezone,offset=excluded.offset,format=excluded.format,prefix=excluded.prefix,indexing_mode=excluded.indexing_mode,directory_pattern=excluded.directory_pattern,view_mode=excluded.view_mode,wide_marker=excluded.wide_marker,zoom_marker=excluded.zoom_marker,zoom_offset=excluded.zoom_offset,supports_zoom=excluded.supports_zoom`, c.ID, c.Name, c.Folder, c.Pattern, c.Timezone, c.Offset, cameraFormat(c), c.Prefix, c.IndexingMode, c.DirectoryPattern, c.ViewMode, c.WideMarker, c.ZoomMarker, c.ZoomOffset, c.SupportsZoom)
 	if e != nil {
 		return e
 	}
