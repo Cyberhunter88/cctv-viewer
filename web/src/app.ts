@@ -48,6 +48,7 @@ function applyRail(){
 on('rail-toggle',()=>{state.railCollapsed=!(state.railCollapsed??matchMedia('(max-width:1100px)').matches);applyRail();saveView()});
 matchMedia('(max-width:1100px)').addEventListener('change',applyRail);
 const accountMenu=$<HTMLDetailsElement>('account-menu');
+accountMenu.querySelector('summary')!.addEventListener('click',e=>{if($('password-button').hidden)e.preventDefault()});
 function closeAccount(){if(!accountMenu.open)return;accountMenu.open=false;accountMenu.querySelector('summary')!.focus()}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&accountMenu.open){e.preventDefault();closeAccount()}});
 document.addEventListener('click',e=>{if(e.target instanceof Node&&!accountMenu.contains(e.target))accountMenu.open=false});
@@ -121,8 +122,11 @@ class Tile {
     const stream=await api<{id:string;url:string;offset:number;factor:number}>('/api/streams',{method:'POST',body:JSON.stringify({recording:record.id,offset:Math.max(0,cursor-record.start),profile:quality,speed:speed(),transport}),signal:this.abort.signal});
     if(epoch!==this.epoch){void api('/api/streams/'+stream.id,{method:'DELETE'}).catch(()=>{});return}
     this.stream=stream.id;this.offset=stream.offset;this.factor=stream.factor;
-    if(transport==='mp4'||this.video.canPlayType('application/vnd.apple.mpegurl'))this.video.src=stream.url;
-    else if(Hls.isSupported()){this.hls=new Hls({maxBufferLength:20,maxMaxBufferLength:40,backBufferLength:10});this.hls.on(Hls.Events.ERROR,(_event,data)=>{if(data.fatal)this.recover('Streaming unterbrochen')});this.hls.loadSource(stream.url);this.hls.attachMedia(this.video)}
+    if(transport==='mp4')this.video.src=stream.url;
+    // A growing EVENT playlist is a recording from its beginning, not a live
+    // camera. Prefer MSE with an explicit origin over native HLS live-edge seeks.
+    else if(Hls.isSupported()){this.hls=new Hls({startPosition:0,maxBufferLength:20,maxMaxBufferLength:40,backBufferLength:10});this.hls.on(Hls.Events.ERROR,(_event,data)=>{if(data.fatal)this.recover('Streaming unterbrochen')});this.hls.loadSource(stream.url);this.hls.attachMedia(this.video)}
+    else if(this.video.canPlayType('application/vnd.apple.mpegurl'))this.video.src=stream.url;
     else throw new Error('HLS wird nicht unterstützt');
    }
    if(epoch!==this.epoch)return;this.loading=false;this.align();
@@ -321,7 +325,7 @@ async function boot(){
   loginForm.hidden=!methods.local;$('oidc-login').hidden=!methods.oidc;$('login-divider').hidden=!(methods.local&&methods.oidc);$('boot-error').hidden=true;$('login').hidden=false;return;
  }
  if(!response.ok)throw new Error(`Sitzung konnte nicht geladen werden (${response.status})`);
- session=await response.json();$('password-button').hidden=session.kind!=='local';
+ session=await response.json();$('password-button').hidden=session.kind!=='local';accountMenu.open=false;const accountSummary=accountMenu.querySelector('summary')!;accountSummary.setAttribute('aria-disabled',String(session.kind!=='local'));accountSummary.tabIndex=session.kind==='local'?0:-1;
  if(!managementInitialized){initManagement({api,getSession:()=>session,getCameras:()=>cameras,getCursor:()=>cursor,notify});prepareDialogs();managementInitialized=true}
  $('user-name').textContent=session.name;$('avatar').textContent=session.name.slice(0,2).toUpperCase();document.querySelector('#account-menu summary')!.setAttribute('aria-label','Konto: '+session.name);document.querySelector('#account-menu summary')!.setAttribute('title',session.name);$('settings-button').hidden=session.role!=='admin';$('rescan').hidden=session.role!=='admin';dateInput.value=berlinDate(new Date());await refreshCameras();
  let stored:unknown;try{stored=JSON.parse(localStorage.getItem('cctv-view:'+session.preferenceKey)||'null')}catch{}

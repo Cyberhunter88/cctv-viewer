@@ -1761,3 +1761,8 @@ button:focus-visible,summary:focus-visible { outline:2px solid var(--accent); ou
 #camera-dialog .camera-intro p { margin:0; }
 .camera-intro .management-link { margin:0; padding-inline:0; min-height:36px; }
 #camera-list .camera-entry-actions .move-button { font-size:18px; }
+
+/* SSO accounts have no local password action; do not render an empty popover. */
+.account-actions:not(:has(> button:not([hidden]))) { display:none; }
+.account-menu:has(summary[aria-disabled=true]) .account-chevron { display:none; }
+.account-menu summary[aria-disabled=true] { cursor:default; }
