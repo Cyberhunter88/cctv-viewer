@@ -64,6 +64,11 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('needs.test-server.outputs.commit', browser)
         self.assertIn('playwright install-deps', browser)
         self.assertIn('sudo apt-get install -y ffmpeg', browser)
+        for suite in ('playback', 'preferences', 'multicamera'):
+            self.assertIn(f'suite: {suite}', browser)
+        self.assertIn('tests/multicamera.spec.ts', browser)
+        self.assertIn('npm run test:browser -- ${{ matrix.files }}', browser)
+        self.assertIn('browser-test-results-${{ matrix.browser }}-${{ matrix.suite }}', browser)
         config = (ROOT / 'playwright.config.ts').read_text()
         self.assertIn('globalTimeout:8*60*1000', config)
 
