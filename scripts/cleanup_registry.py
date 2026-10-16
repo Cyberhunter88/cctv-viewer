@@ -13,6 +13,10 @@ DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 TEMPORARY = re.compile(r"(?:build-[0-9]+-[0-9]+-(?:amd64|arm64)|candidate-[0-9]+-[0-9]+)\Z")
 
 
+class ManifestMissing(RuntimeError):
+    """The registry explicitly reports MANIFEST_UNKNOWN for a digest."""
+
+
 def command(*args):
     result = subprocess.run(args, capture_output=True, text=True)
     if result.returncode:
@@ -29,7 +33,15 @@ def api(path, method="GET"):
 
 
 def registry_manifest(image, digest):
-    value = json.loads(command("skopeo", "inspect", "--raw", "docker://" + image + "@" + digest))
+    result = subprocess.run(
+        ["skopeo", "inspect", "--raw", "docker://" + image + "@" + digest],
+        capture_output=True, text=True)
+    if result.returncode:
+        # Do not confuse authentication, transport or parsing errors with absence.
+        if re.search(r": manifest unknown(?:\s|[\"\n]|$)", result.stderr):
+            raise ManifestMissing(digest)
+        raise RuntimeError(f"skopeo fehlgeschlagen: {result.stderr.strip()}")
+    value = json.loads(result.stdout)
     if not isinstance(value, dict):
         raise ValueError("Ungültiges Registry-Manifest")
     return value
@@ -97,18 +109,29 @@ def plan(versions, image, fetch=None, now=None, min_age_days=14, selection=None)
         raise ValueError("Doppelte GHCR-Versions-ID")
     if selection is not None:
         eligible = {digest for digest in eligible if by_digest[digest]["id"] in selection}
-    visited, pending = set(), list(set(by_digest) - eligible)
+    visited, pending, missing = set(), list(set(by_digest) - eligible), set()
     while pending:
         digest = pending.pop()
         if digest in visited:
             continue
         visited.add(digest)
-        pending.extend(references(fetch(image, digest)) - visited)
+        try:
+            manifest = fetch(image, digest)
+        except ManifestMissing:
+            # A dangling subject/attestation reference outside the package
+            # inventory cannot be deleted by this cleanup. Inventory entries
+            # must remain readable so their dependencies can be protected.
+            if digest in by_digest:
+                raise
+            missing.add(digest)
+            continue
+        pending.extend(references(manifest) - visited)
     candidates = [dict(id=v["id"], digest=digest, tags=v["metadata"]["container"]["tags"])
                   for digest, v in by_digest.items() if digest in eligible - visited]
     return dict(schema=1, image=image, min_age_days=min_age_days,
                 candidates=sorted(candidates, key=lambda item: item["id"]),
-                retained=len(versions) - len(candidates))
+                retained=len(versions) - len(candidates),
+                missing_external_manifests=sorted(missing))
 
 
 def inventory(repository):
