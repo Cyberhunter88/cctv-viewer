@@ -41,7 +41,7 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  await page.locator('.thumb').first().click();await page.locator('#play').click();
  await expect.poll(()=>page.locator('.camera-group.dual video').first().evaluate(v=>v.currentTime)).toBeGreaterThan(1);
  const times=await firstGroup.locator('video').evaluateAll(v=>v.map(x=>x.currentTime));expect(Math.abs(times[0]-times[1])).toBeLessThan(1);
- await page.locator('#play').click();await page.locator('.camera-group.dual video').first().dblclick();await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(true);await page.evaluate(()=>document.exitFullscreen());await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(false);
+ await page.locator('#play').click();await page.locator('.camera-group.dual video').first().dblclick();await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(true);await firstGroup.locator('.zoom-toggle').click();await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(false);await expect(firstGroup.locator('video')).toHaveCount(1);await firstGroup.locator('.zoom-toggle').click();await expect(firstGroup.locator('video')).toHaveCount(2);
  await page.screenshot({path:'/tmp/cctv-dual-ui.png',fullPage:true});
  // On phones only two camera groups fit per page. Keep this check focused on paired views.
  for(const name of ['Testkamera-A','Testkamera-B'])await page.locator('#camera-filters').getByRole('button',{name,exact:true}).click();

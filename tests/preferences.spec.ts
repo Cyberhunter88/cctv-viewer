@@ -199,3 +199,18 @@ test('new cameras stay deselected after saving and reloading',async({page})=>{
   await filter.click();await saved;await page.reload();await expect(page.locator('#app')).toBeVisible();await expect(filter).toHaveAttribute('aria-pressed','false');
  }finally{await expect.poll(async()=>(await(await page.request.get('/api/scan')).json()).running).toBe(false);const removed=await page.request.delete('/api/cameras/'+camera.id,{headers});expect(removed.ok(),await removed.text()).toBe(true)}
 });
+
+test('fullscreen survives viewport changes and closes with its control',async({page})=>{
+ await login(page);
+ const tile=page.locator('.camera-tile').first();
+ await tile.locator('.tile-expand').click();
+ await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
+ await page.setViewportSize({width:1280,height:720});
+ await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+ await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
+ const controls=await tile.locator('.tile-actions').boundingBox();
+ expect(controls!.y).toBeGreaterThanOrEqual(0);expect(controls!.y+controls!.height).toBeLessThanOrEqual(720);
+ await tile.locator('.tile-expand').click();
+ await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
+ await expect(page.locator('.camera-tile')).toHaveCount(2);
+});
