@@ -1,4 +1,4 @@
-import {test,expect,type Page} from '@playwright/test';
+import {test,expect,type Page} from './fixtures';
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.20'}});
 async function login(page:Page){
  await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#rescan')).toBeEnabled({timeout:20000});
@@ -11,7 +11,8 @@ async function six(page:Page,kind:'single'|'dual'|'mixed'){
    const response=await page.request.post('/api/cameras',{headers,data:{name:i===5?'Testkamera mit einem sehr langen Beispielnamen':`Testkamera ${i+1}`,folder:`Six${dual?'Dual':'Single'}${i+1}`,format:'automatic',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:dual?'dual':'single',supportsZoom:dual,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:0}});
    expect(response.ok(),await response.text()).toBe(true);ids.push((await response.json()).id);
   }
-  await page.evaluate(({key,ids})=>localStorage.setItem('cctv-view:'+key,JSON.stringify({cameras:ids,order:ids,layout:'auto'})),{key:session.preferenceKey,ids});
+ const known=await(await page.request.get('/api/cameras')).json();
+ const preferences=await page.request.patch('/api/preferences',{headers,data:{cameras:ids,order:[...ids,...known.map((c:{id:string})=>c.id).filter((id:string)=>!ids.includes(id))],layout:'auto',quality:'native'}});expect(preferences.ok(),await preferences.text()).toBe(true);
   await page.reload();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText(`${kind==='dual'?14:kind==='mixed'?11:8} Aufnahmen`,{timeout:20000});await expect(page.locator('#rescan')).toBeEnabled({timeout:20000});
   return {ids,headers};
  }catch(error){for(const id of ids)await page.request.delete('/api/cameras/'+id,{headers});throw error}

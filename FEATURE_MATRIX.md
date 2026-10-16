@@ -17,7 +17,8 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Timeline-Zoom, Verschieben, Vorschaubilder | Erhalten; Touch, Tastatur (Space, Pfeile, J/K/L, F), Umschalt+Ziehen, Hover-Uhrzeit, paralleles Laden | Browser: viewer, archive |
 | Übersichtstimeline und verstellbare Höhe | Ergänzt | Browser: archive |
 | Automatische/feste/eigene Raster und Kameraseiten | Ergänzt, eigene Raster bis 8 × 8 | Frontend: view-state; Browser: viewer, archive |
-| Kameraauswahl und Zieh-Sortierung | Ergänzt; je Benutzer gespeichert | Browser: archive; Frontend: view-state |
+| Persönliche Einstellungen auf allen Geräten | Kontospeicherung einschließlich Farbschema; Laden beim Anmelden/Neuladen; einmalige Browserübernahme | Go: Preferences; Browser: preferences |
+| Kameraauswahl und Zieh-Sortierung | Ergänzt; dauerhaft je Benutzerkonto gespeichert | Browser: archive; Frontend: view-state |
 | Bildverhältnisse 4:3, 16:9, Auto, Ausfüllen | Ergänzt | Browser: archive |
 | Manueller und automatischer Hotspot | Neuester aktiver Aufnahmestart; Gleichstand nach Reihenfolge | Frontend: view-state; Browser: archive |
 | Kompakte/einklappbare mobile Bedienung | Ergänzt im bisherigen Layout | Browser: archive, Screenshot |

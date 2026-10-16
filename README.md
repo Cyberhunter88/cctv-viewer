@@ -39,9 +39,9 @@ sudo chmod 700 data
 In `.env` mindestens `CTV_BASE_URL=https://cctv.example.org` und
 `CTV_RECORDINGS_PATH=/mnt/kameras` eintragen. Für eine Vorabversion zusätzlich
 `CTV_VERSION=0.1.0-beta.1` setzen, da Vorabversionen kein `latest` erhalten.
-Die `.env` liefert die Ausgangswerte. Im Browser gespeicherte Einstellungen
-haben dauerhaft Vorrang; über „Herkunft und Umgebungswerte“ lassen sie sich
-einzeln zurücksetzen. Die Compose-Datei
+Die `.env` liefert die Ausgangswerte. Über die Verwaltung gespeicherte
+Servereinstellungen haben dauerhaft Vorrang; über „Herkunft und Umgebungswerte“
+lassen sie sich einzeln zurücksetzen. Die Compose-Datei
 muss dafür nicht bearbeitet werden. `CTV_DATA_PATH`, `CTV_BIND_ADDRESS` und
 `CTV_HTTP_PORT` steuern Datenordner und Portbindung.
 UID/GID lassen sich über `CTV_UID`/`CTV_GID` ändern; der Datenordner muss dann
@@ -238,8 +238,10 @@ Probe-Lauf mindestens 30 Sekunden alt sein. Die Stabilitätserkennung ist eine H
 
 ## Ansicht, Suche und Wiedergabe
 
-Pro Kamera kann **Weitwinkel + Zoom** aktiviert werden. Beide MP4-Dateien liegen
-im selben Kameraordner oder dessen Unterordnern. Zwei einstellbare Kennungen
+Für zwei Objektive im selben Aufnahmeordner muss pro Kamera **Weitwinkel + Zoom**
+aktiviert sein, auch wenn zunächst nur Weitwinkel angezeigt werden soll. Bei **Eine Ansicht**
+werden alle passenden Dateien gemeinsam abgespielt, einschließlich früher beginnender
+Zoom-Dateien. Beide MP4-Dateien liegen im selben Kameraordner oder dessen Unterordnern. Zwei einstellbare Kennungen
 (z. B. `_wide`/`_zoom`, `wide/`/`zoom/` oder nach Prüfung `_00_`/`_01_`)
 identifizieren die Ansicht anhand des relativen Pfads, ohne Beachtung der
 Großschreibung. Beim Einrichten oder Bearbeiten vergleicht der Viewer bis zu
@@ -254,8 +256,8 @@ vor dem Speichern je eine Datei beider Perspektiven mit „Erkennung prüfen“ 
 Unklare Aufnahmen bleiben im Index und in der Erkennungsprüfung erhalten, füllen
 aber keine Wiedergabelücken und erscheinen nicht als Vorschaubild oder Sprungziel.
 Der Kameraordner bestimmt die Kamera; die Aufnahmezeiten synchronisieren die
-Ansichten, auch bei unterschiedlichen Dateianfängen oder Clipgrenzen. Es erfolgt
-keine Bildanalyse. Unterschiedliche Dateizeitstempel verhindern die gemeinsame Ansicht nicht:
+Ansichten, auch bei unterschiedlichen Dateianfängen oder Clipgrenzen. Für die
+Synchronisierung erfolgt keine Bildanalyse. Unterschiedliche Dateizeitstempel verhindern die gemeinsame Ansicht nicht:
 `Reolink Garten_00_20261015061313.mp4` (Weitwinkel) und
 `Reolink Garten_01_20261015061312.mp4` (Zoom) gehören bei passenden Kennungen
 zu derselben Kamera. Um 06:13:13 läuft Zoom bereits eine Sekunde.
@@ -299,9 +301,19 @@ springen wahlweise 5, 10 oder 30 Sekunden, mit Umschalt immer 60 Sekunden.
 Eine Tastenübersicht steht im Einstellungsdialog. Eingabefelder behalten ihre
 normale Tastaturbedienung.
 
-Änderungen wirken sofort. Persönliche Einstellungen einschließlich Kameraauswahl
-und Reihenfolge werden je Benutzer in diesem Browser gespeichert; das Farbschema
-gilt browserweit. Bestehende Ansichtspräferenzen werden übernommen. Zurücksetzen
+Änderungen im Einstellungsdialog werden mit „Speichern“ übernommen. Kameraauswahl,
+Reihenfolge und Wiedergabeoptionen werden direkt gespeichert. Persönliche Einstellungen
+einschließlich Kameraauswahl und Reihenfolge sowie das Farbschema werden dauerhaft je Benutzerkonto auf dem Server
+gespeichert. Beim Anmelden oder Neuladen stehen sie auch auf anderen Geräten zur
+Verfügung; bereits offene Geräte behalten ihre Darstellung. Änderungen verschiedener
+Felder werden zusammengeführt, beim selben Feld gilt die zuletzt gespeicherte Änderung.
+Bestehende Browserpräferenzen werden einmalig übernommen, sofern das Konto noch keine
+Servereinstellungen hat. Der Browser behält eine lokale Kopie; Speicherfehler werden
+angezeigt und können im Einstellungsdialog erneut versucht werden. Vor der Anmeldung
+gilt das lokale Farbschema. Geöffnete Zoom-Ansichten, Ton, Vollbild, Datum und Abspielposition
+bleiben temporär; nach Neuladen ist Zoom geschlossen. Die persönlichen Einstellungen
+liegen mit den übrigen Anwendungsdaten in der SQLite-Datenbank; die zusätzliche Tabelle
+wird beim Start automatisch angelegt. Zurücksetzen
 erfordert eine Bestätigung und stellt auch die Auswahl aller Kameras wieder her.
 Administratoren erreichen Kamera- und Benutzerverwaltung separat über „Verwaltung“.
 

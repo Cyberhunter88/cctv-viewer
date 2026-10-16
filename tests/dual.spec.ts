@@ -1,4 +1,4 @@
-import {test,expect,type Page} from '@playwright/test';
+import {test,expect,type Page} from './fixtures';
 // The disposable server trusts loopback as a synthetic proxy. Give this test
 // its own client IP so adding a ninth test does not exhaust the login quota.
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.10'}});
@@ -124,8 +124,18 @@ test('a failed or missing zoom leaves wide playback running without repeated req
 test('closed zoom cannot flash or become a start or seek target',async({page})=>{
  await login(page);const session=await(await page.request.get('/api/session')).json();
  const headers={'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin};
- const response=await page.request.post('/api/cameras',{headers,data:{name:'Wide start',folder:'WideStart',format:'automatic',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:'dual',supportsZoom:true,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:-10}});
+ const response=await page.request.post('/api/cameras',{headers,data:{name:'Wide start',folder:'WideStart',format:'automatic',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:'single',supportsZoom:true,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:-10}});
  expect(response.ok(),await response.text()).toBe(true);const camera=await response.json();
+ await expect.poll(async()=>{const day=await(await page.request.get('/api/day?date=2026-10-14')).json();return day.recordings.filter((r:any)=>r.cameraId===camera.id).length}).toBe(4);
+ const before=await(await page.request.get('/api/day?date=2026-10-14')).json();
+ const first=before.recordings.filter((r:any)=>r.cameraId===camera.id).sort((a:any,b:any)=>a.start-b.start)[0];
+ expect(first.view||'').toBe(''); // Single view cannot separate the earlier zoom.
+ await page.reload();await expect(page.locator('#camera-group-'+camera.id+' .zoom-toggle')).toHaveCount(0);
+ await page.locator('#date').fill('2026-10-14');
+ const singleVideo=page.locator('#camera-group-'+camera.id+' video');
+ await expect(singleVideo).toHaveAttribute('src','/api/recordings/'+first.id+'/file');
+ await expect.poll(()=>singleVideo.evaluate(v=>[v.videoWidth,v.videoHeight])).toEqual([160,90]);
+ const corrected=await page.request.post('/api/cameras',{headers,data:{...camera,viewMode:'dual'}});expect(corrected.ok(),await corrected.text()).toBe(true);
  await page.reload();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('6 Aufnahmen');
  for(const name of await page.locator('#camera-filters .filter.selected').allTextContents())if(name!=='Wide start')await page.locator('#camera-filters').getByRole('button',{name,exact:true}).click();
  const day=await(await page.request.get('/api/day?date=2026-10-14')).json();
