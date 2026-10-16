@@ -195,7 +195,10 @@ def promote(image, version, commit, proof_path, releases_path, check_only=False)
         return
     source = f"{proof['image']}@{proof['digest']}"
     ref = f"{image}@{proof['digest']}"
-    for tag in tags:
+    # Stage the immutable version first. The workflow releases aliases only
+    # after anonymous access and all release assets have been verified.
+    published_tags = tags[:1] if os.environ.get("VERSION_ONLY") == "true" else tags
+    for tag in published_tags:
         current = manifest(f"{image}:{tag}", missing_ok=True)
         if current is None or current["digest"] != proof["digest"]:
             if proof["image"] != image and tag == version:
@@ -207,6 +210,11 @@ def promote(image, version, commit, proof_path, releases_path, check_only=False)
             raise ValueError(f"Digest/Plattformen von {tag} stimmen nicht mit dem geprüften Commit-Image überein")
     proof.update(source_image=proof["image"], image=image, release="v" + version, tags=tags)
     Path(os.environ["RELEASE_PROOF"]).write_text(json.dumps(proof, indent=2) + "\n")
+    if os.environ.get("VERSION_ONLY") == "true":
+        summary(f"## Release-Image v{version} vorbereitet\n\n"
+                "Unveränderlicher Versionstag geprüft. Versions-Aliases bleiben bis nach "
+                "Download-Prüfung und Asset-Upload unverändert.")
+        return
     write_output(latest=str("latest" in tags).lower())
     summary(f"## Release v{version}\n\nCommit: `{commit}`\n\n"
             f"Geprüfte CI: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{proof['run_id']}/attempts/{proof['run_attempt']}\n\n"

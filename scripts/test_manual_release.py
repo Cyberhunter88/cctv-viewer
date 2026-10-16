@@ -72,6 +72,18 @@ class ManualReleaseTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "liegt nicht auf main"):
             self.prepare(commit=self.git("rev-parse", "HEAD"))
 
+    def test_pasted_inputs_are_normalized_and_only_canonical_tag_is_exported(self):
+        release, output = self.prepare(" \tv1.2.3\n", " " + self.commit + "\n")
+        self.assertEqual(release["tag_name"], "v1.2.3")
+        self.assertIn("release=v1.2.3\n", output)
+        self.assertIn("commit=" + self.commit + "\n", output)
+
+    def test_internal_whitespace_and_output_injection_are_rejected_before_io(self):
+        for tag in ("v1. 2.3", "v1.2.3\nrelease=v9.0.0"):
+            with self.subTest(tag=tag), self.assertRaises(ValueError):
+                self.prepare(tag)
+        self.mock.assert_not_called()
+
     def test_requested_ancestor_is_used_when_main_advances(self):
         self.version("1.2.4")
         self.git("add", ".")

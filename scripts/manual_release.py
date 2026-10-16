@@ -29,6 +29,8 @@ def find_release(repository, tag):
 
 
 def prepare(repository, tag, event_path, output_path, target_commit=""):
+    tag = tag.strip()
+    target_commit = target_commit.strip()
     _, suffix = parse(tag)
     if target_commit and not re.fullmatch(r"[0-9a-f]{40}", target_commit):
         raise ValueError("Ein vollständiger getesteter Commit-SHA wird benötigt")
@@ -59,7 +61,7 @@ def prepare(repository, tag, event_path, output_path, target_commit=""):
             raise ValueError("Vorhandenes Release/Entwurf hat keinen passenden Git-Tag oder Ziel-Commit")
     Path(event_path).write_text(json.dumps({"release": release}))
     with open(output_path, "a") as output:
-        output.write(f"commit={commit}\ncreate_release={str(existing is None).lower()}\n")
+        output.write(f"commit={commit}\nrelease={tag}\ncreate_release={str(existing is None).lower()}\n")
 
 
 def upload_assets(repository, tag, *paths):

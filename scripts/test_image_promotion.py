@@ -147,6 +147,24 @@ class ImagePromotionTest(unittest.TestCase):
         self.assertEqual(proof["platforms"], CHILDREN)
         self.assertEqual(proof["release"], "v1.2.3")
 
+    def test_staging_keeps_aliases_until_explicit_finalization_and_can_resume(self):
+        self.use_build_package()
+        self.add_previous("1.2.2", ("latest", "1", "1.2"))
+        self.env["VERSION_ONLY"] = "true"
+        self.assert_ok(self.run_script())
+        for tag in ("latest", "1", "1.2"):
+            self.assertEqual(self.registry[f"{IMAGE}:{tag}"]["digest"], OTHER_DIGEST)
+        self.assertEqual(self.registry[f"{IMAGE}:1.2.3"]["digest"], DIGEST)
+        staged = Path(self.env["RELEASE_PROOF"]).read_bytes()
+        writes = list(self.registry["_writes"])
+        self.assert_ok(self.run_script())
+        self.assertEqual(self.registry["_writes"], writes)
+        del self.env["VERSION_ONLY"]
+        self.assert_ok(self.run_script())
+        self.assertEqual(Path(self.env["RELEASE_PROOF"]).read_bytes(), staged)
+        for tag in ("latest", "1", "1.2"):
+            self.assertEqual(self.registry[f"{IMAGE}:{tag}"]["digest"], DIGEST)
+
     def use_build_package(self):
         source = IMAGE + "-builds"
         for key in list(self.registry):
