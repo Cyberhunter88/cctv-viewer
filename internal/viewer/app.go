@@ -165,6 +165,8 @@ func (a *App) Handler() http.Handler {
 		s := r.Context().Value(sessionKey).(Session)
 		jsonOut(w, 200, map[string]any{"name": s.Name, "role": s.Role, "csrf": s.CSRF, "kind": s.Kind, "preferenceKey": preferenceOwner(s)})
 	}))
+	mux.HandleFunc("GET /api/preferences", a.protect(false, a.preferences))
+	mux.HandleFunc("PATCH /api/preferences", a.protect(false, a.preferences))
 	mux.HandleFunc("POST /api/logout", a.protect(false, a.logout))
 	mux.HandleFunc("GET /api/cameras", a.protect(false, func(w http.ResponseWriter, r *http.Request) {
 		cams, e := a.db.Cameras()

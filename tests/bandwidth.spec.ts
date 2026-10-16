@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from './fixtures';
 test('fast compressed playback with 250 ms latency and constrained bandwidth',async({page,browserName})=>{
  test.skip(browserName!=='chromium','Bandwidth emulation uses Chromium CDP; HLS is exercised separately in WebKit.');
  await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:20000});

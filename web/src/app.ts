@@ -1,3 +1,4 @@
+import {PreferenceWriter} from './preferences';
 import {prepareDialogs} from './dialogs';
 import Hls from 'hls.js';
 import {validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveCamera,defaultView,type ViewState} from './view-state';
@@ -54,13 +55,34 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&accountMenu.open){e
 document.addEventListener('click',e=>{if(e.target instanceof Node&&!accountMenu.contains(e.target))accountMenu.open=false});
 for(const id of ['password-button','logout'])$(id).addEventListener('click',()=>{accountMenu.open=false});
 
-function saveView(){if(!session)return;state.cameras=[...selected];state.order=order;state.hotspot=hotspot;for(const id of ['layout','quality','speed'] as const)state[id]=$<HTMLSelectElement>(id).value;try{localStorage.setItem('cctv-view:'+session.preferenceKey,JSON.stringify(state))}catch{}}
+let preferenceWriter:PreferenceWriter|undefined;
+function preferenceSnapshot():Record<string,unknown>{
+ state.cameras=[...selected];state.order=order;state.hotspot=hotspot;
+ for(const id of ['layout','quality','speed'] as const)state[id]=$<HTMLSelectElement>(id).value;
+ // An empty hotspot clears the stored selection without JSON null semantics.
+ return {...state,railCollapsed:state.railCollapsed??null,hotspot:hotspot||'',theme:state.theme||'system'};
+}
+function preferenceStatus(saving:boolean,error?:unknown){
+ $('preference-status').textContent=saving?'Einstellungen werden gespeichert …':error?'Einstellungen nicht gespeichert. Bitte erneut versuchen.':'';
+ $('preference-status').hidden=!saving&&!error;$('preferences-retry').hidden=!error;
+ if(error)notify('Persönliche Einstellungen nicht gespeichert. Erneut versuchen unter Persönliche Einstellungen.');
+}
+function saveView():Promise<void>{
+ if(!session||!preferenceWriter)return Promise.resolve();
+ const snapshot=preferenceSnapshot();
+ try{localStorage.setItem('cctv-view:'+session.preferenceKey,JSON.stringify(snapshot))}catch{}
+ const pending=preferenceWriter.save(snapshot);
+ // Automatic changes report failures through the persistent status and retry UI.
+ void pending.catch(()=>{});return pending;
+}
+on('preferences-retry',async()=>{try{await preferenceWriter?.flush()}catch{}});
+
 function notify(message:string){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,6000)}
 async function api<T>(url:string,options:RequestInit={}):Promise<T>{
  const headers=new Headers(options.headers);if(options.body)headers.set('Content-Type','application/json');if(session)headers.set('X-CSRF-Token',session.csrf);
  const response=await fetch(url,{...options,headers});if(response.status===401){pause();location.reload();throw new Error('Anmeldung abgelaufen')}
  const text=await response.text();let body:any={};try{body=text?JSON.parse(text):{}}catch{body={error:text||`Serverfehler (${response.status})`}}
- if(!response.ok)throw Object.assign(new Error((body.error||`Anfrage fehlgeschlagen (${response.status})`)+(body.gaps?'\n'+body.gaps.map((g:number[])=>clock(g[0])+' – '+clock(g[1])).join('\n'):'')),{indexing:body.indexing===true});return body as T;
+ if(!response.ok)throw Object.assign(new Error((body.error||`Anfrage fehlgeschlagen (${response.status})`)+(body.gaps?'\n'+body.gaps.map((g:number[])=>clock(g[0])+' – '+clock(g[1])).join('\n'):'')),{indexing:body.indexing===true,status:response.status});return body as T;
 }
 function on(id:string,fn:()=>void|Promise<void>){$(id).addEventListener('click',()=>{Promise.resolve(fn()).catch(e=>notify(e.message))})}
 function element<K extends keyof HTMLElementTagNameMap>(tag:K,className='',text=''):HTMLElementTagNameMap[K]{const e=document.createElement(tag);e.className=className;e.textContent=text;return e}
@@ -329,8 +351,26 @@ async function boot(){
  if(!managementInitialized){initManagement({api,getSession:()=>session,getCameras:()=>cameras,getCursor:()=>cursor,notify});prepareDialogs();managementInitialized=true}
  $('user-name').textContent=session.name;$('avatar').textContent=session.name.slice(0,2).toUpperCase();document.querySelector('#account-menu summary')!.setAttribute('aria-label','Konto: '+session.name);document.querySelector('#account-menu summary')!.setAttribute('title',session.name);$('settings-button').hidden=session.role!=='admin';$('rescan').hidden=session.role!=='admin';dateInput.value=berlinDate(new Date());await refreshCameras();
  let stored:unknown;try{stored=JSON.parse(localStorage.getItem('cctv-view:'+session.preferenceKey)||'null')}catch{}
- const saved=validView(stored,cameras.map(c=>c.id));if(saved.originalQualityVersion!==1){saved.quality='native';saved.originalQualityVersion=1;try{localStorage.setItem('cctv-view:'+session.preferenceKey,JSON.stringify(saved))}catch{}}for(const id of ['layout','quality','speed'] as const)if(saved[id])$<HTMLSelectElement>(id).value=saved[id]!;
- Object.assign(state,saved);applyRail();hotspot=saved.hotspot;if(saved.cameras)selected=new Set(saved.cameras);if(saved.order)order=[...saved.order,...order.filter(id=>!saved.order!.includes(id))];for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).value=state[id];$<HTMLInputElement>('grid-columns').value=String(state.columns);$<HTMLInputElement>('grid-rows').value=String(state.rows);$<HTMLInputElement>('auto-hotspot').checked=state.autoHotspot;applyPreferences();setTimelineHeight(state.timelineHeight);renderCameras();await loadDay();
+ let remote=await api<unknown>('/api/preferences');
+ if(remote===null){
+  const legacy=validView(stored,cameras.map(c=>c.id));
+  if(legacy.originalQualityVersion!==1){legacy.quality='native';legacy.originalQualityVersion=1}
+  let theme='system';try{theme=localStorage.getItem('cctv-theme')||'system'}catch{}
+  const initial={...defaultView(),cameras:[...selected],order:[...order],...legacy,theme:legacy.theme||(['system','light','dark'].includes(theme)?theme:'system')};
+  try{await api('/api/preferences',{method:'PATCH',headers:{'If-None-Match':'*'},body:JSON.stringify(initial)});remote=initial}
+  catch(error){if((error as {status?:number}).status!==412)throw error;remote=await api('/api/preferences')}
+ }
+ const saved=validView(remote,cameras.map(c=>c.id));
+ for(const id of ['layout','quality','speed'] as const)$<HTMLSelectElement>(id).value=saved[id]||defaultView()[id];
+
+ delete state.railCollapsed;delete state.hotspot;
+ Object.assign(state,defaultView(),saved);state.theme=saved.theme||'system';window.dispatchEvent(new CustomEvent('themecommit',{detail:state.theme}));applyRail();hotspot=saved.hotspot;if(saved.cameras)selected=new Set([...saved.cameras,...(saved.order?cameras.filter(c=>!saved.order!.includes(c.id)).map(c=>c.id):[])]);if(saved.order)order=[...saved.order,...order.filter(id=>!saved.order!.includes(id))];for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).value=state[id];$<HTMLInputElement>('grid-columns').value=String(state.columns);$<HTMLInputElement>('grid-rows').value=String(state.rows);$<HTMLInputElement>('auto-hotspot').checked=state.autoHotspot;applyPreferences();setTimelineHeight(state.timelineHeight);renderCameras();await loadDay();
+ const initialSnapshot=preferenceSnapshot();
+ // Remember the server's known cameras so the next edit also saves newly
+ // discovered cameras and their order. Otherwise a deselected new camera
+ // would be mistaken for a new addition again after every reload.
+ preferenceWriter=new PreferenceWriter({...initialSnapshot,cameras:saved.cameras??initialSnapshot.cameras,order:saved.order??initialSnapshot.order},changes=>api('/api/preferences',{method:'PATCH',body:JSON.stringify(changes),keepalive:true}),preferenceStatus);
+ try{localStorage.setItem('cctv-view:'+session.preferenceKey,JSON.stringify(preferenceSnapshot()))}catch{}
  refreshRange=attachTimelineControls(canvas,{bounds:()=>({from,to,cursor,viewStart,viewEnd}),seek,zoom,shortcuts:()=>state.shortcuts,seekStep:()=>state.seekStep,pan:(start,end)=>{viewStart=start;viewEnd=end;draw();refreshRange()}});
  $('boot-error').hidden=true;$('app').hidden=false;$('playback-diagnostics').hidden=false;requestAnimationFrame(frame);
  setInterval(async()=>{try{const scan=await api<Scan>('/api/scan');const wasRunning=scanRunning,completedBefore=scanCompletion;setScan(scan);if((wasRunning&&!scan.running)||scanCompletion>completedBefore)await loadDay(false)}catch(e){notify((e as Error).message)}},4000);
@@ -362,7 +402,7 @@ function closePreferences(){if((resetPreferencesPending||preferencesSnapshot()!=
 on('preferences-button',openPreferences);on('preferences-close',closePreferences);on('preferences-cancel',closePreferences);
 preferences.addEventListener('cancel',e=>{e.preventDefault();closePreferences()});
 preferencesForm.addEventListener('input',updatePreferencesSave);preferencesForm.addEventListener('change',updatePreferencesSave);
-preferencesForm.addEventListener('submit',e=>{
+preferencesForm.addEventListener('submit',async e=>{
  e.preventDefault();if(!preferencesForm.reportValidity())return;
  const theme=$<HTMLSelectElement>('theme').value;
  if(resetPreferencesPending){Object.assign(state,defaultView());delete state.railCollapsed;selected=new Set(cameras.map(c=>c.id));order=cameras.map(c=>c.id);hotspot=undefined;page=0;for(const id of ['layout','quality','speed'] as const)$<HTMLSelectElement>(id).value=state[id]}
@@ -371,8 +411,8 @@ preferencesForm.addEventListener('submit',e=>{
  for(const id of ['preload','aspect'] as const)state[id]=$<HTMLSelectElement>(id).value;
  state.columns=Number($<HTMLInputElement>('grid-columns').value);state.rows=Number($<HTMLInputElement>('grid-rows').value);state.autoHotspot=$<HTMLInputElement>('auto-hotspot').checked;
  setTimelineHeight(Number($<HTMLInputElement>('pref-timelineHeight').value));
- window.dispatchEvent(new CustomEvent('themecommit',{detail:theme}));
- applyRail();applyPreferences();if(resetPreferencesPending)tiles.forEach(t=>t.release());renderCameras();saveView();resetPreferencesPending=false;preferencesBaseline=preferencesSnapshot();updatePreferencesSave();preferences.close();notify('Persönliche Einstellungen gespeichert.');
+ state.theme=theme as ViewState['theme'];window.dispatchEvent(new CustomEvent('themecommit',{detail:theme}));
+ applyRail();applyPreferences();if(resetPreferencesPending)tiles.forEach(t=>t.release());renderCameras();const saving=saveView();resetPreferencesPending=false;preferencesBaseline=preferencesSnapshot();updatePreferencesSave();try{await saving;if(preferencesSnapshot()===preferencesBaseline){preferences.close();notify('Persönliche Einstellungen gespeichert.')}else notify('Einstellungen gespeichert. Weitere Änderungen sind noch nicht gespeichert.')}catch{}
 });
 on('preferences-reset',()=>{
  if(!confirm('Persönliche Einstellungen und Kameraauswahl auf die Standardwerte zurücksetzen? Erst Speichern übernimmt die Änderung.'))return;

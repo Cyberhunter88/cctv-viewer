@@ -1,4 +1,4 @@
-import {test,expect,type Page} from '@playwright/test';
+import {test,expect,type Page} from './fixtures';
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.31'}});
 async function setup(page:Page,dual=false){
  await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();
@@ -8,7 +8,8 @@ async function setup(page:Page,dual=false){
   await expect.poll(async()=>(await(await page.request.get('/api/scan')).json()).running).toBe(false);
   const r=await page.request.post('/api/cameras',{headers,data:{name:folder,folder,format:dual?'automatic':'custom',pattern:'{YYYY}/{MM}/{DD}/{hh}-{mm}-{ss}.mp4',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:dual?'dual':'single',supportsZoom:dual,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:0}});expect(r.ok(),await r.text()).toBe(true);ids.push((await r.json()).id);
  }
- await page.evaluate(({key,ids})=>localStorage.setItem('cctv-view:'+key,JSON.stringify({cameras:ids,order:ids,layout:'2x1',quality:'native'})),{key:session.preferenceKey,ids});
+ const known=await(await page.request.get('/api/cameras')).json();
+ const preferences=await page.request.patch('/api/preferences',{headers,data:{cameras:ids,order:[...ids,...known.map((c:{id:string})=>c.id).filter((id:string)=>!ids.includes(id))],layout:'2x1',quality:'native'}});expect(preferences.ok(),await preferences.text()).toBe(true);
  await page.reload();await page.locator('#date').fill('2026-10-14');
  await expect.poll(async()=>{const day=await(await page.request.get('/api/day?date=2026-10-14')).json();return day.recordings.filter((r:{cameraId:string})=>ids.includes(r.cameraId)).length},{timeout:20000}).toBe(dual?2:3);
  await page.reload();await page.locator('#date').fill('2026-10-14');

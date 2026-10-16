@@ -146,6 +146,9 @@ func (a *App) deleteUser(w http.ResponseWriter, r *http.Request) {
 	if _, e = tx.Exec(`DELETE FROM sessions WHERE kind='local' AND subject=?`, name); e == nil {
 		_, e = tx.Exec(`DELETE FROM admins WHERE username=?`, name)
 	}
+	if e == nil {
+		_, e = tx.Exec(`DELETE FROM user_preferences WHERE owner=?`, preferenceOwner(Session{Kind: "local", Subject: name}))
+	}
 	if e != nil || tx.Commit() != nil {
 		fail(w, 500, "Löschen fehlgeschlagen")
 		return

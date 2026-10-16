@@ -85,7 +85,7 @@ with tempfile.TemporaryDirectory(prefix='cctv-ui-') as directory:
     subprocess.run(['ffmpeg','-nostdin','-v','error','-f','lavfi','-i',
                     'color=c=green:size=160x90:rate=15','-t','30','-c:v','libx264',
                     '-threads','1','-pix_fmt','yuv420p','-y',str(zoom)],check=True)
-    for stamp, view in [('083000','wide'),('083005','zoom'),('083100','wide'),('083105','zoom')]:
+    for stamp, view in [('083000','wide'),('082955','zoom'),('083100','wide'),('083055','zoom')]:
         file = folder/('CAM_20261014'+stamp+'_'+view+'.mp4')
         shutil.copyfile(zoom if view=='zoom' else root/'recordings/Testkamera-A/2026/10/14/08-30-00.mp4',file)
         os.utime(file,(time.time()-120,time.time()-120))

@@ -1,10 +1,11 @@
 import {clamp,recordingAt,latestStartBetween,type Recording} from './timeline.ts';
 export const layouts=['auto','1x1','2x1','2x2','3x2','3x3','4x3','4x4','hotspot','custom'];
-export interface ViewState {cameras:string[];order:string[];layout:string;quality:string;speed:string;preload:string;aspect:string;columns:number;rows:number;autoHotspot:boolean;collapsed:boolean;railCollapsed?:boolean;originalQualityVersion?:number;timelineHeight:number;hotspot?:string;density:'comfortable'|'compact';showNames:boolean;showTimestamps:boolean;showCodec:boolean;showOverview:boolean;showThumbnails:boolean;shortcuts:boolean;seekStep:number}
+export interface ViewState {theme?:'system'|'light'|'dark';cameras:string[];order:string[];layout:string;quality:string;speed:string;preload:string;aspect:string;columns:number;rows:number;autoHotspot:boolean;collapsed:boolean;railCollapsed?:boolean;originalQualityVersion?:number;timelineHeight:number;hotspot?:string;density:'comfortable'|'compact';showNames:boolean;showTimestamps:boolean;showCodec:boolean;showOverview:boolean;showThumbnails:boolean;shortcuts:boolean;seekStep:number}
 export function validView(value:unknown,ids:string[]):Partial<ViewState>{
  if(!value||typeof value!=='object')return {};
  const v=value as Partial<ViewState>,out:Partial<ViewState>={};
  for(const key of ['cameras','order'] as const)if(Array.isArray(v[key])&&v[key]!.every(id=>typeof id==='string'))out[key]=[...new Set(v[key]!.filter(id=>ids.includes(id)))];
+ if(['system','light','dark'].includes(v.theme||''))out.theme=v.theme;
  const legacy:Record<string,string>={'1':'1x1','4':'2x2','9':'3x3'};
  const layout=legacy[v.layout||'']||v.layout;if(layouts.includes(layout||''))out.layout=layout;
  const quality=v.quality==='compatible'?'balanced':v.quality==='auto'?'native':v.quality;
