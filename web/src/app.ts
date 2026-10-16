@@ -3,7 +3,7 @@ import {validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveC
 import {attachTimelineControls} from './timeline-controls';
 import {initManagement,berlinEpoch} from './management';
 import {recordingAt,nextRecording,playbackRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline';
-interface Camera {viewMode?:string;wideMarker?:string;zoomMarker?:string;zoomOffset?:number;id:string;name:string;folder:string;pattern:string;timezone:string;offset:number;format?:string;prefix?:string;indexingMode?:string;directoryPattern?:string;sourceStatus?:string;lastScan?:number;indexedVideos?:number}
+interface Camera {viewMode?:string;wideMarker?:string;zoomMarker?:string;zoomOffset?:number;supportsZoom?:boolean;id:string;name:string;folder:string;pattern:string;timezone:string;offset:number;format?:string;prefix?:string;indexingMode?:string;directoryPattern?:string;sourceStatus?:string;lastScan?:number;indexedVideos?:number}
 interface ViewDetection {status:'confirmed'|'swapped'|'unclear';message:string;pairs:number}
 interface Session {preferenceKey:string;name:string;role:'admin'|'viewer';csrf:string;kind:'local'|'oidc'}
 interface CameraScan {id:string;name:string;state:string;inspected:number;added:number;changed:number;skipped:number}
@@ -107,7 +107,7 @@ function renderGrid(){
  const isHotspot=$<HTMLSelectElement>('layout').value==='hotspot';if(!active.some(c=>c.id===hotspot))hotspot=active[0]?.id;
  for(const c of active){
   const group=element('div','camera-group');group.id='camera-group-'+c.id;group.classList.toggle('dual',c.viewMode==='dual');group.classList.toggle('zoom-open',openZoom.has(c.id));group.classList.toggle('hotspot-primary',isHotspot&&c.id===hotspot&&cols>1&&grid()[1]>1);
-  if(c.viewMode==='dual'){
+  if(c.viewMode==='dual' && c.supportsZoom !== false){
    const toggle=element('button','zoom-toggle',openZoom.has(c.id)?'Zoom schließen':'Zoom anzeigen');toggle.type='button';toggle.id='zoom-toggle-'+c.id;toggle.setAttribute('aria-label',`${c.name}: ${toggle.textContent}`);toggle.setAttribute('aria-expanded',String(openZoom.has(c.id)));toggle.setAttribute('aria-controls',group.id);
    toggle.onclick=()=>{if(openZoom.has(c.id))openZoom.delete(c.id);else openZoom.add(c.id);page=Math.floor(ordered().findIndex(camera=>camera.id===c.id)/visiblePageCapacity());renderGrid();update();$(toggle.id).focus()};group.append(toggle);
   }
