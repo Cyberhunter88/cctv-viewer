@@ -16,7 +16,7 @@ def run(status="completed", conclusion="success", **kwargs):
 
 def jobs():
     names = (
-        "Code prüfen", "Browser prüfen (chrome)", "Browser prüfen (webkit)",
+        "Code prüfen",
         "Docker prüfen (amd64)", "Docker prüfen (arm64)",
         "Commit-Image bereitstellen", "Anwendung prüfen",
     )
@@ -119,6 +119,35 @@ class CommitCITest(unittest.TestCase):
                         [], 0, stdout=json.dumps(incomplete))]
                     with self.assertRaisesRegex(RuntimeError, "unvollständig"):
                         wait_for_ci("example/repo", SHA)
+
+    @patch("wait_for_commit_ci.subprocess.run")
+    def test_main_accepts_only_intentionally_skipped_browsers(self, gh):
+        for name in ("Browser prüfen (chrome)", "Browser prüfen (webkit)",
+                     "Browser prüfen (${{ matrix.browser }})", "Browser prüfen ()", "Browser prüfen", "browser"):
+            for conclusion in ("skipped", "failure", "cancelled"):
+                payload = json.loads(jobs().stdout)
+                payload[0]["jobs"].append(dict(name=name, conclusion=conclusion))
+                gh.side_effect = [response([run()]), subprocess.CompletedProcess(
+                    [], 0, stdout=json.dumps(payload))]
+                if conclusion == "skipped":
+                    wait_for_ci("example/repo", SHA)
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "unvollständig"):
+                        wait_for_ci("example/repo", SHA)
+
+    @patch("wait_for_commit_ci.subprocess.run")
+    def test_previous_main_contract_still_requires_both_browsers(self, gh):
+        from wait_for_commit_ci import PREVIOUS_REQUIRED_JOBS
+        for missing in (None, "Browser prüfen (chrome)", "Browser prüfen (webkit)"):
+            payload = [{"jobs": [dict(name=name, conclusion="success")
+                                 for name in PREVIOUS_REQUIRED_JOBS if name != missing]}]
+            gh.side_effect = [response([run()]), subprocess.CompletedProcess(
+                [], 0, stdout=json.dumps(payload))]
+            if missing is None:
+                wait_for_ci("example/repo", SHA)
+            else:
+                with self.assertRaisesRegex(RuntimeError, "unvollständig"):
+                    wait_for_ci("example/repo", SHA)
 
     @patch("wait_for_commit_ci.subprocess.run")
     def test_success_exports_exact_run_attempt_for_artifact_download(self, gh):

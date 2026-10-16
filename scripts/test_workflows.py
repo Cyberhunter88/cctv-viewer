@@ -67,8 +67,9 @@ class WorkflowContractTest(unittest.TestCase):
         template = re.search(r"^    name: (.+)$", browser, re.M)[1]
         entries = re.findall(r"- browser: (\w+)\n            engine: \w+", browser)
         self.assertEqual(entries, ["chrome", "webkit"])
+        main_names = names.copy()
         names.update(template.replace('${{ matrix.browser }}', engine) for engine in entries)
-        self.assertEqual(REQUIRED_JOBS, names)
+        self.assertEqual(REQUIRED_JOBS, main_names)
         self.assertEqual(len(names), 7)
         self.assertEqual(len(names - {"Docker prüfen (amd64)", "Docker prüfen (arm64)",
                                      "Commit-Image bereitstellen"}), 4)
@@ -83,7 +84,9 @@ class WorkflowContractTest(unittest.TestCase):
         for result in ('CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT'):
             self.assertIn(f'test "${result}" = success', gate)
         self.assertIn('if [ "$MAIN_PUSH" = true ]', gate)
-        self.assertIn('needs: [code-checks, browser]', self.job('build'))
+        self.assertIn('needs: code-checks', self.job('build'))
+        self.assertNotIn('browser]', self.job('build'))
+        self.assertIn("if: github.event_name == 'pull_request'", self.job('browser'))
         self.assertIn('needs: code-checks', self.job('browser'))
 
     def test_code_job_builds_fresh_server_and_both_browsers_run_full_suites(self):
@@ -94,6 +97,9 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertLess(server.index('npm run build'), server.index('go build -o bin/cctv ./cmd/cctv'))
         self.assertIn('go build -o bin/cctv ./cmd/cctv', server)
         self.assertIn('name: browser-test-server', server)
+        self.assertIn("- name: Browser-Testserver bauen\n        if: github.event_name == 'pull_request'", server)
+        upload = server.split('      - uses: actions/upload-artifact@', 1)[1]
+        self.assertIn("if: github.event_name == 'pull_request'", upload)
         self.assertIn('needs.code-checks.outputs.commit', browser)
         self.assertIn('playwright install-deps', browser)
         self.assertIn('sudo apt-get install -y ffmpeg', browser)
@@ -110,16 +116,16 @@ class WorkflowContractTest(unittest.TestCase):
         cases = []
         for main in (False, True):
             results_checked = ('CODE_RESULT', 'BROWSER_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT')
-            required = results_checked if main else results_checked[:2]
+            required = ('CODE_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT') if main else results_checked[:2]
             for values in itertools.product(('success', 'failure', 'skipped', 'cancelled'), repeat=len(required)):
                 results = dict(zip(required, values))
-                env = dict(os.environ, MAIN_PUSH=str(main).lower(), BUILD_RESULT='skipped', PUBLISH_RESULT='skipped')
-                env.update(CODE_RESULT='success', BROWSER_RESULT='success')
+                env = dict(os.environ, MAIN_PUSH=str(main).lower(), PR_EVENT=str(not main).lower(), BUILD_RESULT='skipped', PUBLISH_RESULT='skipped')
+                env.update(CODE_RESULT='success', BROWSER_RESULT='skipped' if main else 'success')
                 env.update(results)
                 # Execute the same exhaustive cases in isolated subshells. Avoid
                 # starting a fresh Bash executable for every status combination.
                 exports = "\n".join(f"export {key}={env[key]}" for key in
-                                    ('MAIN_PUSH', *results_checked))
+                                    ('MAIN_PUSH', 'PR_EVENT', *results_checked))
                 expected = 0 if all(value == 'success' for value in values) else 1
                 cases.append(f"(\nset -e\n{exports}\n{shell}\n)\n"
                              f"actual=$?\nif [ \"$actual\" -ne {expected} ]; then\n"
