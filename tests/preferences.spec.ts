@@ -7,7 +7,7 @@ async function open(page:Page){await page.locator('#preferences-button').click()
 test('legacy settings migrate, personal preferences persist and reset',async({page})=>{
  await login(page);const session=await(await page.request.get('/api/session')).json();
  await page.evaluate(key=>localStorage.setItem('cctv-view:'+key,JSON.stringify({layout:'4',quality:'compatible',cameras:['Testkamera-B'],order:['Testkamera-B','Testkamera-A'],timelineHeight:300})),session.preferenceKey);await page.reload();
- await expect(page.locator('#layout')).toHaveValue('2x2');await expect(page.locator('#quality')).toHaveValue('balanced');await expect(page.locator('#camera-filters .filter').first()).toHaveText('Testkamera-B');await open(page);
+ await expect(page.locator('#layout')).toHaveValue('2x2');await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#camera-filters .filter').first()).toHaveText('Testkamera-B');await open(page);
  await expect(page.locator('#pref-showNames')).toBeChecked();await page.locator('#pref-density').selectOption('compact');await page.locator('#pref-showNames').uncheck();await page.locator('#pref-showTimestamps').uncheck();await page.locator('#pref-showCodec').uncheck();await page.locator('#pref-showOverview').uncheck();await page.locator('#pref-showThumbnails').uncheck();await page.locator('#pref-shortcuts').uncheck();await page.locator('#pref-seekStep').selectOption('30');await page.locator('#pref-timelineHeight').fill('400');await page.locator('#pref-timelineHeight').dispatchEvent('change');await page.locator('#theme').selectOption('dark');
  const thumbs:string[]=[];page.on('request',r=>{if(r.url().includes('/thumbnail'))thumbs.push(r.url())});await page.reload();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen');
  await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await expect(page.locator('#overview')).toBeHidden();await expect(page.locator('#thumbnails')).toBeHidden();await expect(page.locator('.thumb')).toHaveCount(0);await expect(page.locator('#timeline-viewport')).toHaveCSS('height','400px');expect(thumbs).toEqual([]);
@@ -23,7 +23,7 @@ test('shortcuts share the configured step and never interfere with forms',async(
 });
 for(const role of ['admin','viewer'])test(`${role} responsive shell and settings in both themes`,async({page},info)=>{
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
- if(role==='viewer')await page.route('**/api/session',async route=>{const response=await route.fetch();if(response.status()!==200)return route.fulfill({response});const session=await response.json();await route.fulfill({response,json:{...session,role:'viewer',preferenceKey:'viewer-redesign'}})});
+ if(role==='viewer')await page.route('**/api/session',async route=>{const response=await route.fetch();if(response.status()!==200)return route.fulfill({response});const session=await response.json();await route.fulfill({response,json:{...session,role:'viewer',kind:'oidc',preferenceKey:'viewer-redesign'}})});
  await login(page);if(role==='viewer')await expect(page.locator('#settings-button')).toBeHidden();else await expect(page.locator('#settings-button')).toBeVisible();
  const navigation=page.getByRole('navigation',{name:'Hauptnavigation'});
  await expect(navigation.getByRole('button',{name:'Aufnahmen suchen'})).toHaveCount(1);
@@ -38,9 +38,53 @@ for(const role of ['admin','viewer'])test(`${role} responsive shell and settings
    expect(await page.locator('.rail-item').evaluateAll(items=>items.filter(item=>!item.hasAttribute('hidden')).every(item=>{const button=item.getBoundingClientRect(),icon=item.querySelector('svg')!.getBoundingClientRect();return Math.abs(button.y+button.height/2-icon.y-icon.height/2)<1}))).toBe(true);
    const icon=await page.locator('.rail-logo svg').boundingBox(),logo=await page.locator('.rail-logo').boundingBox();expect(Math.abs(icon!.y+icon!.height/2-logo!.y-logo!.height/2)).toBeLessThan(1);
    await expect(page.locator('#search-button')).toHaveAccessibleName('Aufnahmen suchen');await expect(page.locator('#play')).toBeVisible();
+   await page.locator('#account-menu summary').click();await expect(page.locator('#logout')).toBeVisible();if(role==='viewer')await expect(page.locator('#password-button')).toBeHidden();else await expect(page.locator('#password-button')).toBeVisible();await page.keyboard.press('Escape');
    await page.screenshot({path:info.outputPath(`${theme}-${width}-recordings.png`),fullPage:true});
    await page.evaluate(()=>window.scrollTo({top:document.documentElement.scrollHeight,behavior:'instant'}));const transport=await page.locator('#playback-controls').boundingBox();expect(transport!.y).toBeGreaterThanOrEqual(0);expect(transport!.y+transport!.height).toBeLessThanOrEqual(1000);await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}));
   }
  }
  expect(errors).toEqual([]);
+});
+
+test('original migration, collapsible rail, account placement and laptop controls',async({page},info)=>{
+ await login(page);const session=await(await page.request.get('/api/session')).json();
+ await page.evaluate(key=>localStorage.setItem('cctv-view:'+key,JSON.stringify({quality:'fast',density:'comfortable'})),session.preferenceKey);
+ await page.reload();await expect(page.locator('#quality')).toHaveValue('native');
+ await page.locator('#quality').selectOption('balanced');await page.reload();await expect(page.locator('#quality')).toHaveValue('balanced');
+ await page.locator('#quality').selectOption('native');
+ await page.setViewportSize({width:1366,height:768});
+ const toggle=page.locator('#rail-toggle');await expect(toggle).toHaveAttribute('aria-expanded','true');
+ await toggle.click();await expect(toggle).toHaveAttribute('aria-expanded','false');
+ await expect(page.locator('.workspace')).toHaveCSS('margin-left','72px');
+ await page.reload();await expect(toggle).toHaveAttribute('aria-expanded','false');
+ await toggle.focus();await page.keyboard.press('Enter');await expect(toggle).toHaveAttribute('aria-expanded','true');
+ await expect(page.locator('.page-heading #account-menu')).toHaveCount(0);
+ const account=page.locator('#account-menu');await expect(page.locator('.rail-bottom #account-menu')).toHaveCount(1);
+ await account.locator('summary').click();await expect(page.locator('#logout')).toBeVisible();
+ await page.keyboard.press('Escape');await expect(account).not.toHaveAttribute('open','');await expect(account.locator('summary')).toBeFocused();
+ for(const theme of ['light','dark'])for(const width of [1366,1440,768,390]){
+  await page.setViewportSize({width,height:width===1366?768:900});
+  await open(page);await page.locator('#theme').selectOption(theme);await page.locator('#preferences-close').click();
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  if(width>=1366){const top=await page.locator('.view-toolbar').boundingBox(),bottom=await page.locator('#playback-controls').boundingBox();expect(bottom!.y-top!.y).toBeLessThanOrEqual(160)}
+  await account.locator('summary').click();await expect(page.locator('#logout')).toBeVisible();
+  const menu=await account.locator('.account-actions').boundingBox();expect(menu!.x).toBeGreaterThanOrEqual(0);expect(menu!.y).toBeGreaterThanOrEqual(0);expect(menu!.x+menu!.width).toBeLessThanOrEqual(width);expect(menu!.y+menu!.height).toBeLessThanOrEqual(width===1366?768:900);
+  await page.screenshot({path:info.outputPath(`account-${theme}-${width}.png`)});await page.keyboard.press('Escape');
+ }
+});
+
+test('native fullscreen uses the actual tile and preserves original playback',async({page})=>{
+ await login(page);await page.setViewportSize({width:1366,height:768});
+ await page.locator('.thumb').first().click();const tile=page.locator('.camera-tile').first(),video=tile.locator('video');
+ await expect.poll(()=>video.evaluate(v=>v.readyState)).toBeGreaterThanOrEqual(2);
+ await page.locator('#play').click();await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(1);
+ const src=await video.getAttribute('src');expect(src).toMatch(/\/api\/recordings\/.+\/file$/);
+ await tile.locator('.tile-expand').click();await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
+ await expect(tile.locator('.tile-expand')).toHaveAttribute('aria-label','Vollbild schließen');
+ expect(await video.getAttribute('src')).toBe(src);await expect.poll(()=>video.evaluate(v=>!v.paused)).toBe(true);
+ await tile.locator('.tile-expand').click();await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
+ await video.dblclick();await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
+ await page.keyboard.press('Escape');await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
+ await page.locator('.page-heading h1').click();await page.keyboard.press('f');await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
+ await page.evaluate(()=>document.exitFullscreen());
 });

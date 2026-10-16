@@ -215,6 +215,17 @@ func TestIndexAndMedia(t *testing.T) {
 	if w.Code != 206 || w.Body.Len() != 16 {
 		t.Fatal("range", w.Code, w.Body.Len())
 	}
+	original, e := os.ReadFile(filepath.Join(a.cfg.RecordingsDir, r.Path))
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !bytes.Equal(w.Body.Bytes(), original[:16]) {
+		t.Fatal("range must preserve original bytes")
+	}
+	w = request(a, "GET", "/api/recordings/"+r.ID+"/file", nil, cookie, "")
+	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), original) {
+		t.Fatal("original playback must preserve the entire source file")
+	}
 	w = request(a, "GET", "/api/recordings/"+r.ID+"/thumbnail", nil, cookie, "")
 	if w.Code != 200 || !bytes.HasPrefix(w.Body.Bytes(), []byte{0xff, 0xd8}) {
 		t.Fatal("thumbnail", w.Code, w.Body.String())

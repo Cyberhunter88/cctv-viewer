@@ -310,7 +310,11 @@ Kamera, Berliner Zeitraum und Mindestdauer begrenzen die Ergebnisse. Die Suche z
 100 Treffer pro Seite; „Weitere Treffer laden“ lädt die nächste Seite. Treffer öffnen Kamera, Tag und Aufnahmezeitpunkt. Noch nicht
 indexierte Tage zuerst öffnen oder einen vollständigen manuellen Scan starten.
 
-Original liefert unterstützte MP4/MOV-Dateien unverändert mit HTTP-Range.
+Original liefert unterstützte MP4/MOV-Dateien unverändert mit HTTP-Range. Auflösung,
+Bildrate und Bitrate entsprechen dabei der Datei auf dem NAS. Bestehende persönliche
+Qualitätseinstellungen werden einmalig auf Original umgestellt; spätere Änderungen
+bleiben gespeichert. Bei nicht unterstützten Quellformaten muss ein reduziertes
+Profil ausdrücklich ausgewählt werden.
 Bei inkompatiblen Codecs oder Containern Ausgewogen oder Schnell wählen:
 
 | Profil | Skalierung | FPS | Maximale Bitrate |
@@ -430,7 +434,12 @@ Neustart sowie schreibgeschützte Aufnahme-Mounts und erstellt AMD64/ARM64-Image
 
 Über „Einstellungen → Darstellung“ stehen System, Hell und Dunkel zur Verfügung;
 auch die Anmeldung bietet eine Farbschema-Auswahl. Die Auswahl wird
-lokal gespeichert. Neue Ansichten verwenden Originalwiedergabe und das natürliche
+lokal gespeichert. Die linke Seitenleiste lässt sich ein- und ausklappen. Das
+Kontomenü mit Passwortänderung und Abmelden befindet sich unten in der Seitenleiste;
+auf Mobilgeräten ist es in der horizontalen Navigation erreichbar. Der Vollbildknopf,
+ein Doppelklick auf die Aufnahme oder die Taste F öffnen echtes Browser-Vollbild;
+Escape beendet es. Falls der Browser dies nicht unterstützt, wird die Aufnahme
+innerhalb der Seite vergrößert. Neue Ansichten verwenden Originalwiedergabe und das natürliche
 Seitenverhältnis; gespeicherte Einstellungen bleiben erhalten. Originalvideos werden
 ohne zusätzliche Kompression übertragen und vollständig in die Kachel eingepasst.
 

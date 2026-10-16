@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {recordingAt,nextRecording,playbackRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline.ts';
+import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline.ts';
 const records:Recording[]=[{id:'a',cameraId:'1',start:100,duration:60,codec:'h264'},{id:'b',cameraId:'1',start:150,duration:30,codec:'h264'},{id:'c',cameraId:'2',start:200,duration:50,codec:'hevc'}];
 test('intervals are half-open and overlaps use latest clip',()=>{assert.equal(recordingAt(records,'1',99),undefined);assert.equal(recordingAt(records,'1',100)?.id,'a');assert.equal(recordingAt(records,'1',150)?.id,'b');assert.equal(recordingAt(records,'1',180),undefined)});
 test('gap skipping respects visible cameras',()=>{assert.equal(nextRecording(records,['1'],160),undefined);assert.equal(nextRecording(records,['2'],160),200);assert.equal(nextRecording(records,['1'],99),100)});
@@ -56,4 +56,13 @@ test('Reolink Testkamera-B perspectives share the clock despite unequal and chan
  assert.equal(recordingAt(items,'camera-b',110,'zoom')?.id,'next-zoom');
  assert.equal(recordingAt(items,'camera-b',117,'zoom'),undefined);
  assert.equal(recordingAt(items,'camera-b',117,'wide')?.id,'next-wide');
+});
+
+test('closed zoom never supplies initial position, gap jumps or previews',()=>{
+ const items:Recording[]=[{id:'zoom',cameraId:'dual',view:'zoom',start:95,duration:60,codec:'h264'},{id:'wide',cameraId:'dual',view:'wide',start:100,duration:30,codec:'h264'},{id:'next-zoom',cameraId:'dual',view:'zoom',start:140,duration:20,codec:'h264'},{id:'next-wide',cameraId:'dual',view:'wide',start:150,duration:30,codec:'h264'}];
+ const cameras=[{id:'dual',viewMode:'dual',supportsZoom:true}];
+ const closed=displayedRecordings(items,cameras,new Set());
+ assert.equal(firstRecordingStart(closed,0),100);assert.equal(nextRecording(closed,['dual'],131),150);assert.equal(recordingAt(closed,'dual',96),undefined);assert.deepEqual(closed.map(r=>r.id),['wide','next-wide']);
+ assert.equal(firstRecordingStart(displayedRecordings(items,cameras,new Set(['dual'])),0),95);
+ assert.deepEqual(displayedRecordings(items,[{...cameras[0],supportsZoom:false}],new Set(['dual'])),closed);
 });

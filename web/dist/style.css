@@ -1449,7 +1449,7 @@ button:disabled { cursor:default; }
  :root { --nav-width:72px; --shell-space:20px; }
  .rail { padding:20px 10px; }
  .rail-logo { padding:0; justify-content:center; }
- .rail-collapse{display:flex;align-items:center;justify-content:center;width:36px;height:36px;background:0;border:0;color:var(--muted);border-radius:8px;cursor:pointer;margin-bottom:8px}.rail-collapse:hover{background:var(--surface);color:var(--text)}.rail.collapsed{width:72px;padding:24px 10px}.rail.collapsed .rail-logo>span,.rail.collapsed .rail-item>span,.rail.collapsed .rail-caption{display:none}.rail.collapsed .rail-bottom{justify-content:center}.rail.collapsed .workspace{margin-left:72px}.rail.collapsed .rail-collapse svg{transform:rotate(180deg)}
+
 .rail-logo > span,.rail-item > span,.rail-caption { display:none; }
  .rail-item { justify-content:center; padding:10px; }
  .rail-bottom { padding:10px 0; justify-content:center; }
@@ -1521,3 +1521,68 @@ button:disabled { cursor:default; }
  .page-heading .index-state { grid-column:1/-1; grid-row:2; }
  .page-heading #user-name { display:none; }
 }
+
+/* Compact archive controls and an explicitly collapsible navigation rail. */
+:root { --nav-width:204px; }
+.rail { gap:18px; padding-top:12px; }
+.rail-collapse { display:flex; align-items:center; justify-content:center; width:40px; min-height:40px; margin-left:auto; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--text); cursor:pointer; }
+.rail-collapse:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.rail-logo > span,.rail-item > span { display:inline; }
+.rail-logo { justify-content:flex-start; padding:0 12px; }
+.rail-item { justify-content:flex-start; padding:10px 12px; }
+:root.rail-collapsed { --nav-width:72px; }
+.rail-collapsed .rail { padding-left:10px; padding-right:10px; }
+.rail-collapsed .rail-logo > span,.rail-collapsed .rail-item > span,.rail-collapsed #user-name,.rail-collapsed .account-chevron { display:none; }
+.rail-collapsed .rail-logo,.rail-collapsed .rail-item { justify-content:center; padding:10px; }
+.rail-collapsed .rail-collapse { margin-inline:auto; }
+.rail-collapsed .rail-collapse svg { transform:rotate(180deg); }
+.rail-bottom { display:block; padding:0; min-width:0; }
+.account-menu summary { padding:6px; min-width:0; }
+.account-menu summary::before { content:none; }
+#user-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.account-menu .avatar { flex:none; }
+.account-actions { top:auto; bottom:calc(100% + 8px); right:auto; left:0; max-width:calc(100vw - 28px); }
+.page-heading { grid-template-columns:minmax(0,1fr) auto; margin-bottom:12px; }
+.view-toolbar { gap:8px; padding:8px 12px; }
+.view-options { flex:initial; flex-basis:auto; justify-content:flex-end; gap:10px; }
+.compact-label select { padding:7px 9px; min-height:36px; }
+.camera-selection { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; padding:8px 12px; margin-bottom:10px; }
+.selection-heading { gap:8px; }
+.selection-heading strong { font-size:12px; }
+.selection-heading > div { display:flex; }
+.selection-heading .text-button { padding:6px; }
+.camera-filters { flex:1; padding:0; gap:6px; }
+.camera-filters .filter { padding:6px 10px; }
+.camera-page-controls { flex-wrap:wrap; border:0; background:transparent; padding:0; gap:4px; margin:0; justify-content:flex-end; }
+#camera-range,#grid-hint { flex-basis:auto; }
+.camera-page-controls.single-page #page-prev,.camera-page-controls.single-page #page-next,.camera-page-controls.single-page #page-display { display:none; }
+.camera-page-controls #grid-hint:empty { display:none; }
+.camera-tile.frame-pending video { visibility:hidden; }
+.camera-tile:fullscreen { width:100%; height:100%!important; inset:0; border:0; border-radius:0; }
+.camera-tile:fullscreen video { width:100%; height:100%; object-fit:contain!important; }
+.camera-tile:fullscreen .tile-header { font-size:16px; }
+@media(min-width:1101px) {
+ .rail { padding-inline:14px; }
+}
+@media(max-width:700px) {
+ :root,:root.rail-collapsed { --nav-width:0px; }
+ .rail,.rail-collapsed .rail { padding:8px 10px; gap:6px; flex-wrap:wrap; }
+ .rail-collapse { display:none; }
+ .rail-logo,.rail-collapsed .rail-logo { padding:0; }
+ .rail-logo > span,.rail-collapsed .rail-logo > span { display:none; }
+ .rail nav { margin-left:auto; gap:2px; }
+ .rail-item,.rail-collapsed .rail-item { justify-content:center; padding:10px; }
+ .rail-item > span { display:none; }
+ .rail-bottom { display:block; margin:0; }
+ .account-menu summary { min-height:44px; padding:4px; border:0; }
+ #user-name,.account-chevron { display:none; }
+ .account-actions { top:calc(100% + 8px); bottom:auto; left:auto; right:0; }
+ .page-heading .index-state { grid-column:auto; grid-row:auto; white-space:normal; }
+ .view-options { width:100%; }
+ .camera-selection { align-items:stretch; }
+ .selection-heading,.camera-filters { flex-basis:100%; }
+ .camera-page-controls { width:100%; }
+}
+
+.camera-tile { background:#080c0f; }
+:root[data-theme=light] .camera-filters .filter.selected { background:var(--accent); color:var(--accent-ink); }
