@@ -11,3 +11,8 @@ secrets
 **/*.sync-conflict-*
 test-results/
 playwright-report/
+
+.local-reports
+TEST_REPORT.md
+UI_REVIEW.md
+*.log

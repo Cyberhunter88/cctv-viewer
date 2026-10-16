@@ -71,33 +71,3 @@ Benchmarkzusage abgeleitet. HTTP-Streamingtests decken HLS und fragmentiertes MP
 bei mehreren Geschwindigkeiten ab. Browser- und Containerergebnisse werden im
 Abschlussbericht separat benannt; eine vorhandene CI-Konfiguration ist kein
 Nachweis eines bereits erfolgreich ausgeführten Containerlaufs.
-
-## Ergebnis der lokalen Prüfung
-
-- TypeScript-Prüfung und Frontend-Logiktests: bestanden.
-- `go vet ./...` und `go test -race ./...`, einschließlich OIDC, Migration,
-  UTC-Tagesgrenzen, persistenter Scanplanung und Streaming: bestanden.
-- Acht Chromium-Browsertests: bestanden, einschließlich 16×, Kamera-Sortierung,
-  Diagnose-Download, defekter Kamera und begrenzter Bandbreite.
-- Sechs Release-Skript-Tests und `git diff --check`: bestanden.
-- WebKit: lokal nicht erfolgreich ausführbar; der Browser scheitert bereits
-  beim Erzeugen der ersten Seite am WPE/EGL-Display. Kein Anwendungstest in
-  WebKit wird deshalb als bestanden ausgewiesen. HLS wurde serverseitig geprüft;
-  der zusätzliche WebKit-CI-Schritt ist eingerichtet.
-- Docker-Smoke-Test: lokal nicht ausführbar, weil Docker/Container-Daemon fehlen.
-  Der bestehende verpflichtende Container-CI-Schritt bleibt erhalten.
-
-Die lokal nicht verfügbaren Prüfungen sind inzwischen durch die folgende CI-Abnahme abgedeckt.
-
-## CI-Abnahme am 14.10.2026
-
-[Prüfungen für Commit 3c88307](https://github.com/Cyberhunter88/cctv-viewer/actions/runs/38553422253): erfolgreich.
-
-- TypeScript, Go-Vet und Go-Race-Tests bestanden.
-- Acht Chromium-Browsertests und sieben WebKit-Browsertests bestanden. Der
-  zusätzliche Bandbreitentest nutzt Chromium CDP und wird in WebKit bewusst übersprungen.
-- Der mobile Überlauf nativer WebKit-Steuerelemente ist korrigiert und geprüft.
-- Docker-Image gebaut; Containerstart, Anmeldung, Neustart und lesende
-  Aufnahme-Mounts im Smoke-Test erfolgreich geprüft.
-- Der Release-Workflow prüft zusätzlich native AMD64-/ARM64-Images vor der
-  Veröffentlichung der Versions- und `latest`-Tags.
