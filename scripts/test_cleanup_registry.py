@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from cleanup_registry import assert_idle, cleanup, inventory, plan, references
+from cleanup_registry import ManifestMissing, assert_idle, cleanup, inventory, plan, references, registry_manifest
 
 NOW = datetime.now(timezone.utc)
 IMAGE = 'ghcr.io/example/viewer'
@@ -35,6 +35,35 @@ def image(*children, subject=None):
 
 
 class CleanupPlanTest(unittest.TestCase):
+    def test_missing_external_subject_is_reported_without_blocking_cleanup(self):
+        def fetch(_, key):
+            if key == digest(99):
+                raise ManifestMissing(key)
+            return image(subject=99)
+        result = plan([version(1, ['latest']), version(2, ['build-42-1-amd64'])],
+                      IMAGE, fetch=fetch, now=NOW)
+        self.assertEqual([v['id'] for v in result['candidates']], [2])
+        self.assertEqual(result['missing_external_manifests'], [digest(99)])
+
+    def test_missing_inventory_manifest_and_external_transport_error_abort(self):
+        for error in (ManifestMissing('missing'), RuntimeError('unauthorized')):
+            with self.subTest(error=error), self.assertRaises(RuntimeError):
+                plan([version(1, ['latest'])], IMAGE,
+                     fetch=lambda *_: (_ for _ in ()).throw(error))
+        with self.assertRaisesRegex(RuntimeError, 'transport'):
+            plan([version(1, ['latest'])], IMAGE,
+                 fetch=lambda _, key: image(subject=99) if key == digest(1)
+                 else (_ for _ in ()).throw(RuntimeError('transport')))
+
+    def test_only_explicit_manifest_unknown_is_classified_as_missing(self):
+        import subprocess
+        for message in ('reading manifest: manifest unknown', 'unauthorized', 'timeout', 'name unknown'):
+            with self.subTest(message=message), patch('cleanup_registry.subprocess.run',
+                    return_value=subprocess.CompletedProcess([], 1, '', message)):
+                with self.assertRaises(ManifestMissing if message.endswith('manifest unknown') else RuntimeError) as caught:
+                    registry_manifest(IMAGE, digest(1))
+                self.assertEqual(isinstance(caught.exception, ManifestMissing), message.endswith('manifest unknown'))
+
     def propose(self, versions, graph=None, **kwargs):
         graph = graph or {}
         return plan(versions, IMAGE, fetch=lambda _, key: graph.get(key, image()), now=NOW, **kwargs)
