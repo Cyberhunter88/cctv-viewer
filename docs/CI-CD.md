@@ -116,6 +116,8 @@ Versionen mit `latest`, Versions-Tags, `sha-*`, unbekannten Tags oder ohne Tags 
 
 GitHub löscht über diese API ganze Paketversionen mit sämtlichen zugehörigen Tags. Deshalb bleibt eine historische Zeile mit beispielsweise `0.7.0`, `latest`, `sha-*` und `candidate-*` zusammen geschützt. Nach dem Wechsel entstehen solche internen Tags im Release-Paket nicht mehr. Die Prüfung erfolgt unmittelbar vor der Löschung erneut; während des kurzen Löschlaufs keine Main-Pushes oder manuellen Registry-Änderungen starten. Cleanup und Release teilen sich die Veröffentlichungssperre.
 
+Fehlende externe Manifest-Verweisziele (etwa historische Subject-Verweise), die nicht im Paketinventar stehen und von der Registry ausdrücklich mit `manifest unknown` beantwortet werden, erscheinen unter `missing_external_manifests` im Plan. Sie blockieren die Bereinigung nicht, weil sie selbst keine löschbaren Paketversionen sind. Fehlende Manifeste gelisteter Paketversionen sowie Zugriffs-, Netzwerk- und Formatfehler führen weiterhin zum Abbruch.
+
 Die Vorschau lässt sich auch lokal erzeugen; JSON-Ausgaben gehören in `.local-reports/`:
 
 ```bash
