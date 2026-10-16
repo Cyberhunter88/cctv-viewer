@@ -88,3 +88,45 @@ test('enabling audio on a recording without a track keeps video playing',async({
   }
  }finally{await cleanup()}
 });
+
+test('compressed playback starts at the requested position when native HLS is advertised',async({page})=>{
+ // Recent Chrome versions advertise native HLS. Exercise that capability even
+ // when the local Chromium build normally chooses progressive MP4.
+ await page.addInitScript(()=>{
+  const original=HTMLMediaElement.prototype.canPlayType;
+  HTMLMediaElement.prototype.canPlayType=function(type:string){return type==='application/vnd.apple.mpegurl'?'probably':original.call(this,type)};
+ });
+ const expanded=new Set<string>(),requests=new Map<string,number>();
+ await page.route('**/api/streams/*/index.m3u8',async route=>{
+  const response=await route.fetch(),body=await response.text(),url=route.request().url();
+  if(!response.ok())return route.fulfill({response});
+  const count=(requests.get(url)||0)+1;requests.set(url,count);
+  const header=body.slice(0,body.indexOf('#EXTINF:'));
+  const segments=[...body.matchAll(/#EXTINF:[^\n]+\n[^\n]+/g)].map(m=>m[0]);
+  // Match a live EVENT manifest while FFmpeg is still producing segments:
+  // first expose a short window, then expand it to the full recording.
+  const visible=count<=2?segments.slice(0,2):segments;
+  if(count>2&&visible.length>2)expanded.add(url);
+  await route.fulfill({response,body:header+visible.join('\n')+'\n'});
+ });
+ const cleanup=await setup(page);
+ try{
+  await page.locator('.tile-audio').last().click();await page.locator('#play').click();
+  await expect.poll(()=>page.locator('video').last().evaluate(v=>!v.paused&&v.currentTime>.2)).toBe(true);
+  const streams:{transport:string;profile:string}[]=[];
+  page.on('request',request=>{if(request.method()==='POST'&&new URL(request.url()).pathname==='/api/streams')streams.push(request.postDataJSON())});
+  for(const quality of ['balanced','fast']){
+   const previousExpanded=expanded.size;
+   await page.locator('#quality').selectOption(quality);await audible(page,1);
+   await expect.poll(()=>expanded.size,{timeout:15000}).toBeGreaterThanOrEqual(previousExpanded+2);
+   await expect.poll(()=>page.locator('video').last().evaluate(v=>!v.paused&&v.readyState>=2&&v.currentTime>1.5),{timeout:25000}).toBe(true);
+   await expect(page.locator('.tile-message.error')).toHaveCount(0);
+   expect(streams.filter(s=>s.profile===quality).length).toBeGreaterThanOrEqual(2);
+   expect(streams.every(s=>s.transport==='hls')).toBe(true);
+   // The shared clock and both recordings must remain near the start, rather
+   // than jumping to the live edge of a playlist that is still growing.
+   const seconds=await page.locator('#clock').textContent();expect(Number(seconds!.split(':')[2])).toBeLessThan(20);
+   await expect.poll(()=>page.locator('video').evaluateAll(videos=>videos.every(v=>v.currentTime<20))).toBe(true);
+  }
+ }finally{await cleanup()}
+});

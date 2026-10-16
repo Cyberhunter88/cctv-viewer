@@ -122,8 +122,11 @@ class Tile {
     const stream=await api<{id:string;url:string;offset:number;factor:number}>('/api/streams',{method:'POST',body:JSON.stringify({recording:record.id,offset:Math.max(0,cursor-record.start),profile:quality,speed:speed(),transport}),signal:this.abort.signal});
     if(epoch!==this.epoch){void api('/api/streams/'+stream.id,{method:'DELETE'}).catch(()=>{});return}
     this.stream=stream.id;this.offset=stream.offset;this.factor=stream.factor;
-    if(transport==='mp4'||this.video.canPlayType('application/vnd.apple.mpegurl'))this.video.src=stream.url;
-    else if(Hls.isSupported()){this.hls=new Hls({maxBufferLength:20,maxMaxBufferLength:40,backBufferLength:10});this.hls.on(Hls.Events.ERROR,(_event,data)=>{if(data.fatal)this.recover('Streaming unterbrochen')});this.hls.loadSource(stream.url);this.hls.attachMedia(this.video)}
+    if(transport==='mp4')this.video.src=stream.url;
+    // A growing EVENT playlist is a recording from its beginning, not a live
+    // camera. Prefer MSE with an explicit origin over native HLS live-edge seeks.
+    else if(Hls.isSupported()){this.hls=new Hls({startPosition:0,maxBufferLength:20,maxMaxBufferLength:40,backBufferLength:10});this.hls.on(Hls.Events.ERROR,(_event,data)=>{if(data.fatal)this.recover('Streaming unterbrochen')});this.hls.loadSource(stream.url);this.hls.attachMedia(this.video)}
+    else if(this.video.canPlayType('application/vnd.apple.mpegurl'))this.video.src=stream.url;
     else throw new Error('HLS wird nicht unterstützt');
    }
    if(epoch!==this.epoch)return;this.loading=false;this.align();
