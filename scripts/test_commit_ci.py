@@ -16,9 +16,7 @@ def run(status="completed", conclusion="success", **kwargs):
 
 def jobs():
     names = (
-        "Code prüfen", "Browser-Testserver bauen",
-        "Browser prüfen (chrome, shard 1/2)", "Browser prüfen (chrome, shard 2/2)",
-        "Browser prüfen (webkit, shard 1/2)", "Browser prüfen (webkit, shard 2/2)",
+        "Code prüfen", "Browser prüfen (chrome)", "Browser prüfen (webkit)",
         "Docker prüfen (amd64)", "Docker prüfen (arm64)",
         "Commit-Image bereitstellen", "Anwendung prüfen",
     )
@@ -96,6 +94,27 @@ class CommitCITest(unittest.TestCase):
                     else:
                         next(item for item in incomplete[0]["jobs"]
                              if item["name"] == job["name"])["conclusion"] = conclusion
+                    gh.side_effect = [response([run()]), subprocess.CompletedProcess(
+                        [], 0, stdout=json.dumps(incomplete))]
+                    with self.assertRaisesRegex(RuntimeError, "unvollständig"):
+                        wait_for_ci("example/repo", SHA)
+
+    @patch("wait_for_commit_ci.subprocess.run")
+    def test_complete_historical_sharded_ci_remains_valid_but_requires_all_jobs(self, gh):
+        from wait_for_commit_ci import LEGACY_REQUIRED_JOBS
+        historical = [{"jobs": [{"name": name, "conclusion": "success"}
+                                for name in sorted(LEGACY_REQUIRED_JOBS)]}]
+        gh.side_effect = [response([run()]), subprocess.CompletedProcess(
+            [], 0, stdout=json.dumps(historical))]
+        wait_for_ci("example/repo", SHA)
+        for name in LEGACY_REQUIRED_JOBS:
+            for conclusion in (None, "failure", "cancelled", "skipped"):
+                with self.subTest(job=name, conclusion=conclusion):
+                    incomplete = json.loads(json.dumps(historical))
+                    if conclusion is None:
+                        incomplete[0]["jobs"] = [j for j in incomplete[0]["jobs"] if j["name"] != name]
+                    else:
+                        next(j for j in incomplete[0]["jobs"] if j["name"] == name)["conclusion"] = conclusion
                     gh.side_effect = [response([run()]), subprocess.CompletedProcess(
                         [], 0, stdout=json.dumps(incomplete))]
                     with self.assertRaisesRegex(RuntimeError, "unvollständig"):
