@@ -1,0 +1,39 @@
+name: Build-Bereinigung vorschauen
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+  actions: read
+concurrency:
+  group: ghcr-cleanup-preview
+  cancel-in-progress: false
+jobs:
+  preview:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Registry-Werkzeug installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends skopeo
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build-Aufbewahrung ausschließlich vorschauen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/cleanup_registry.py --repository "$GITHUB_REPOSITORY" --build-package --output "$RUNNER_TEMP/cleanup-plan.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: ghcr-cleanup-plan
+          path: ${{ runner.temp }}/cleanup-plan.json
+          if-no-files-found: warn
+          retention-days: 14

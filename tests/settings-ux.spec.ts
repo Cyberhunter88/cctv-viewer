@@ -1,13 +1,17 @@
-import {test,expect,type Page} from './fixtures';
+import {test,expect,savePreferences as persistPreferences,type Page} from './fixtures';
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.81'}});
 async function login(page:Page){
  await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();
 }
 async function openPreferences(page:Page){await page.locator('#preferences-button').click()}
-async function persistPreferences(page:Page){if(await page.locator('#preferences-save').isEnabled())await page.locator('#preferences-save').click();else await page.locator('#preferences-close').click()}
 
 test('preferences are drafts until saved, including theme, reset and validation',async({page})=>{
  await page.emulateMedia({colorScheme:'light'});await login(page);
+ // Delay account writes so UI updates cannot stand in for durable storage.
+ await page.route('**/api/preferences',async route=>{
+  if(route.request().method()!=='PATCH')return route.continue();
+  const response=await route.fetch();await new Promise(resolve=>setTimeout(resolve,250));await route.fulfill({response});
+ });
  const session=await(await page.request.get('/api/session')).json();
  const stored=()=>page.evaluate(key=>localStorage.getItem('cctv-view:'+key),session.preferenceKey);
  await openPreferences(page);await expect(page.locator('#preferences-save')).toBeDisabled();
@@ -26,7 +30,8 @@ test('preferences are drafts until saved, including theme, reset and validation'
  page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  page.once('dialog',d=>d.accept());await page.locator('#preferences-close').click();await openPreferences(page);await expect(page.locator('#aspect')).toHaveValue('4/3');await expect(page.locator('#pref-density')).toHaveValue('compact');
  page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await persistPreferences(page);await expect(page.locator('html')).toHaveAttribute('data-density','comfortable');await expect(page.locator('html')).toHaveAttribute('data-theme','light');
- await page.locator('#quality').selectOption('balanced');await page.reload();await expect(page.locator('#quality')).toHaveValue('balanced');
+ const qualitySaved=page.waitForResponse(response=>response.url().endsWith('/api/preferences')&&response.request().method()==='PATCH'&&response.request().postDataJSON().quality==='balanced'&&response.ok());
+ await page.locator('#quality').selectOption('balanced');await qualitySaved;await page.reload();await expect(page.locator('#quality')).toHaveValue('balanced');
 });
 
 test('six-camera editor preserves drafts and failed saves, and adapts to narrow windows',async({page},info)=>{

@@ -2,6 +2,11 @@ name: Alte interne Docker-Images bereinigen
 on:
   workflow_dispatch:
     inputs:
+      package:
+        description: 'Paket aus der geprüften Vorschau'
+        type: choice
+        options: [release, builds]
+        default: release
       apply:
         description: 'Ausgewählte interne Versionen nach erneuter Prüfung löschen'
         type: boolean
@@ -38,6 +43,7 @@ jobs:
       - name: Vorschau oder ausdrücklich ausgewählte Versionen prüfen
         env:
           GH_TOKEN: ${{ github.token }}
+          PACKAGE: ${{ inputs.package }}
           APPLY: ${{ inputs.apply }}
           VERSION_IDS: ${{ inputs.version_ids }}
         run: |
@@ -45,6 +51,10 @@ jobs:
           import os, re, subprocess
           args = ['python3', 'scripts/cleanup_registry.py', '--repository', os.environ['GITHUB_REPOSITORY'],
                   '--output', os.environ['RUNNER_TEMP'] + '/cleanup-plan.json']
+          if os.environ['PACKAGE'] == 'builds':
+              args += ['--build-package']
+          elif os.environ['PACKAGE'] != 'release':
+              raise SystemExit('Unbekannter Pakettyp')
           if os.environ['APPLY'] == 'true':
               values = os.environ['VERSION_IDS'].split()
               if not values or any(not re.fullmatch(r'[1-9][0-9]*', value) for value in values):
