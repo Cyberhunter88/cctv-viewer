@@ -20,7 +20,12 @@ async function legacyAccount(page:Page){
  const signedIn=await page.request.post('/auth/local',{headers:{Origin:new URL(page.url()).origin},data:{username,password:'synthetic preference test password'}});expect(signedIn.ok()).toBe(true);
  return (await page.request.get('/api/session')).json();
 }
-async function save(page:Page){if(await page.locator('#preferences-save').isEnabled())await page.locator('#preferences-save').click();else await page.locator('#preferences-close').click()}
+async function save(page:Page){
+ if(await page.locator('#preferences-save').isEnabled())await page.locator('#preferences-save').click();else await page.locator('#preferences-close').click();
+ // Saving awaits the account API before closing and restoring opener focus.
+ await expect(page.locator('#preferences-dialog')).toBeHidden();
+ await expect(page.locator('#preferences-button')).toBeFocused();
+}
 async function open(page:Page){await page.locator('#preferences-button').click();await expect(page.locator('#preferences-dialog')).toBeVisible()}
 test('legacy settings migrate, personal preferences persist and reset',async({page})=>{
  await login(page);const session=await legacyAccount(page);
@@ -34,7 +39,13 @@ test('legacy settings migrate, personal preferences persist and reset',async({pa
  page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await expect(page.locator('#pref-density')).toHaveValue('comfortable');await expect(page.locator('#pref-showNames')).toBeChecked();await expect(page.locator('#pref-shortcuts')).toBeChecked();await expect(page.locator('#theme')).toHaveValue('system');await expect(page.locator('#pref-seekStep')).toHaveValue('5');await expect(page.locator('#layout')).toHaveValue('2x2');await expect(page.locator('#pref-timelineHeight')).toHaveValue('240');await save(page);await expect(page.locator('#layout')).toHaveValue('auto');await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#camera-filters .filter.selected')).toHaveCount(2);
 });
 test('shortcuts share the configured step and never interfere with forms',async({page})=>{
- await login(page);await open(page);await page.locator('#pref-seekStep').selectOption('30');await save(page);await page.locator('#timeline').focus();await expect(page.locator('#clock')).toHaveText('08:30:00');await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');await page.keyboard.press('Shift+ArrowLeft');await expect(page.locator('#clock')).toHaveText('08:29:30');await page.keyboard.press('Shift+ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');const after=await page.locator('#clock').textContent();
+ await login(page);
+ // Exercise the asynchronous save/close boundary even on fast local servers.
+ await page.route('**/api/preferences',async route=>{
+  if(route.request().method()!=='PATCH')return route.continue();
+  const response=await route.fetch();await new Promise(resolve=>setTimeout(resolve,250));await route.fulfill({response});
+ });
+ await open(page);await page.locator('#pref-seekStep').selectOption('30');await save(page);await page.locator('#timeline').focus();await expect(page.locator('#clock')).toHaveText('08:30:00');await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');await page.keyboard.press('Shift+ArrowLeft');await expect(page.locator('#clock')).toHaveText('08:29:30');await page.keyboard.press('Shift+ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');const after=await page.locator('#clock').textContent();
  await open(page);await page.locator('#pref-shortcuts').uncheck();await save(page);await page.locator('#timeline').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);await page.locator('#overview').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);
  await open(page);await page.locator('#pref-shortcuts').check();await page.locator('#pref-timelineHeight').focus();await page.keyboard.press('ArrowDown');await expect(page.locator('#clock')).toHaveText(after!);page.once('dialog',d=>d.accept());await page.keyboard.press('Escape');await expect(page.locator('#preferences-dialog')).toBeHidden();await expect(page.locator('#preferences-button')).toBeFocused();
  await page.locator('#select-none').click();await expect(page.locator('#video-grid')).toContainText('Keine Kameras ausgewählt');await expect(page.locator('#camera-range')).toHaveText('Keine Kamera ausgewählt');await page.locator('#select-all').click();await expect(page.locator('.camera-tile')).toHaveCount(2);
@@ -166,7 +177,7 @@ test('account preferences cross devices, merge edits and keep server values abov
 test('save failures remain visible and retry persists the same changes',async({page})=>{
  await login(page);
  await page.route('**/api/preferences',async route=>{if(route.request().method()==='PATCH')await route.fulfill({status:503,json:{error:'synthetic preference storage failure'}});else await route.continue()});
- await open(page);await page.locator('#pref-density').selectOption('compact');await save(page);
+ await open(page);await page.locator('#pref-density').selectOption('compact');await page.locator('#preferences-save').click();
  await expect(page.locator('#preference-status')).toContainText('nicht gespeichert');await expect(page.locator('#preferences-dialog')).toBeVisible();await expect(page.locator('#preferences-retry')).toBeVisible();
  await page.unroute('**/api/preferences');await page.locator('#preferences-retry').click();await expect(page.locator('#preferences-retry')).toBeHidden();
  await page.locator('#preferences-close').click();await page.reload();await expect(page.locator('#app')).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-density','compact');
