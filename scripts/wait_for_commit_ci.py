@@ -7,11 +7,13 @@ import sys
 import time
 
 
-REQUIRED_JOBS = {"Code prüfen", "Browser prüfen (chrome)", "Browser prüfen (webkit)",
+REQUIRED_JOBS = {"Code prüfen",
                  "Docker prüfen (amd64)", "Docker prüfen (arm64)",
                  "Commit-Image bereitstellen", "Anwendung prüfen"}
+BROWSER_JOBS = {"Browser prüfen (chrome)", "Browser prüfen (webkit)"}
+PREVIOUS_REQUIRED_JOBS = REQUIRED_JOBS | BROWSER_JOBS
 # Previously tested main commits retain their original, complete job contract.
-LEGACY_REQUIRED_JOBS = (REQUIRED_JOBS - {"Browser prüfen (chrome)", "Browser prüfen (webkit)"}) | {
+LEGACY_REQUIRED_JOBS = REQUIRED_JOBS | {
     "Browser-Testserver bauen",
     *(f"Browser prüfen ({browser}, shard {shard}/2)"
       for browser in ("chrome", "webkit") for shard in (1, 2)),
@@ -25,9 +27,18 @@ def verify_jobs(repository, run):
                             check=True, capture_output=True, text=True)
     jobs = [job for page in json.loads(result.stdout) for job in page["jobs"]]
     passed = {job["name"] for job in jobs if job["conclusion"] == "success"}
-    if (not any(required.issubset(passed) for required in (REQUIRED_JOBS, LEGACY_REQUIRED_JOBS))
-            or any(job["conclusion"] != "success" for job in jobs)):
-        raise RuntimeError("Commit-CI ist unvollständig: Code, beide Browser, beide Docker-Smoke-Tests, "
+    # Historical runs that executed browsers must still satisfy their complete
+    # contract. Current main runs intentionally skip the PR-only browser job.
+    historical = any(name.startswith("Browser prüfen (") for name in passed)
+    contracts = (PREVIOUS_REQUIRED_JOBS, LEGACY_REQUIRED_JOBS) if historical else (REQUIRED_JOBS,)
+    skipped_browsers = BROWSER_JOBS | {
+        "Browser prüfen (${{ matrix.browser }})", "Browser prüfen ()", "Browser prüfen", "browser",
+    }
+    if (not any(required.issubset(passed) for required in contracts)
+            or any(job["conclusion"] != "success" and not (
+                not historical and job["conclusion"] == "skipped" and job["name"] in skipped_browsers
+            ) for job in jobs)):
+        raise RuntimeError("Commit-CI ist unvollständig: Code, beide Docker-Smoke-Tests, "
                            "Commit-Image und Abschlussprüfung müssen erfolgreich sein. " + run["html_url"])
 
 

@@ -34,7 +34,7 @@ Die ausführliche Beschreibung steht in [docs/CI-CD.md](docs/CI-CD.md). Vor Änd
 Folgende Eigenschaften erhalten:
 
 - PRs gegen `main` und Pushes auf `main` lösen CI aus. Der stabile erforderliche Abschlusscheck heißt **Anwendung prüfen**. Fehlgeschlagene, abgebrochene oder übersprungene Pflichtjobs dürfen ihn nicht grün werden lassen.
-- PRs erhalten keine Schreibrechte auf GHCR. Nach einem Main-Push werden Code und Browser erneut geprüft und native AMD64-/ARM64-Images gebaut und mit Smoke-Tests geprüft.
+- PRs erhalten keine Schreibrechte auf GHCR. Chrome und WebKit laufen ausschließlich im PR. Nach einem Main-Push wird Code erneut geprüft; native AMD64-/ARM64-Images werden gebaut und mit Smoke-Tests geprüft.
 - Automatische Main-Läufe veröffentlichen ausschließlich Commit-Images unter `sha-<vollständiger SHA>` sowie interne Build-Tags. Sie erstellen kein offizielles Release und aktualisieren keine Versions-Aliases oder `latest`.
 - Die Release-Pipeline heißt **Release und Docker veröffentlichen** und hat ausschließlich `workflow_dispatch` als Trigger. Kein `release: published`-Trigger und keine Veröffentlichung durch gewöhnliche Pushes.
 - Releases verwenden den nachgewiesenen Multiarch-Digest ohne erneuten Docker-Build. Der gewählte vollständige SHA muss auf `main` liegen; der vollständige erfolgreiche Main-Push-CI-Lauf, dessen Run-Versuch und der Image-Nachweis müssen exakt zusammenpassen.
