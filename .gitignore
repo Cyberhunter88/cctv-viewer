@@ -4,10 +4,14 @@ node_modules/
 web/dist/app.js
 web/dist/app.js.map
 .env
+.env.*
+!.env.example
 *.db
 *.db-shm
 *.db-wal
 coverage.out
+/coverage/
+*.tsbuildinfo
 /secrets/
 __pycache__/
 *.pyc
@@ -21,3 +25,12 @@ playwright-report/
 /TEST_REPORT.md
 /UI_REVIEW.md
 *.log
+
+# Lokale Editor- und Betriebssystemdateien.
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
