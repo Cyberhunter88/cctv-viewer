@@ -68,9 +68,9 @@ function visible():Camera[]{const all=ordered(),capacity=visiblePageCapacity();p
 function setMessage(tile:Tile,message:string,error=false){if(tile.messageState===message&&tile.messageError===error)return;tile.messageState=message;tile.messageError=error;tile.message.replaceChildren();if(message){tile.message.append(element('span','symbol',error?'⚠':'▧'),element('span','',message))}tile.message.hidden=!message;tile.message.classList.toggle('error',error);if(error){const retry=element('button','tile-retry','Erneut versuchen');retry.type='button';retry.onclick=()=>tile.retry();tile.message.append(retry)}}
 class Tile {
  audioButton=element('button','tile-audio');
- messageState?:string;messageError=false;playPending=false;video=element('video');container=element('div','camera-tile');message=element('div','tile-message');timestamp=element('span');codec=element('small');stream?:string;record?:Recording;loading=false;failed=false;epoch=0;offset=0;factor=1;abort?:AbortController;hls?:Hls;loadedSpeed=1;attempts=0;recoveryStart=0;recoveryTimer?:ReturnType<typeof setTimeout>;stallTimer?:ReturnType<typeof setTimeout>;pauseTimer?:ReturnType<typeof setTimeout>;
+ frameCallback?:number;messageState?:string;messageError=false;playPending=false;video=element('video');container=element('div','camera-tile');message=element('div','tile-message');timestamp=element('span');codec=element('small');stream?:string;record?:Recording;loading=false;failed=false;epoch=0;offset=0;factor=1;abort?:AbortController;hls?:Hls;loadedSpeed=1;attempts=0;recoveryStart=0;recoveryTimer?:ReturnType<typeof setTimeout>;stallTimer?:ReturnType<typeof setTimeout>;pauseTimer?:ReturnType<typeof setTimeout>;
  constructor(public camera:Camera,public view?:string){
-  this.video.muted=true;this.video.preservesPitch=true;this.video.playsInline=true;this.video.preload=state.preload as 'metadata'|'auto';
+  this.conceal();this.video.muted=true;this.video.preservesPitch=true;this.video.playsInline=true;this.video.preload=state.preload as 'metadata'|'auto';
   const header=element('div','tile-header'),title=element('button','tile-title',camera.name+(view==='wide'?' · Weitwinkel':view==='zoom'?' · Zoom':''));title.type='button';title.setAttribute('aria-label',title.textContent+' · Als Hotspot wählen');title.title=title.textContent+' · Als Hotspot wählen';title.onclick=()=>{hotspot=camera.id;state.autoHotspot=false;$<HTMLInputElement>('auto-hotspot').checked=false;renderGrid();saveView()};header.append(title,this.codec);
   const footer=element('div','tile-footer');footer.append(this.timestamp,element('span','','AUFNAHME'));this.container.append(this.video,header,this.message,footer);this.container.setAttribute('role','group');this.container.setAttribute('aria-label',title.textContent!);
   this.container.ondblclick=()=>void toggleFullscreen(this.container);
@@ -81,7 +81,7 @@ class Tile {
   this.video.addEventListener('loadedmetadata',()=>{this.applyAspect();this.align()});
   this.video.addEventListener('canplay',()=>{if(!this.failed){clearTimeout(this.stallTimer);clearTimeout(this.recoveryTimer);this.align();this.reveal();log('ready',camera.id)}});
   this.video.addEventListener('seeked',()=>this.reveal());
-  this.video.addEventListener('seeking',()=>this.conceal());
+  this.video.addEventListener('seeking',()=>{this.conceal();this.reveal()});
   this.video.addEventListener('waiting',()=>{if(playing&&!this.loading){setMessage(this,'Wird gepuffert …');log('buffering',camera.id);clearTimeout(this.stallTimer);this.stallTimer=setTimeout(()=>this.recover('Pufferung dauert zu lange'),10000)}});
   this.video.addEventListener('playing',()=>{clearTimeout(this.stallTimer);log('playing',camera.id)});
   // WebKit/GStreamer may clear muted when changing playback speed.
@@ -93,12 +93,24 @@ class Tile {
  applyAspect(){this.container.style.aspectRatio=state.aspect==='auto'?`${this.video.videoWidth||16} / ${this.video.videoHeight||9}`:state.aspect==='fill'?'16 / 9':state.aspect;this.video.style.objectFit=state.aspect==='fill'?'cover':'contain'}
  fail(message:string){const record=this.record;this.release();this.record=record;this.failed=true;setMessage(this,message+' · Bitte erneut versuchen.',true);log('failed',this.camera.id,message)}
  recover(message:string){if(this.failed)return;if(!this.recoveryStart)this.recoveryStart=performance.now();if(this.attempts>=3||performance.now()-this.recoveryStart>=30000){this.fail(message);return}const record=this.record;if(!record)return;this.attempts++;log('retry',this.camera.id,String(this.attempts));void this.load(record,true)}
- conceal(){this.container.classList.add('frame-pending')}
- reveal(){if(!this.record||this.loading||this.failed||this.video.seeking||this.video.readyState<2)return;const target=Math.max(0,(cursor-this.record.start-this.offset)/this.factor);if(Math.abs(this.video.currentTime-target)>.65/this.factor)return;this.container.classList.remove('frame-pending');setMessage(this,'')}
+ conceal(){if(this.frameCallback!==undefined)this.video.cancelVideoFrameCallback(this.frameCallback);this.frameCallback=undefined;this.container.classList.add('frame-pending')}
+ reveal(){
+  if(!this.record||this.failed||this.frameCallback!==undefined)return;
+  const epoch=this.epoch;
+  // currentTime can already reflect a seek while the compositor still holds
+  // the previous frame. Reveal only after a matching frame has been decoded.
+  this.frameCallback=this.video.requestVideoFrameCallback((_now,frame)=>{
+   this.frameCallback=undefined;if(epoch!==this.epoch||!this.record||this.failed)return;
+   if(this.loading||this.video.seeking){this.reveal();return}
+   const target=Math.max(0,(cursor-this.record.start-this.offset)/this.factor);
+   if(Math.abs(frame.mediaTime-target)>.65/this.factor){this.reveal();return}
+   this.container.classList.remove('frame-pending');setMessage(this,'');
+  });
+ }
  release(){this.conceal();this.epoch++;clearTimeout(this.pauseTimer);clearTimeout(this.stallTimer);clearTimeout(this.recoveryTimer);this.abort?.abort();this.abort=undefined;this.hls?.destroy();this.hls=undefined;this.video.pause();this.video.removeAttribute('src');this.video.load();if(this.stream){const id=this.stream;this.stream=undefined;void api('/api/streams/'+id,{method:'DELETE',keepalive:true}).catch(()=>{})}this.loading=false;this.playPending=false;this.record=undefined;this.failed=false;this.offset=0;this.factor=1}
  destroy(){if(audioTile===this){audioTile=undefined;this.setAudio(false)}this.release();this.container.remove()}
  async load(record:Recording,recovering=false){
-  const different=this.record?.id!==record.id;this.release();if(different&&!recovering){this.attempts=0;this.recoveryStart=0}this.record=record;const epoch=this.epoch;this.loading=true;setMessage(this,'Aufnahme wird geladen …');this.codec.textContent=record.codec==='hevc'?'H.265':record.codec.toUpperCase();this.loadedSpeed=speed();if(recovering&&this.recoveryStart)this.recoveryTimer=setTimeout(()=>this.fail('Wiederherstellung nach 30 Sekunden beendet'),Math.max(1,30000-(performance.now()-this.recoveryStart)));
+  const different=this.record?.id!==record.id;this.release();if(different&&!recovering){this.attempts=0;this.recoveryStart=0}this.record=record;const epoch=this.epoch;this.loading=true;this.reveal();setMessage(this,'Aufnahme wird geladen …');this.codec.textContent=record.codec==='hevc'?'H.265':record.codec.toUpperCase();this.loadedSpeed=speed();if(recovering&&this.recoveryStart)this.recoveryTimer=setTimeout(()=>this.fail('Wiederherstellung nach 30 Sekunden beendet'),Math.max(1,30000-(performance.now()-this.recoveryStart)));
   const quality=$<HTMLSelectElement>('quality').value;log('load',this.camera.id,quality);
   try{
    if(quality==='native'){this.video.src='/api/recordings/'+record.id+'/file';this.offset=0}
@@ -116,7 +128,7 @@ class Tile {
  }
  align(){if(!this.record||this.loading||this.failed)return;const target=(cursor-this.record.start-this.offset)/this.factor;
   if(this.stream&&(target<-.1||this.loadedSpeed!==speed()||target>this.video.currentTime+3&&this.video.readyState>=1&&!Array.from({length:this.video.buffered.length},(_,i)=>[this.video.buffered.start(i),this.video.buffered.end(i)]).some(([a,b])=>target>=a&&target<b))){void this.load(this.record,true);return}
-  if(this.video.readyState>=1&&Math.abs(this.video.currentTime-target)>.65/this.factor){try{this.conceal();this.video.currentTime=Math.max(0,target)}catch{}}
+  if(this.video.readyState>=1&&Math.abs(this.video.currentTime-target)>.65/this.factor){try{this.conceal();this.reveal();this.video.currentTime=Math.max(0,target)}catch{}}
   const rate=speed()/this.factor;if(this.video.playbackRate!==rate)this.video.playbackRate=rate;if(playing){if(this.video.paused)this.startPlayback()}else if(!this.video.paused)this.video.pause();
  }
  current(){return recordingAt(playableRecords,this.camera.id,cursor,this.view)}
@@ -184,12 +196,14 @@ function updateTimelineDescription(cams:Camera[]){
 function timelineColors(){const css=getComputedStyle(document.documentElement);return Object.fromEntries(['line','muted','track','record','cursor','panel'].map(k=>[k,css.getPropertyValue('--timeline-'+k).trim()]))}
 function draw(){if(!from)return;const palette=timelineColors();const cams=visible(),width=canvas.parentElement!.clientWidth,height=48+Math.max(1,cams.length)*34,dpr=devicePixelRatio||1;
  if(width<=0)return;
+ // Compact the default viewport to its tracks; keep custom saved heights.
+ $('timeline-viewport').style.height=(state.timelineHeight===240?Math.min(240,Math.max(100,height+12)):state.timelineHeight)+'px';
  if(canvas.width!==Math.round(width*dpr)||canvas.height!==Math.round(height*dpr)){canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);canvas.style.height=height+'px'}
  const ctx=canvas.getContext('2d')!;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);const left=85,right=width-15,area=right-left,span=viewEnd-viewStart,x=(t:number)=>left+(t-viewStart)/span*area;
  const intervals=[60,300,600,1800,3600,7200,14400,21600];const interval=intervals.find(s=>span/s<area/65)||21600;
  const key=[width,height,dpr,viewStart,viewEnd,...cams.map(c=>c.id+':'+c.name+':'+c.viewMode)].join('/');
  if(timelineKey!==key||timelineRecords!==displayedRecords){
- ctx.font='9px system-ui';ctx.textAlign='center';for(let t=Math.ceil(viewStart/interval)*interval;t<=viewEnd;t+=interval){const p=x(t);ctx.strokeStyle=palette.line;ctx.beginPath();ctx.moveTo(p,30);ctx.lineTo(p,height-10);ctx.stroke();ctx.fillStyle=palette.muted;ctx.fillText(clock(t).slice(0,5),p,19)}
+ ctx.font='11px system-ui';ctx.textAlign='center';for(let t=Math.ceil(viewStart/interval)*interval;t<=viewEnd;t+=interval){const p=x(t);ctx.strokeStyle=palette.line;ctx.beginPath();ctx.moveTo(p,30);ctx.lineTo(p,height-10);ctx.stroke();ctx.fillStyle=palette.muted;ctx.fillText(clock(t).slice(0,5),p,19)}
  cams.forEach((camera,i)=>{const y=39+i*34;ctx.fillStyle=palette.muted;ctx.textAlign='left';ctx.fillText(camera.name.length>11?camera.name.slice(0,10)+'…':camera.name,12,y+14);ctx.fillStyle=palette.track;ctx.fillRect(left,y,area,23);
   ctx.save();ctx.beginPath();ctx.rect(left,y,area,23);ctx.clip();for(const r of displayedRecords.filter(r=>r.cameraId===camera.id&&r.start<viewEnd&&(r.kind==='image'?r.start>=viewStart:r.start+r.duration>viewStart))){ctx.fillStyle=palette.record;ctx.fillRect(x(r.start),y+3,r.kind==='image'?4:Math.max(2,r.duration/span*area),17)}ctx.restore();
  });

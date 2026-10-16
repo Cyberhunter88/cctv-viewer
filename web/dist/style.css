@@ -1586,3 +1586,80 @@ button:disabled { cursor:default; }
 
 .camera-tile { background:#080c0f; }
 :root[data-theme=light] .camera-filters .filter.selected { background:var(--accent); color:var(--accent-ink); }
+
+/* Keep playback controls below the picture, including in fullscreen. */
+.camera-tile { display:grid; grid-template-rows:minmax(0,1fr) auto; }
+.camera-tile video { display:block; min-height:0; grid-row:1; }
+.camera-tile .tile-footer { position:static; grid-row:2; gap:8px; flex-wrap:wrap; padding:8px 10px; background:var(--panel); color:var(--text); border-top:1px solid var(--line); }
+.tile-footer > span:nth-child(2) { margin-right:auto; }
+.camera-tile .tile-audio { background:var(--panel-alt,var(--panel)); color:var(--text); border-color:var(--line); }
+.camera-tile .tile-audio[aria-pressed=true] { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+.camera-tile:fullscreen video { height:100%; min-height:0; }
+
+/* A single brand row keeps navigation close to the top. */
+@media(min-width:701px) {
+ :root { --nav-width:232px; }
+ .rail { gap:24px; padding-top:18px; }
+ .rail-heading { display:flex; align-items:center; gap:6px; min-width:0; }
+ .rail-heading .rail-logo { order:0; padding:0; gap:8px; flex:1; font-size:17px; letter-spacing:0; }
+ .rail-heading .rail-logo svg { width:24px; height:24px; }
+ .rail-heading .rail-collapse { order:1; flex:none; width:32px; min-height:36px; padding:6px; margin:0; border-color:transparent; }
+ .rail-heading .rail-collapse:hover { background:var(--surface); border-color:var(--line); }
+ .rail nav { gap:6px; }
+ .rail-bottom { padding-top:14px; border-top:1px solid var(--line); }
+ .account-menu summary { gap:8px; border:0; border-radius:8px; min-height:44px; }
+ .account-menu summary:hover { background:var(--surface); }
+ .account-chevron { margin-left:auto; }
+ .rail-collapsed .rail-heading { flex-direction:column; gap:10px; }
+ .rail-collapsed .rail-heading .rail-logo { flex:none; padding:6px; }
+ .rail-collapsed .rail-heading .rail-collapse { margin:0; }
+}
+@media(max-width:700px) {
+ .rail-heading { display:flex; align-items:center; }
+}
+
+/* One quiet surface for archive selection and playback. */
+.view-toolbar,.camera-selection,#playback-controls { background:var(--panel); }
+.view-toolbar { padding:8px 12px; gap:8px; border-radius:10px 10px 0 0; }
+.camera-selection { padding:8px 12px; border-radius:0 0 10px 10px; }
+.selection-heading .text-button { background:transparent; color:var(--muted); padding:6px 8px; }
+.selection-heading .text-button:hover { background:var(--surface); color:var(--text); }
+.camera-filters .filter { background:transparent; border-color:var(--line); }
+.camera-filters .filter.selected { background:var(--selected); color:var(--accent); border-color:var(--accent-line); }
+:root[data-theme=light] .camera-filters .filter.selected { background:var(--selected); color:var(--accent); }
+.date-control { background:transparent; }
+.page-heading h1 { font-size:24px; }
+.timeline-section { border-radius:10px; }
+#timeline-resize { background:var(--panel); position:relative; }
+#timeline-resize::after { content:''; position:absolute; width:36px; height:3px; border-radius:3px; background:var(--line); top:4px; left:calc(50% - 18px); }
+#timeline-resize:hover::after,#timeline-resize:focus-visible::after { background:var(--accent); }
+#overview { border-block:1px solid var(--line); }
+.timeline-bottom { padding:10px 14px; font-size:11px; gap:8px; flex-wrap:wrap; background:var(--panel); }
+.thumbnails { padding:10px 14px; gap:8px; }
+@media(max-width:700px) {
+ .view-toolbar { align-items:flex-start; }
+ .view-options { justify-content:flex-start; gap:8px; }
+ .camera-filters { gap:6px; }
+ .timeline-bottom { font-size:10px; }
+}
+
+/* Keep long menus usable on short windows and mobile screens. */
+@media(min-width:701px) {
+ .rail-heading,.rail-bottom { flex-shrink:0; }
+ .rail nav { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+}
+dialog { max-height:calc(100dvh - 24px); overflow-y:auto; overscroll-behavior:contain; }
+dialog .dialog-heading { position:sticky; top:0; z-index:3; background:var(--panel); padding-block:10px; }
+dialog .dialog-heading h2 { min-width:0; overflow-wrap:anywhere; }
+dialog .dialog-heading .icon-button { flex-shrink:0; }
+/* Cover the dialog's padding when its heading sticks during scrolling. */
+dialog .dialog-heading { top:-28px; }
+#preferences-dialog .dialog-heading { top:-24px; }
+@media(max-width:700px) {
+ dialog .dialog-heading,#preferences-dialog .dialog-heading { top:-18px; }
+}
+@media(min-width:701px) and (max-width:1100px) {
+ :root { --nav-width:72px; }
+ .rail-heading { flex-direction:column; gap:10px; }
+ .rail-heading .rail-logo { flex:none; padding:6px; }
+}

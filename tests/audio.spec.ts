@@ -5,6 +5,7 @@ async function setup(page:Page,dual=false){
  const session=await(await page.request.get('/api/session')).json(),headers={'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin},ids:string[]=[];
  try{
  for(const folder of dual?['AudioDual']:['Audio/Testkamera-A','Audio/Testkamera-B']){
+  await expect.poll(async()=>(await(await page.request.get('/api/scan')).json()).running).toBe(false);
   const r=await page.request.post('/api/cameras',{headers,data:{name:folder,folder,format:dual?'automatic':'custom',pattern:'{YYYY}/{MM}/{DD}/{hh}-{mm}-{ss}.mp4',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:dual?'dual':'single',supportsZoom:dual,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:0}});expect(r.ok(),await r.text()).toBe(true);ids.push((await r.json()).id);
  }
  await page.evaluate(({key,ids})=>localStorage.setItem('cctv-view:'+key,JSON.stringify({cameras:ids,order:ids,layout:'2x1',quality:'native'})),{key:session.preferenceKey,ids});
@@ -23,7 +24,21 @@ async function audible(page:Page,index:number|undefined){
 for(const dual of [false,true])test(`audio selects one ${dual?'perspective':'camera'} and survives playback changes`,async({page})=>{
  test.setTimeout(120000);const cleanup=await setup(page,dual);
  try{
-  await audible(page,undefined);await page.locator('.tile-audio').first().click();await audible(page,0);
+  await audible(page,undefined);
+  for(const width of [1440,390]){
+   await page.setViewportSize({width,height:1000});
+   for(const theme of ['light','dark']){
+    await page.locator('html').evaluate((el,theme)=>el.setAttribute('data-theme',theme),theme);
+    const bounds=await page.locator('.camera-tile').first().evaluate(el=>{
+     const video=el.querySelector('video')!.getBoundingClientRect(),button=el.querySelector('.tile-audio')!.getBoundingClientRect();
+     return {pictureBottom:video.bottom,buttonTop:button.top};
+    });
+    expect(bounds.buttonTop).toBeGreaterThanOrEqual(bounds.pictureBottom);
+   }
+  }
+  await page.setViewportSize({width:1440,height:1000});
+  await page.locator('.tile-audio').first().focus();await expect(page.locator('.tile-audio').first()).toBeFocused();
+  await page.locator('.tile-audio').first().click();await audible(page,0);
   await page.locator('#play').click();await expect.poll(()=>page.locator('video').first().evaluate(v=>v.currentTime),{timeout:20000}).toBeGreaterThan(.5);
   await page.locator('.tile-audio').last().click();await audible(page,1);
   await page.locator('#play').click();await audible(page,1);await page.locator('#play').click();

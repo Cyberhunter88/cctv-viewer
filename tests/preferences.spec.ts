@@ -53,6 +53,7 @@ test('original migration, collapsible rail, account placement and laptop control
  await page.locator('#quality').selectOption('balanced');await page.reload();await expect(page.locator('#quality')).toHaveValue('balanced');
  await page.locator('#quality').selectOption('native');
  await page.setViewportSize({width:1366,height:768});
+ const brand=await page.locator('.rail-logo').boundingBox(),collapse=await page.locator('#rail-toggle').boundingBox();expect(Math.abs(brand!.y+brand!.height/2-collapse!.y-collapse!.height/2)).toBeLessThan(1);
  const toggle=page.locator('#rail-toggle');await expect(toggle).toHaveAttribute('aria-expanded','true');
  await toggle.click();await expect(toggle).toHaveAttribute('aria-expanded','false');
  await expect(page.locator('.workspace')).toHaveCSS('margin-left','72px');
@@ -87,4 +88,21 @@ test('native fullscreen uses the actual tile and preserves original playback',as
  await page.keyboard.press('Escape');await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
  await page.locator('.page-heading h1').click();await page.keyboard.press('f');await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
  await page.evaluate(()=>document.exitFullscreen());
+});
+
+test('menus scroll in short windows and keep close controls reachable',async({page},info)=>{
+ await login(page);
+ for(const width of [1366,390]){
+  await page.setViewportSize({width,height:500});
+  for(const [trigger,id,close] of [['preferences-button','preferences-dialog','preferences-close'],['settings-button','camera-dialog','close-dialog'],['search-button','search-dialog','search-close']]){
+   await page.locator('#'+trigger).click();const dialog=page.locator('#'+id);await expect(dialog).toBeVisible();
+   await dialog.evaluate(el=>el.scrollTo(0,el.scrollHeight));
+   const metrics=await dialog.evaluate(el=>({top:el.scrollTop,remaining:el.scrollHeight-el.clientHeight,overflow:el.scrollWidth>el.clientWidth+1}));
+   expect(metrics.overflow).toBe(false);if(metrics.remaining>1)expect(metrics.top).toBeGreaterThan(0);
+   const button=page.locator('#'+close);await expect(button).toBeInViewport();
+   await page.screenshot({path:info.outputPath(`${id}-${width}.png`)});
+   await button.click();await expect(dialog).toBeHidden();
+  }
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
 });
