@@ -19,23 +19,6 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  static-checks:
-    name: Statische Prüfungen
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-      - name: actionlint und Shell/Python prüfen
-        run: |
-          curl --fail --silent --show-error --location --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tar.gz"
-          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check -
-          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
-          "$RUNNER_TEMP/actionlint"
-          shellcheck scripts/promote_image.sh scripts/smoke.sh
-          bash -n scripts/promote_image.sh scripts/smoke.sh
-          python3 -m compileall -q scripts
   test-server:
     name: Browser-Testserver bauen
     runs-on: ubuntu-24.04
@@ -46,6 +29,11 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.10.0'
+          cache: npm
+      - run: npm ci && npm run build
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
@@ -80,8 +68,17 @@ jobs:
         with:
           node-version: '24.10.0'
           cache: npm
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: npm ci && npm run typecheck && npm test
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg shellcheck
+      - name: Workflow, Shell und Python statisch prüfen
+        run: |
+          curl --fail --silent --show-error --location --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint"
+          shellcheck scripts/promote_image.sh scripts/smoke.sh
+          bash -n scripts/promote_image.sh scripts/smoke.sh
+          python3 -m compileall -q scripts
+      - run: npm ci && npm run typecheck && npm test && npm run build
       - run: go vet ./...
       - name: Race-Tests nur bei Main-Push
         if: github.event_name != 'pull_request'
@@ -98,7 +95,7 @@ jobs:
             echo "version=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
           } >> "$GITHUB_OUTPUT"
   browser:
-    name: Browser prüfen (${{ matrix.browser }}, ${{ matrix.suite }})
+    name: Browser prüfen (${{ matrix.browser }})
     needs: test-server
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -108,32 +105,8 @@ jobs:
         include:
           - browser: chrome
             engine: chromium
-            suite: playback
-            files: >-
-              tests/archive.spec.ts tests/audio.spec.ts tests/bandwidth.spec.ts
-              tests/dual.spec.ts tests/recovery.spec.ts tests/regressions.spec.ts tests/viewer.spec.ts
-          - browser: chrome
-            engine: chromium
-            suite: preferences
-            files: tests/features.spec.ts tests/preferences.spec.ts
-          - browser: chrome
-            engine: chromium
-            suite: multicamera
-            files: tests/multicamera.spec.ts
           - browser: webkit
             engine: webkit
-            suite: playback
-            files: >-
-              tests/archive.spec.ts tests/audio.spec.ts tests/bandwidth.spec.ts
-              tests/dual.spec.ts tests/recovery.spec.ts tests/regressions.spec.ts tests/viewer.spec.ts
-          - browser: webkit
-            engine: webkit
-            suite: preferences
-            files: tests/features.spec.ts tests/preferences.spec.ts
-          - browser: webkit
-            engine: webkit
-            suite: multicamera
-            files: tests/multicamera.spec.ts
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -160,13 +133,13 @@ jobs:
           npx playwright install-deps ${{ matrix.browser }}
           sudo apt-get install -y ffmpeg
           npx playwright install ${{ matrix.browser }}
-      - run: npm run test:browser -- ${{ matrix.files }}
+      - run: npm run test:browser
         env:
           CTV_TEST_ENGINE: ${{ matrix.engine }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: browser-test-results-${{ matrix.browser }}-${{ matrix.suite }}
+          name: browser-test-results-${{ matrix.browser }}
           path: test-results/
           retention-days: 7
   build:
@@ -281,13 +254,12 @@ jobs:
     # Keep this name stable: main already requires this exact status check.
     name: Anwendung prüfen
     if: always()
-    needs: [static-checks, code-checks, test-server, browser, build, publish-commit]
+    needs: [code-checks, test-server, browser, build, publish-commit]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - name: Alle für das Ereignis erforderlichen Prüfungen verlangen
         env:
-          STATIC_RESULT: ${{ needs.static-checks.result }}
           CODE_RESULT: ${{ needs.code-checks.result }}
           SERVER_RESULT: ${{ needs.test-server.result }}
           BROWSER_RESULT: ${{ needs.browser.result }}
@@ -295,7 +267,6 @@ jobs:
           PUBLISH_RESULT: ${{ needs.publish-commit.result }}
           MAIN_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
-          test "$STATIC_RESULT" = success
           test "$CODE_RESULT" = success
           test "$SERVER_RESULT" = success
           test "$BROWSER_RESULT" = success
