@@ -16,55 +16,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
-      commit: ${{ steps.meta.outputs.commit }}
-      image: ${{ steps.meta.outputs.image }}
-      version: ${{ steps.meta.outputs.version }}
+      commit: ${{ steps.checks.outputs.commit }}
+      image: ${{ steps.checks.outputs.image }}
+      version: ${{ steps.checks.outputs.version }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            .github/workflows/ci.yml
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: '24.10.0'
-          cache: npm
-      - name: Fehlende Prüfwerkzeuge installieren
-        run: |
-          missing=()
-          for tool in ffmpeg shellcheck; do
-            if ! command -v "$tool" >/dev/null 2>&1; then missing+=("$tool"); fi
-          done
-          if [ "${#missing[@]}" -gt 0 ]; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends "${missing[@]}"
-          fi
-      - name: Workflow, Shell und Python statisch prüfen
-        run: |
-          curl --fail --silent --show-error --location --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tar.gz"
-          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check -
-          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
-          "$RUNNER_TEMP/actionlint"
-          shellcheck scripts/promote_image.sh scripts/smoke.sh
-          bash -n scripts/promote_image.sh scripts/smoke.sh
-          python3 -m compileall -q scripts
-      - run: npm ci && npm run typecheck && npm test && npm run build
-      - run: go vet ./...
-      - name: Go-Race-Tests
-        run: go test -race ./...
-      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
-      - id: meta
-        run: |
-          {
-            echo "commit=$(git rev-parse HEAD)"
-            echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-builds"
-            echo "version=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
-          } >> "$GITHUB_OUTPUT"
+      - id: checks
+        uses: ./.github/actions/code-checks
   build:
     name: Docker prüfen (${{ matrix.arch }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -187,6 +147,15 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           PUBLISH_RESULT: ${{ needs.publish-commit.result }}
         run: |
+          {
+            echo '## Ergebnis der Pflichtprüfungen'
+            echo
+            echo "Code: $CODE_RESULT"
+            echo "Native Docker-Smoke-Tests (AMD64 und ARM64): $BUILD_RESULT"
+            echo "Commit-Image: $PUBLISH_RESULT"
+            echo 'Nächster Schritt bei Erfolg: Release manuell mit passender Version und diesem Commit starten.'
+            echo "Commit: $GITHUB_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
           test "$CODE_RESULT" = success
           test "$BUILD_RESULT" = success
           test "$PUBLISH_RESULT" = success

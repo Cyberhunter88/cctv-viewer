@@ -103,7 +103,8 @@ jobs:
             echo "RELEASES_FILE=$RUNNER_TEMP/releases.json"
             echo "RELEASE_PROOF=$RUNNER_TEMP/release-proof.json"
           } >> "$GITHUB_ENV"
-      - name: Buildnachweis und unveränderliche Images prüfen
+      - id: verify
+        name: Buildnachweis und unveränderliche Images prüfen
         run: |
           gh run download "$CI_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "commit-image-proof-$CI_RUN_ATTEMPT" --dir "$RUNNER_TEMP/proof"
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RELEASES_FILE"
@@ -112,7 +113,8 @@ jobs:
           source_image=$(python3 -c 'import json,os; print(json.load(open(os.environ["PROOF_FILE"]))["image"])')
           docker pull "$source_image@$digest"
           ./scripts/smoke.sh "$source_image@$digest" "$VERSION" "$COMMIT" amd64
-      - name: Release und Konfiguration als Entwurf vorbereiten
+      - id: draft
+        name: Release und Konfiguration als Entwurf vorbereiten
         env:
           CREATE_RELEASE: ${{ needs.prepare.outputs.create_release }}
         run: |
@@ -123,21 +125,25 @@ jobs:
           fi
           git show "$COMMIT:compose.yaml" > "$RUNNER_TEMP/compose.yaml"
           git show "$COMMIT:.env.example" | sed "s/^CTV_VERSION=.*/CTV_VERSION=$VERSION/" > "$RUNNER_TEMP/config.env.example"
-      - name: Geprüftes Multiarch-Image ohne Neubau übernehmen
+      - id: version
+        name: Geprüftes Multiarch-Image ohne Neubau übernehmen
         env:
           VERSION_ONLY: 'true'
         run: bash scripts/promote_image.sh
-      - name: Öffentlichen Release-Download prüfen
+      - id: download
+        name: Öffentlichen Release-Download prüfen
         run: |
           digest=$(python3 -c 'import json,os; print(json.load(open(os.environ["RELEASE_PROOF"]))["digest"])')
           mkdir -p "$RUNNER_TEMP/anonymous-docker"
           DOCKER_CONFIG="$RUNNER_TEMP/anonymous-docker" docker pull "$IMAGE@$digest" || { echo 'Anonymer GHCR-Pull fehlgeschlagen. Release-Paket einmalig auf Public stellen und Workflow mit derselben Version und demselben Commit erneut starten.'; exit 1; }
-      - name: Konfiguration und Digest-Nachweis anhängen
+      - id: assets
+        name: Konfiguration und Digest-Nachweis anhängen
         run: python3 scripts/manual_release.py assets "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$RUNNER_TEMP/compose.yaml" "$RUNNER_TEMP/config.env.example" "$RELEASE_PROOF"
       - id: promote
         name: Versions-Aliases nach Download und Assets freigeben
         run: bash scripts/promote_image.sh
-      - name: Vollständigen Entwurf offiziell veröffentlichen
+      - id: publish
+        name: Vollständigen Entwurf offiziell veröffentlichen
         env:
           IS_LATEST: ${{ steps.promote.outputs.latest }}
         run: |
@@ -146,8 +152,8 @@ jobs:
             gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$IS_LATEST"
           fi
           echo "Release: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
-      - name: Wiederaufnahme dokumentieren
-        if: failure()
-        run: |
-          echo '## Veröffentlichung unvollständig' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Vorhandene korrekte Artefakte bleiben erhalten. Nach Beheben der Ursache mit derselben Version und demselben vollständigen Commit-SHA erneut starten. Keine Tags manuell verschieben.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Veröffentlichung und Wiederaufnahme zusammenfassen
+        if: always()
+        env:
+          RELEASE_STEPS: ${{ toJSON(steps) }}
+        run: python3 scripts/workflow_summary.py release

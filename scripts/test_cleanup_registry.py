@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from cleanup_registry import ManifestMissing, assert_idle, cleanup, inventory, plan, references, registry_manifest
+from cleanup_registry import ManifestMissing, assert_idle, cleanup, inventory, plan, protected_commits, references, registry_manifest
 
 NOW = datetime.now(timezone.utc)
 IMAGE = 'ghcr.io/example/viewer'
@@ -124,6 +124,92 @@ class CleanupPlanTest(unittest.TestCase):
         self.assertEqual([v['id'] for v in self.propose(versions, graph)['candidates']], [1,2])
         self.assertEqual(self.propose(versions, graph, selection={2})['candidates'], [])
         self.assertEqual([v['id'] for v in self.propose(versions, graph, selection={1})['candidates']], [1])
+
+
+class BuildRetentionTest(unittest.TestCase):
+    def propose(self, versions, graph=None, **kwargs):
+        graph = graph or {}
+        return plan(versions, IMAGE + '-builds', fetch=lambda _, key: graph.get(key, image()),
+                    now=NOW, min_age_days=30, build_package=True, **kwargs)
+
+    def test_old_commit_can_be_selected_but_new_unknown_and_untagged_are_protected(self):
+        versions = [version(1, ['sha-'+'a'*40], age=31),
+                    version(2, ['sha-'+'b'*40], age=29), version(3, [], age=100),
+                    version(4, ['candidate-42-1','custom'], age=100)]
+        result = self.propose(versions)
+        self.assertEqual([v['id'] for v in result['candidates']], [1])
+        self.assertEqual(len(result['retained_versions']), 3)
+        self.assertTrue(all(v['reason'] for v in result['retained_versions']))
+
+    def test_recent_commits_and_release_copies_protect_transitive_dependencies(self):
+        versions = [version(1, ['sha-'+'a'*40], age=100),
+                    version(2, ['candidate-42-1'], age=100),
+                    version(3, ['build-42-1-arm64'], age=100)]
+        graph = {digest(1): image(2), digest(2): image(3)}
+        for protection in [dict(keep_commits={'a'*40}), dict(keep_digests={digest(1)})]:
+            self.assertEqual(self.propose(versions, graph, **protection)['candidates'], [])
+
+    def test_partial_selection_still_protects_children_of_retained_old_commit(self):
+        versions = [version(1, ['sha-'+'a'*40], age=100),
+                    version(2, ['build-42-1-arm64'], age=100)]
+        result = self.propose(versions, {digest(1):image(2)}, selection={2})
+        self.assertEqual(result['candidates'], [])
+
+    def test_ten_newest_distinct_successful_commits_and_main_head_are_kept(self):
+        def run(identifier, sha):
+            return dict(id=identifier, head_sha=sha, event='push', head_branch='main', conclusion='success')
+        runs = [run(i, f'{i:040x}') for i in range(1,13)] + [run(99, f'{12:040x}')]
+        with patch('cleanup_registry.api', side_effect=[[dict(sha='a'*40)],
+                                                       [dict(workflow_runs=runs[:5]), dict(workflow_runs=runs[5:])]]):
+            self.assertEqual(protected_commits('example/viewer'),
+                             {'a'*40, *(f'{i:040x}' for i in range(3,13))})
+
+    def test_invalid_ci_evidence_aborts(self):
+        with patch('cleanup_registry.api', return_value=[dict(sha='invalid', workflow_runs=[])]):
+            with self.assertRaises(ValueError):
+                protected_commits('example/viewer')
+
+    def test_build_inventory_uses_only_fixed_sister_package(self):
+        with patch('cleanup_registry.api', side_effect=[[dict(owner=dict(type='User'))], [[]]]) as api:
+            endpoint, _ = inventory('example/viewer', build_package=True)
+            self.assertEqual(endpoint, 'users/example/packages/container/viewer-builds/versions')
+
+    def test_build_cleanup_refuses_short_retention_before_any_network_access(self):
+        with patch('cleanup_registry.api') as api, self.assertRaises(ValueError):
+            cleanup('example/viewer', '/unused', min_age_days=29, build_package=True)
+        api.assert_not_called()
+
+    def test_changed_protection_prevents_deletion(self):
+        versions = [version(1, ['sha-'+'a'*40], age=100)]
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('cleanup_registry.inventory', side_effect=[('endpoint', versions), ('release', []),
+                                                              ('endpoint', versions), ('release', [])]), \
+             patch('cleanup_registry.protected_commits', side_effect=[set(), {'a'*40}]), \
+             patch('cleanup_registry.registry_manifest', return_value=image()), \
+             patch('cleanup_registry.assert_idle'), patch('cleanup_registry.api') as api:
+            with self.assertRaisesRegex(ValueError, 'verändert'):
+                cleanup('example/viewer', Path(directory)/'plan.json', [1], 30, True)
+            api.assert_not_called()
+
+    def test_build_apply_deletes_only_selected_old_unprotected_commit(self):
+        versions = [version(n, ['sha-'+c*40], age=100)
+                    for n, c in [(1, 'a'), (2, 'b'), (3, 'c')]]
+
+        def inventories(repository, build_package=False):
+            return ('build-endpoint', versions) if build_package else ('release-endpoint', [versions[0]])
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('cleanup_registry.inventory', side_effect=inventories), \
+             patch('cleanup_registry.protected_commits', return_value={'b'*40}), \
+             patch('cleanup_registry.registry_manifest', return_value=image()), \
+             patch('cleanup_registry.assert_idle'), patch('cleanup_registry.api') as api:
+            output = Path(directory)/'plan.json'
+            cleanup('example/viewer', output, [3], 30, True)
+            api.assert_called_once_with('build-endpoint/3', method='DELETE')
+            proposal = json.loads(output.read_text())
+            self.assertEqual([v['id'] for v in proposal['candidates']], [3])
+            self.assertIn('Release-Paket', proposal['retained_versions'][0]['reason'])
+            self.assertIn('Main', proposal['retained_versions'][1]['reason'])
 
 
 class CleanupExecutionTest(unittest.TestCase):

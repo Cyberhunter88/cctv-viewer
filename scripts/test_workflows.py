@@ -13,6 +13,7 @@ class WorkflowContractTest(unittest.TestCase):
     def setUp(self):
         self.ci = (ROOT / ".github/workflows/ci.yml").read_text()
         self.pr = (ROOT / ".github/workflows/pr.yml").read_text()
+        self.shared = (ROOT / ".github/actions/code-checks/action.yml").read_text()
         self.release = (ROOT / ".github/workflows/release.yml").read_text()
 
     def job(self, name, pr=False):
@@ -54,15 +55,14 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertNotRegex(self.ci, r'gh release (?:create|edit)|(?m:^\s+(?:bash )?scripts/promote_image.sh\b)|:latest')
 
     def test_build_caches_keep_race_and_platform_outputs_separate(self):
-        self.assertIn('cache-dependency-path: |\n            go.sum\n            .github/workflows/ci.yml',
-                      self.job('code-checks'))
+        self.assertIn('cache-dependency-path: |\n          go.sum\n          .github/actions/code-checks/action.yml', self.shared)
         build = self.job('build')
         self.assertIn('cache-from: type=gha,scope=commit-${{ matrix.arch }}', build)
         self.assertIn('cache-to: type=gha,mode=max,scope=commit-${{ matrix.arch }}', build)
 
     def test_race_tests_run_unconditionally_for_pr_and_main(self):
-        code = self.job('code-checks')
-        self.assertRegex(code, r"- name: Go-Race-Tests\n        run: go test -race \./\.\.\.")
+        code = self.shared
+        self.assertRegex(code, r"name: Go-Race-Tests\n      shell: bash\n      run: go test -race \./\.\.\.")
         self.assertNotRegex(code, r"run: go test \./\.\.\.")
 
     def test_release_job_contract_matches_workflow_names_and_browser_matrix(self):
@@ -98,8 +98,8 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertNotIn("  test-server:", self.ci)
         server = self.job('code-checks', pr=True)
         browser = self.job('browser', pr=True)
-        self.assertIn('npm ci && npm run typecheck && npm test && npm run build', server)
-        self.assertLess(server.index('npm run build'), server.index('go build -o bin/cctv ./cmd/cctv'))
+        self.assertIn('npm ci && npm run typecheck && npm test && npm run build', self.shared)
+        self.assertLess(server.index('uses: ./.github/actions/code-checks'), server.index('go build -o bin/cctv ./cmd/cctv'))
         self.assertIn('go build -o bin/cctv ./cmd/cctv', server)
         self.assertIn('name: browser-test-server', server)
         self.assertNotIn("if: github.event_name", server)
@@ -123,7 +123,7 @@ class WorkflowContractTest(unittest.TestCase):
             shell = "\n".join(line[10:] for line in shell.splitlines())
             for values in itertools.product(('success', 'failure', 'skipped', 'cancelled'), repeat=len(required)):
                 result = subprocess.run(['bash', '-e', '-c', shell],
-                                        env=dict(os.environ, **dict(zip(required, values))), capture_output=True)
+                                        env=dict(os.environ, GITHUB_STEP_SUMMARY=os.devnull, GITHUB_SHA='a'*40, **dict(zip(required, values))), capture_output=True)
                 self.assertEqual(result.returncode == 0, all(value == 'success' for value in values),
                                  (pr, values, result.stderr))
 
@@ -134,8 +134,10 @@ class WorkflowContractTest(unittest.TestCase):
                       'go vet ./...', 'go test -race ./...',
                       "python3 -m unittest discover -s scripts -p 'test_*.py'",
                       '"$RUNNER_TEMP/actionlint"', 'shellcheck scripts/promote_image.sh scripts/smoke.sh'):
-            self.assertIn(check, main)
-            self.assertIn(check, pr)
+            self.assertIn(check, self.shared)
+        for job in (main, pr):
+            self.assertIn('uses: ./.github/actions/code-checks', job)
+            self.assertNotIn('go test -race', job)
 
     def test_architecture_smoke_precedes_evidence_upload_and_uses_digest(self):
         job = self.job('build')
@@ -160,7 +162,7 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('DOCKER_CONFIG="$RUNNER_TEMP/anonymous-docker" docker pull "$IMAGE@$digest"', self.release)
 
     def test_ci_publishes_only_to_the_separate_build_package(self):
-        self.assertIn('echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-builds"', self.ci)
+        self.assertIn('echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-builds"', self.shared)
         self.assertIn('echo "image=ghcr.io/${GITHUB_REPOSITORY,,}"', self.release)
         self.assertIn('docker pull "$source_image@$digest"', self.release)
         self.assertIn('skopeo', self.release)
@@ -189,10 +191,37 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('ghcr-cleanup-plan', cleanup)
         self.assertIn('actions: read', cleanup)
 
+    def test_scheduled_preview_has_no_write_permissions_or_delete_inputs(self):
+        preview = (ROOT / '.github/workflows/cleanup-preview.yml').read_text()
+        self.assertIn('schedule:', preview)
+        self.assertIn('packages: read', preview)
+        self.assertNotIn(': write', preview)
+        self.assertNotIn('--delete-version-id', preview)
+        self.assertNotIn('inputs:', preview)
+        self.assertIn('--build-package', preview)
+        self.assertIn('group: ghcr-cleanup-preview', preview)
+        self.assertNotIn('group: docker-publication', preview)
+
+    def test_release_reports_all_mutating_step_outcomes_even_on_failure(self):
+        from workflow_summary import STAGES
+        for identifier, _ in STAGES:
+            self.assertIn('- id: ' + identifier, self.release)
+        self.assertIn('if: always()', self.release)
+        self.assertIn('RELEASE_STEPS: ${{ toJSON(steps) }}', self.release)
+
+    def test_cached_actionlint_is_verified_before_execution(self):
+        shared = self.shared
+        self.assertIn('key: actionlint-Linux-X64-1.7.12-', shared)
+        self.assertLess(shared.index('sha256sum --check'), shared.index('tar -xzf'))
+        self.assertLess(shared.index('tar -xzf'), shared.index('"$RUNNER_TEMP/actionlint"'))
+
     def test_every_third_party_action_is_pinned_to_a_commit(self):
-        for workflow in (self.ci, self.pr, self.release, (ROOT / ".github/workflows/cleanup-images.yml").read_text()):
+        for workflow in [self.shared, *(path.read_text() for path in (ROOT / ".github/workflows").glob("*.yml"))]:
             for action in re.findall(r'uses: (\S+)', workflow):
-                self.assertRegex(action, r'^[^@]+@[a-f0-9]{40}$')
+                if action.startswith('./'):
+                    self.assertTrue((ROOT / action / 'action.yml').is_file())
+                else:
+                    self.assertRegex(action, r'^[^@]+@[a-f0-9]{40}$')
 
 
 if __name__ == '__main__':

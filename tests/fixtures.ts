@@ -1,7 +1,14 @@
-import {test as base,expect} from '@playwright/test';
+import {test as base,expect,type Page} from '@playwright/test';
 import {defaultView} from '../web/src/view-state';
 export {expect};
 export type {Page} from '@playwright/test';
+
+// Successful dialog saves finish asynchronously after the account API reply.
+export async function savePreferences(page:Page){
+ if(await page.locator('#preferences-save').isEnabled())await page.locator('#preferences-save').click();else await page.locator('#preferences-close').click();
+ await expect(page.locator('#preferences-dialog')).toBeHidden();
+ await expect(page.locator('#preferences-button')).toBeFocused();
+}
 
 // Browser cases share a disposable server and synthetic account. Reset its
 // server preferences once per case; reloads and second devices remain real.

@@ -1,0 +1,113 @@
+name: Gemeinsame Codeprüfung
+description: Identische Prüfungen und Metadaten für PR und Main
+outputs:
+  commit:
+    description: Geprüfter Commit
+    value: ${{ steps.meta.outputs.commit }}
+  image:
+    description: Internes Build-Paket
+    value: ${{ steps.meta.outputs.image }}
+  version:
+    description: Projektversion
+    value: ${{ steps.meta.outputs.version }}
+runs:
+  using: composite
+  steps:
+    - id: timing
+      shell: bash
+      run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+    - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      with:
+        go-version-file: go.mod
+        cache: true
+        cache-dependency-path: |
+          go.sum
+          .github/actions/code-checks/action.yml
+    - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      with:
+        node-version: '24.10.0'
+        cache: npm
+    - name: Fehlende Prüfwerkzeuge installieren
+      shell: bash
+      run: |
+        missing=()
+        for tool in ffmpeg shellcheck; do
+          if ! command -v "$tool" >/dev/null 2>&1; then missing+=("$tool"); fi
+        done
+        if [ "${#missing[@]}" -gt 0 ]; then
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends "${missing[@]}"
+        fi
+    - id: tool-cache
+      name: Actionlint-Archiv wiederverwenden
+      uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: ~/.cache/cctv-ci/actionlint
+        key: actionlint-Linux-X64-1.7.12-8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+    - id: static
+      name: Workflow, Shell und Python statisch prüfen
+      shell: bash
+      run: |
+        archive="$HOME/.cache/cctv-ci/actionlint/actionlint.tar.gz"
+        mkdir -p "$(dirname "$archive")"
+        if [ ! -f "$archive" ]; then
+          curl --fail --silent --show-error --location --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$archive"
+        fi
+        echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check -
+        tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+        "$RUNNER_TEMP/actionlint"
+        shellcheck scripts/promote_image.sh scripts/smoke.sh
+        bash -n scripts/promote_image.sh scripts/smoke.sh
+        python3 -m compileall -q scripts
+    - id: frontend
+      shell: bash
+      run: npm ci && npm run typecheck && npm test && npm run build
+    - id: vet
+      shell: bash
+      run: go vet ./...
+    - id: race
+      name: Go-Race-Tests
+      shell: bash
+      run: go test -race ./...
+    - id: python
+      shell: bash
+      run: python3 -m unittest discover -s scripts -p 'test_*.py'
+    - id: meta
+      shell: bash
+      run: |
+        {
+          echo "commit=$(git rev-parse HEAD)"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-builds"
+          echo "version=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
+        } >> "$GITHUB_OUTPUT"
+    - name: Codeprüfung zusammenfassen
+      if: always()
+      shell: bash
+      env:
+        STARTED: ${{ steps.timing.outputs.started }}
+        STATIC_RESULT: ${{ steps.static.outcome }}
+        FRONTEND_RESULT: ${{ steps.frontend.outcome }}
+        VET_RESULT: ${{ steps.vet.outcome }}
+        RACE_RESULT: ${{ steps.race.outcome }}
+        PYTHON_RESULT: ${{ steps.python.outcome }}
+        CACHE_HIT: ${{ steps.tool-cache.outputs.cache-hit }}
+        VERSION: ${{ steps.meta.outputs.version }}
+      run: |
+        elapsed=$(( $(date +%s) - STARTED ))
+        {
+          echo '## Codeprüfung'
+          echo
+          echo "Commit: $GITHUB_SHA · Version: ${VERSION:-nicht ermittelt}"
+          echo
+          echo "Dauer der gemeinsamen Prüfung: ${elapsed}s · Actionlint-Cachetreffer: ${CACHE_HIT:-false}"
+          echo
+          echo '| Prüfung | Ergebnis |'
+          echo '| --- | --- |'
+          echo "| Workflow / Shell / Python-Syntax | $STATIC_RESULT |"
+          echo "| TypeScript / Frontend-Tests / Build | $FRONTEND_RESULT |"
+          echo "| Go vet | $VET_RESULT |"
+          echo "| Go-Race-Tests | $RACE_RESULT |"
+          echo "| Release- und Workflow-Tests | $PYTHON_RESULT |"
+          echo
+          echo 'Einzelschrittzeiten stehen im Actions-Job; Main und PR bleiben getrennt geprüft.'
+        } >> "$GITHUB_STEP_SUMMARY"
