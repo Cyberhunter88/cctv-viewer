@@ -71,7 +71,7 @@ test('light, dark and system modes persist and redraw canvas and dialogs',async(
   const contrasts=await page.evaluate(()=>{
    const parse=(value:string)=>value.match(/[\d.]+/g)!.map(Number);
    const luminance=(rgb:number[])=>rgb.slice(0,3).map(x=>{const s=x/255;return s<=.04045?s/12.92:((s+.055)/1.055)**2.4}).reduce((n,x,i)=>n+x*[.2126,.7152,.0722][i],0);
-   return ['.theme-control select','.page-heading h1','.page-heading .muted','#search-button','.account-menu summary','.scan-details'].map(selector=>{
+   return ['.theme-control select','.page-heading h1','.camera-selection strong','#search-button','.account-menu summary','.scan-details'].map(selector=>{
     const node=document.querySelector(selector)!;const color=parse(getComputedStyle(node).color);let parent:Element|null=node,background:number[]=[];
     while(parent){background=parse(getComputedStyle(parent).backgroundColor);if(background.length===3||background[3]===1)break;parent=parent.parentElement}
     const a=luminance(color),b=luminance(background);return {selector,ratio:(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};

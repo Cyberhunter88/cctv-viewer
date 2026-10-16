@@ -256,21 +256,26 @@ func (a *App) Handler() http.Handler {
 	})
 }
 func (a *App) saveCamera(w http.ResponseWriter, r *http.Request) {
-	a.index.mu.Lock()
-	defer a.index.mu.Unlock()
-	if a.index.status.Running {
-		fail(w, 409, "Bitte laufende Indexierung abwarten")
-		return
-	}
 	var c Camera
 	if !decode(w, r, &c) {
 		return
 	}
+	c.Detection = nil
 	if c.ID == "" && c.Format == "" && c.Pattern == "" {
 		c.Format = "automatic"
 	}
 	if e := validateCamera(c, a.root); e != nil {
 		fail(w, 400, e.Error())
+		return
+	}
+	if c.ViewMode == "dual" {
+		result := detectView(r.Context(), &c, a.root)
+		c.Detection = &result
+	}
+	a.index.mu.Lock()
+	defer a.index.mu.Unlock()
+	if a.index.status.Running {
+		fail(w, 409, "Bitte laufende Indexierung abwarten")
 		return
 	}
 	if c.ID == "" {
@@ -304,9 +309,15 @@ func (a *App) preview(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &c) {
 		return
 	}
+	c.Detection = nil
 	if e := validateCamera(c, a.root); e != nil {
 		fail(w, 400, e.Error())
 		return
+	}
+	var detection *ViewDetection
+	if c.ViewMode == "dual" {
+		result := detectView(r.Context(), &c, a.root)
+		detection = &result
 	}
 	type item struct {
 		File  string `json:"file"`
@@ -316,6 +327,7 @@ func (a *App) preview(w http.ResponseWriter, r *http.Request) {
 		Error string `json:"error,omitempty"`
 	}
 	out := []item{}
+	samples := map[string][]string{"wide": {}, "zoom": {}, "unknown": {}, "": {}}
 	count := 0
 	stop := errors.New("enough")
 	e := fs.WalkDir(a.root.FS(), c.Folder, func(name string, d fs.DirEntry, e error) error {
@@ -332,14 +344,51 @@ func (a *App) preview(w http.ResponseWriter, r *http.Request) {
 		if !supportedMedia(name) {
 			return nil
 		}
+		view := recordingView(c, name)
+		limit := 3
+		if c.ViewMode != "dual" {
+			limit = 8
+		}
+		if len(samples[view]) < limit {
+			samples[view] = append(samples[view], name)
+		}
+		if c.ViewMode == "dual" && len(samples["wide"]) >= 3 && len(samples["zoom"]) >= 3 && len(samples["unknown"]) >= 2 {
+			return stop
+		}
+		if c.ViewMode != "dual" && len(samples[""]) >= 8 {
+			return stop
+		}
+		return nil
+	})
+	if e != nil && !errors.Is(e, stop) {
+		fail(w, 400, "Ordner konnte nicht gelesen werden")
+		return
+	}
+	chosen := []string{}
+	if c.ViewMode == "dual" {
+		for _, view := range []string{"wide", "zoom", "unknown"} {
+			limit := 3
+			if view == "unknown" {
+				limit = 2
+			}
+			for i, name := range samples[view] {
+				if i < limit {
+					chosen = append(chosen, name)
+				}
+			}
+		}
+	} else {
+		chosen = samples[""]
+	}
+	for _, name := range chosen {
 		relative := strings.TrimPrefix(name, c.Folder+"/")
-		t, e := a.previewTimestamp(r.Context(), c, name, relative)
+		t, err := a.previewTimestamp(r.Context(), c, name, relative)
 		v := item{File: relative, Kind: "video", View: recordingView(c, name)}
 		if strings.EqualFold(path.Ext(relative), ".jpg") || strings.EqualFold(path.Ext(relative), ".jpeg") {
 			v.Kind = "image"
 		}
-		if e != nil {
-			v.Error = e.Error()
+		if err != nil {
+			v.Error = err.Error()
 		} else {
 			if v.View == "zoom" {
 				t = t.Add(time.Duration(c.ZoomOffset * float64(time.Second)))
@@ -357,16 +406,8 @@ func (a *App) preview(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		out = append(out, v)
-		if len(out) >= 8 {
-			return stop
-		}
-		return nil
-	})
-	if e != nil && !errors.Is(e, stop) {
-		fail(w, 400, "Ordner konnte nicht gelesen werden")
-		return
 	}
-	jsonOut(w, 200, map[string]any{"examples": out, "limited": count > 10000})
+	jsonOut(w, 200, map[string]any{"examples": out, "limited": count > 10000, "detection": detection, "wideMarker": c.WideMarker, "zoomMarker": c.ZoomMarker})
 }
 func (a *App) day(w http.ResponseWriter, r *http.Request) {
 	date := r.URL.Query().Get("date")

@@ -14,23 +14,24 @@ import (
 
 type Store struct{ *sql.DB }
 type Camera struct {
-	ViewMode         string  `json:"viewMode"`
-	WideMarker       string  `json:"wideMarker"`
-	ZoomMarker       string  `json:"zoomMarker"`
-	ZoomOffset       float64 `json:"zoomOffset"`
-	ID               string  `json:"id"`
-	Name             string  `json:"name"`
-	Folder           string  `json:"folder"`
-	Pattern          string  `json:"pattern"`
-	Timezone         string  `json:"timezone"`
-	Offset           float64 `json:"offset"`
-	Format           string  `json:"format"`
-	Prefix           string  `json:"prefix"`
-	IndexingMode     string  `json:"indexingMode"`
-	DirectoryPattern string  `json:"directoryPattern"`
-	SourceStatus     string  `json:"sourceStatus"`
-	LastScan         int64   `json:"lastScan"`
-	IndexedVideos    int     `json:"indexedVideos"`
+	ViewMode         string         `json:"viewMode"`
+	WideMarker       string         `json:"wideMarker"`
+	ZoomMarker       string         `json:"zoomMarker"`
+	ZoomOffset       float64        `json:"zoomOffset"`
+	Detection        *ViewDetection `json:"detection,omitempty"`
+	ID               string         `json:"id"`
+	Name             string         `json:"name"`
+	Folder           string         `json:"folder"`
+	Pattern          string         `json:"pattern"`
+	Timezone         string         `json:"timezone"`
+	Offset           float64        `json:"offset"`
+	Format           string         `json:"format"`
+	Prefix           string         `json:"prefix"`
+	IndexingMode     string         `json:"indexingMode"`
+	DirectoryPattern string         `json:"directoryPattern"`
+	SourceStatus     string         `json:"sourceStatus"`
+	LastScan         int64          `json:"lastScan"`
+	IndexedVideos    int            `json:"indexedVideos"`
 }
 type Recording struct {
 	View      string  `json:"view,omitempty"`
