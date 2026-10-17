@@ -143,7 +143,15 @@ class Tile {
    this.container.classList.remove('frame-pending');setMessage(this,'');
   });
  }
- release(){this.conceal();this.epoch++;clearTimeout(this.pauseTimer);clearTimeout(this.stallTimer);clearTimeout(this.recoveryTimer);this.abort?.abort();this.abort=undefined;this.hls?.destroy();this.hls=undefined;this.video.pause();this.video.removeAttribute('src');this.video.load();if(this.stream){const id=this.stream;this.stream=undefined;void api('/api/streams/'+id,{method:'DELETE',keepalive:true}).catch(()=>{})}this.loading=false;this.playPending=false;this.record=undefined;this.failed=false;this.offset=0;this.factor=1}
+ release(unloading=false){
+  this.conceal();this.epoch++;clearTimeout(this.pauseTimer);clearTimeout(this.stallTimer);clearTimeout(this.recoveryTimer);this.abort?.abort();this.abort=undefined;
+  // Hls.destroy() normally resets the element with load() too. Transfer its
+  // media first during document teardown so neither path restarts the player.
+  if(unloading){this.hls?.transferMedia();if(this.video.src.startsWith('blob:'))URL.revokeObjectURL(this.video.src)}
+  this.hls?.destroy();this.hls=undefined;this.video.pause();this.video.removeAttribute('src');if(!unloading)this.video.load();
+  if(this.stream){const id=this.stream;this.stream=undefined;void api('/api/streams/'+id,{method:'DELETE',keepalive:true}).catch(()=>{})}
+  this.loading=false;this.playPending=false;this.record=undefined;this.failed=false;this.offset=0;this.factor=1
+ }
  destroy(){if(audioTile===this){audioTile=undefined;this.setAudio(false)}this.release();this.container.remove()}
  async load(record:Recording,recovering=false){
   const different=this.record?.id!==record.id;this.release();if(different&&!recovering){this.attempts=0;this.recoveryStart=0}this.record=record;const epoch=this.epoch;this.loading=true;this.reveal();setMessage(this,'Aufnahme wird geladen …');this.codec.textContent=record.codec==='hevc'?'H.265':record.codec.toUpperCase();this.loadedSpeed=speed();if(recovering&&this.recoveryStart)this.recoveryTimer=setTimeout(()=>this.fail('Wiederherstellung nach 30 Sekunden beendet'),Math.max(1,30000-(performance.now()-this.recoveryStart)));
@@ -354,7 +362,10 @@ on('prev-day',()=>changeDate(-1));on('next-day',()=>changeDate(1));on('today',()
 $<HTMLSelectElement>('layout').addEventListener('change',()=>{page=0;renderCameras();saveView()});$<HTMLSelectElement>('quality').addEventListener('change',()=>{tiles.forEach(t=>{t.release()});update();saveView()});$<HTMLSelectElement>('speed').addEventListener('change',()=>{update();saveView()});
 on('rescan',async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({date:dateInput.value})}))});
 on('logout',async()=>{if(document.querySelector('[data-dirty="true"]')&&!confirm('Ungespeicherte Änderungen verwerfen und abmelden?'))return;for(const draft of document.querySelectorAll<HTMLElement>('[data-dirty]'))draft.dataset.dirty='false';pause();tiles.forEach(t=>t.release());await api('/api/logout',{method:'POST'});location.reload()});
-window.addEventListener('pagehide',()=>{pause();tiles.forEach(t=>t.release())});document.addEventListener('visibilitychange',()=>{if(document.hidden){pause();tiles.forEach(t=>t.release())}});
+// Do not restart the media resource selection algorithm while WebKit tears
+// down the document: load() can race its GStreamer player during reload.
+const suspendMedia=()=>{pause();tiles.forEach(t=>t.release(true))};
+window.addEventListener('pagehide',suspendMedia);document.addEventListener('visibilitychange',()=>{if(document.hidden)suspendMedia()});
 const loginForm=$<HTMLFormElement>('login-form');loginForm.addEventListener('submit',async e=>{e.preventDefault();const button=loginForm.querySelector('button')!;button.disabled=true;try{const data=new FormData(loginForm);const res=await fetch('/auth/local',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(data))});const body=await res.json();if(!res.ok)throw new Error(body.error);location.reload()}catch(e){$('login-error').textContent=(e as Error).message}finally{button.disabled=false}});
 let managementInitialized=false;
 async function boot(){
