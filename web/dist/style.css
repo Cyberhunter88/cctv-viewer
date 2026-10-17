@@ -1968,7 +1968,7 @@ dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
 .nav-group > summary:focus-visible { outline:2px solid var(--accent); }
 .nav-submenu { margin:4px 0 0 12px; border-left:1px solid var(--line); padding-left:6px; }
 #app .nav-submenu .rail-item { font-size:12px; }
-#mobile-nav-toggle { display:none; }
+#mobile-nav-toggle { display:none; min-width:44px; min-height:44px; }
 .session-entry { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
 #user-list { margin:16px 0 28px; }
 #user-list .camera-entry { display:flex; justify-content:space-between; gap:12px; }
