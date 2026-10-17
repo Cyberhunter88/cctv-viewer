@@ -37,12 +37,13 @@ test('shortcuts share the configured step and never interfere with forms',async(
  // Exercise the asynchronous save/close boundary even on fast local servers.
  await page.route('**/api/preferences',async route=>{
   if(route.request().method()!=='PATCH')return route.continue();
-  const response=await route.fetch();await new Promise(resolve=>setTimeout(resolve,250));await route.fulfill({response});
+  const response=await route.fetch(),body=await response.body(),status=response.status(),headers=response.headers();await new Promise(resolve=>setTimeout(resolve,250));await route.fulfill({status,headers,body});
  });
  await open(page);await page.locator('#pref-seekStep').selectOption('30');await save(page);await page.locator('#timeline').focus();await expect(page.locator('#clock')).toHaveText('08:30:00');await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');await page.keyboard.press('Shift+ArrowLeft');await expect(page.locator('#clock')).toHaveText('08:29:30');await page.keyboard.press('Shift+ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');const after=await page.locator('#clock').textContent();
  await open(page);await page.locator('#pref-shortcuts').uncheck();await save(page);await page.locator('#timeline').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);await page.locator('#overview').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);
  await open(page);await page.locator('#pref-shortcuts').check();await page.locator('#pref-timelineHeight').focus();await page.keyboard.press('ArrowDown');await expect(page.locator('#clock')).toHaveText(after!);page.once('dialog',d=>d.accept());await page.keyboard.press('Escape');await expect(page.locator('#preferences-dialog')).toBeHidden();await expect(page.locator('#preferences-button')).toBeFocused();
  await page.locator('#select-none').click();await expect(page.locator('#video-grid')).toContainText('Keine Kameras ausgewählt');await expect(page.locator('#camera-range')).toHaveText('Keine Kamera ausgewählt');await page.locator('#select-all').click();await expect(page.locator('.camera-tile')).toHaveCount(2);
+ await page.unrouteAll({behavior:'wait'});
 });
 for(const role of ['admin','viewer'])test(`${role} responsive shell and settings in both themes`,async({page},info)=>{
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
@@ -255,4 +256,18 @@ test('expanded fallback restores its icon and label on Escape',async({page})=>{
  await login(page);const tile=page.locator('.camera-tile').first(),button=tile.locator('.tile-expand');
  const original=await button.locator('path').getAttribute('d');await button.click();await expect(tile).toHaveClass(/expanded/);await expect(button).toHaveAccessibleName('Vergrößerte Ansicht schließen');expect(await button.locator('path').getAttribute('d')).not.toBe(original);
  await page.keyboard.press('Escape');await expect(tile).not.toHaveClass(/expanded/);await expect(button).toHaveAccessibleName('Ansicht vergrößern');await expect(button.locator('path')).toHaveAttribute('d',original!);
+});
+
+test('a scan completing during the day response refreshes the recording snapshot',async({page})=>{
+ await login(page);let requests=0,finished=false;
+ await page.route('**/api/scan',route=>route.fulfill({json:{running:false,completion:finished?1000000:0,warnings:[],cameras:[]}}));
+ await page.route('**/api/day?*',async route=>{
+  const response=await route.fetch(),day=await response.json();requests++;
+  // Match an index commit between the database reads and status serialization.
+  if(requests===1)day.recordings=day.recordings.slice(0,1);
+  day.scan={...day.scan,running:false,completion:1000000};finished=true;await route.fulfill({json:day});
+ });
+ await page.locator('#date').dispatchEvent('change');await expect(page.locator('#recording-count')).toContainText('1 Aufnahmen');
+ await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:12000});expect(requests).toBeGreaterThanOrEqual(2);
+ await page.unrouteAll({behavior:'wait'});
 });

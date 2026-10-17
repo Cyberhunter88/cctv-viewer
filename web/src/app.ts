@@ -23,7 +23,8 @@ const dateInput=$<HTMLInputElement>('date'),canvas=$<HTMLCanvasElement>('timelin
 const timelineLayer=document.createElement('canvas');let timelineKey='',timelineRecords:Recording[]|undefined;
 const speed=()=>Number($<HTMLSelectElement>('speed').value);
 let refreshRange=()=>{};let page=0,order:string[]=[],hotspot:string|undefined,lastHotspotCursor:number|undefined;
-let scanCompletion=0;
+// A completion observed during a day request may be newer than its recording snapshot.
+let scanCompletion=0,loadedScanCompletion=0;
 let toastTimer:ReturnType<typeof setTimeout>|undefined;
  const state:ViewState=defaultView();
  let trace:{at:number;event:string;camera?:string;detail?:string}[]=[],tracing=false,traceStart=0;
@@ -220,7 +221,7 @@ function setScan(scan:Scan){
  $('scan-queue').textContent=`${scan.queue?.length||0} Aufträge warten${scan.queue?.length?' · '+scan.queue.map(q=>`${cameras.find(c=>c.id===q.camera)?.name||'Alle Kameras'} (${q.date})`).join(', '):''}`;
  $('warnings').hidden=!scan.warnings?.length;$('warnings').textContent=(scan.warnings||[]).join('\n');
 }
-async function loadDay(reset=true){const generation=++loadGeneration;if(reset){pause();tiles.forEach(t=>t.release())}const data=await api<Day>('/api/day?date='+encodeURIComponent(dateInput.value));if(generation!==loadGeneration)return;records=data.recordings;playableRecords=playbackRecordings(records,cameras);from=data.from;to=data.to;setScan(data.scan);refreshDisplayedRecords();if(reset){const ids=new Set(visible().map(c=>c.id));cursor=firstRecordingStart(displayedRecords.filter(r=>ids.has(r.cameraId)),from);viewStart=from;viewEnd=to}$('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;update();void thumbnails();refreshRange()}
+async function loadDay(reset=true){const generation=++loadGeneration,completionAtStart=scanCompletion;if(reset){pause();tiles.forEach(t=>t.release())}const data=await api<Day>('/api/day?date='+encodeURIComponent(dateInput.value));if(generation!==loadGeneration)return;loadedScanCompletion=completionAtStart;records=data.recordings;playableRecords=playbackRecordings(records,cameras);from=data.from;to=data.to;setScan(data.scan);refreshDisplayedRecords();if(reset){const ids=new Set(visible().map(c=>c.id));cursor=firstRecordingStart(displayedRecords.filter(r=>ids.has(r.cameraId)),from);viewStart=from;viewEnd=to}$('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;update();void thumbnails();refreshRange()}
 async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');for(const id of openZoom)if(!cameras.some(c=>c.id===id&&c.viewMode==='dual'))openZoom.delete(id);order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList()}
 function updateTimelineDescription(cams:Camera[]){
  const description=$('timeline-description'),list=element('ul');
@@ -385,7 +386,7 @@ async function boot(){
  try{localStorage.setItem('cctv-view:'+session.preferenceKey,JSON.stringify(preferenceSnapshot()))}catch{}
  refreshRange=attachTimelineControls(canvas,{bounds:()=>({from,to,cursor,viewStart,viewEnd}),seek,zoom,shortcuts:()=>state.shortcuts,seekStep:()=>state.seekStep,pan:(start,end)=>{viewStart=start;viewEnd=end;draw();refreshRange()}});
  $('boot-error').hidden=true;$('app').hidden=false;requestAnimationFrame(frame);
- setInterval(async()=>{try{const scan=await api<Scan>('/api/scan');const wasRunning=scanRunning,completedBefore=scanCompletion;setScan(scan);if((wasRunning&&!scan.running)||scanCompletion>completedBefore)await loadDay(false)}catch(e){notify((e as Error).message)}},4000);
+ setInterval(async()=>{try{const scan=await api<Scan>('/api/scan');const wasRunning=scanRunning;setScan(scan);if((wasRunning&&!scan.running)||scanCompletion>loadedScanCompletion)await loadDay(false)}catch(e){notify((e as Error).message)}},4000);
 }
 function showBootError(error:unknown){$('boot-error-message').textContent=(error as Error).message||'Unbekannter Fehler';$('boot-error').hidden=false}
 async function runBoot(){const button=$<HTMLButtonElement>('boot-retry');button.disabled=true;if(!$('boot-error').hidden)$('boot-error-message').textContent='Verbindung wird hergestellt …';try{await boot()}catch(error){showBootError(error)}finally{button.disabled=false}}
