@@ -122,6 +122,12 @@ func TestUserManagement(t *testing.T) {
 	if w := edit("test", "viewer", "", false, false); w.Code != 409 {
 		t.Fatal("last admin", w.Code)
 	}
+	if w := edit("test", "admin", "", true, false); w.Code != 409 {
+		t.Fatal("last admin disabled", w.Code)
+	}
+	if w := request(a, "DELETE", "/api/admin/users/test", nil, cookie, s.CSRF); w.Code != 409 {
+		t.Fatal("last admin deleted", w.Code)
+	}
 	if w := edit("reader", "viewer", "secure reader password", false, true); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
@@ -208,6 +214,12 @@ func TestSettingsPersistenceValidationAndReset(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 	w := request(a, "GET", "/api/admin/settings", nil, cookie, "")
+	var saved struct {
+		Sources map[string]string `json:"sources"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &saved); err != nil || saved.Sources["oidcSecret"] != "Weboberfläche" {
+		t.Fatal("secret source not visible", err)
+	}
 	if strings.Contains(w.Body.String(), "TOPSECRET") {
 		t.Fatal("secret leaked")
 	}

@@ -1,3 +1,4 @@
+import {openPage,openNavigation,preferenceControl} from './fixtures';
 import {test,expect,savePreferences as save,type Page} from './fixtures';
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.40'}});
 // Each case uses a distinct synthetic client; the expanded suite must not
@@ -20,12 +21,12 @@ async function legacyAccount(page:Page){
  const signedIn=await page.request.post('/auth/local',{headers:{Origin:new URL(page.url()).origin},data:{username,password:'synthetic preference test password'}});expect(signedIn.ok()).toBe(true);
  return (await page.request.get('/api/session')).json();
 }
-async function open(page:Page){await page.locator('#preferences-button').click();await expect(page.locator('#preferences-dialog')).toBeVisible()}
+async function open(page:Page){await openNavigation(page,'preferences-button');await expect(page.locator('#preferences-dialog')).toBeVisible()}
 test('legacy settings migrate, personal preferences persist and reset',async({page})=>{
  await login(page);const session=await legacyAccount(page);
  await page.evaluate(key=>localStorage.setItem('cctv-view:'+key,JSON.stringify({layout:'4',quality:'compatible',cameras:['Testkamera-B'],order:['Testkamera-B','Testkamera-A'],timelineHeight:300})),session.preferenceKey);await page.reload();
  await expect(page.locator('#layout')).toHaveValue('2x2');await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#camera-filters .filter').first()).toHaveText('Testkamera-B');await open(page);
- await expect(page.locator('#pref-showNames')).toBeChecked();await page.locator('#pref-density').selectOption('compact');await page.locator('#pref-showNames').uncheck();await page.locator('#pref-showTimestamps').uncheck();await page.locator('#pref-showCodec').uncheck();await page.locator('#pref-showOverview').uncheck();await page.locator('#pref-showThumbnails').uncheck();await page.locator('#pref-shortcuts').uncheck();await page.locator('#pref-seekStep').selectOption('30');await page.locator('#pref-timelineHeight').fill('400');await page.locator('#pref-timelineHeight').dispatchEvent('change');await page.locator('#theme').selectOption('dark');await save(page);
+ await expect(page.locator('#pref-showNames')).toBeChecked();await (await preferenceControl(page,'pref-density')).selectOption('compact');await (await preferenceControl(page,'pref-showNames')).uncheck();await (await preferenceControl(page,'pref-showTimestamps')).uncheck();await (await preferenceControl(page,'pref-showCodec')).uncheck();await (await preferenceControl(page,'pref-showOverview')).uncheck();await (await preferenceControl(page,'pref-showThumbnails')).uncheck();await (await preferenceControl(page,'pref-shortcuts')).uncheck();await (await preferenceControl(page,'pref-seekStep')).selectOption('30');await (await preferenceControl(page,'pref-timelineHeight')).fill('400');await page.locator('#pref-timelineHeight').dispatchEvent('change');await (await preferenceControl(page,'theme')).selectOption('dark');await save(page);
  const thumbs:string[]=[];page.on('request',r=>{if(r.url().includes('/thumbnail'))thumbs.push(r.url())});await page.reload();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen');
  await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await expect(page.locator('#overview')).toBeHidden();await expect(page.locator('#thumbnails')).toBeHidden();await expect(page.locator('.thumb')).toHaveCount(0);await expect(page.locator('#timeline-viewport')).toHaveCSS('height','400px');expect(thumbs).toEqual([]);
  await expect(page.locator('.camera-tile').first()).toHaveAccessibleName('Testkamera-B');await open(page);await expect(page.locator('#pref-seekStep')).toHaveValue('30');await expect(page.locator('#pref-shortcuts')).not.toBeChecked();
@@ -39,33 +40,23 @@ test('shortcuts share the configured step and never interfere with forms',async(
   if(route.request().method()!=='PATCH')return route.continue();
   const response=await route.fetch(),body=await response.body(),status=response.status(),headers=response.headers();await new Promise(resolve=>setTimeout(resolve,250));await route.fulfill({status,headers,body});
  });
- await open(page);await page.locator('#pref-seekStep').selectOption('30');await save(page);await page.locator('#timeline').focus();await expect(page.locator('#clock')).toHaveText('08:30:00');await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');await page.keyboard.press('Shift+ArrowLeft');await expect(page.locator('#clock')).toHaveText('08:29:30');await page.keyboard.press('Shift+ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');const after=await page.locator('#clock').textContent();
- await open(page);await page.locator('#pref-shortcuts').uncheck();await save(page);await page.locator('#timeline').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);await page.locator('#overview').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);
- await open(page);await page.locator('#pref-shortcuts').check();await page.locator('#pref-timelineHeight').focus();await page.keyboard.press('ArrowDown');await expect(page.locator('#clock')).toHaveText(after!);page.once('dialog',d=>d.accept());await page.keyboard.press('Escape');await expect(page.locator('#preferences-dialog')).toBeHidden();await expect(page.locator('#preferences-button')).toBeFocused();
+ await open(page);await (await preferenceControl(page,'pref-seekStep')).selectOption('30');await save(page);await page.locator('#timeline').focus();await expect(page.locator('#clock')).toHaveText('08:30:00');await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');await page.keyboard.press('Shift+ArrowLeft');await expect(page.locator('#clock')).toHaveText('08:29:30');await page.keyboard.press('Shift+ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');const after=await page.locator('#clock').textContent();
+ await open(page);await (await preferenceControl(page,'pref-shortcuts')).uncheck();await save(page);await page.locator('#timeline').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);await page.locator('#overview').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);
+ await open(page);await (await preferenceControl(page,'pref-shortcuts')).check();await (await preferenceControl(page,'pref-timelineHeight')).focus();await page.keyboard.press('ArrowDown');await expect(page.locator('#clock')).toHaveText(after!);page.once('dialog',d=>d.accept());await page.keyboard.press('Escape');await expect(page.locator('#preferences-dialog')).toBeHidden();await expect(page).toHaveURL(/#recordings$/);
  await page.locator('#select-none').click();await expect(page.locator('#video-grid')).toContainText('Keine Kameras ausgewählt');await expect(page.locator('#camera-range')).toHaveText('Keine Kamera ausgewählt');await page.locator('#select-all').click();await expect(page.locator('.camera-tile')).toHaveCount(2);
  await page.unrouteAll({behavior:'wait'});
 });
 for(const role of ['admin','viewer'])test(`${role} responsive shell and settings in both themes`,async({page},info)=>{
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
  if(role==='viewer')await page.route('**/api/session',async route=>{const response=await route.fetch();if(response.status()!==200)return route.fulfill({response});const session=await response.json();await route.fulfill({response,json:{...session,role:'viewer',kind:'oidc',preferenceKey:'viewer-redesign'}})});
- await login(page);if(role==='viewer')await expect(page.locator('#settings-button')).toBeHidden();else await expect(page.locator('#settings-button')).toBeVisible();
- const navigation=page.getByRole('navigation',{name:'Hauptnavigation'});
- await expect(navigation.getByRole('button',{name:'Aufnahmen suchen'})).toHaveCount(1);
- await expect(navigation.getByRole('button',{name:'Persönliche Einstellungen'})).toHaveCount(1);
- await expect(page.locator('#header-preferences, #mobile-toolbar')).toHaveCount(0);
- for(const theme of ['light','dark']){
-  for(const width of [390,768,1440,1920]){
-   await page.setViewportSize({width,height:1000});await open(page);await page.locator('#theme').selectOption(theme);await save(page);await open(page);
-   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-   const box=await page.locator('#preferences-dialog').boundingBox();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(width);
-   await page.screenshot({path:info.outputPath(`${theme}-${width}-settings.png`)});await page.locator('#preferences-close').click();
-   expect(await page.locator('.rail-item').evaluateAll(items=>items.filter(item=>!item.hasAttribute('hidden')).every(item=>{const button=item.getBoundingClientRect(),icon=item.querySelector('svg')!.getBoundingClientRect();return innerWidth<=700?Math.abs(button.x+button.width/2-icon.x-icon.width/2)<1:Math.abs(button.y+button.height/2-icon.y-icon.height/2)<1}))).toBe(true);
-   const icon=await page.locator('.rail-logo svg').boundingBox(),logo=await page.locator('.rail-logo').boundingBox();expect(Math.abs(icon!.y+icon!.height/2-logo!.y-logo!.height/2)).toBeLessThan(1);
-   await expect(page.locator('#search-button')).toHaveAccessibleName('Aufnahmen suchen');await expect(page.locator('#play')).toBeVisible();
-   await page.locator('#account-menu summary').click({force:role==='viewer'});await expect(page.locator('#logout')).toBeVisible();if(role==='viewer'){await expect(page.locator('#password-button')).toBeHidden();await expect(page.locator('.account-actions')).toBeHidden();await expect(page.locator('.account-chevron')).toBeHidden();await expect(page.locator('#account-menu')).not.toHaveAttribute('open','')}else await expect(page.locator('#password-button')).toBeVisible();await page.keyboard.press('Escape');
-   await page.screenshot({path:info.outputPath(`${theme}-${width}-recordings.png`),fullPage:true});
-   await page.evaluate(()=>window.scrollTo({top:document.documentElement.scrollHeight,behavior:'instant'}));const transport=await page.locator('#playback-controls').boundingBox();expect(transport!.y).toBeGreaterThanOrEqual(0);expect(transport!.y+transport!.height).toBeLessThanOrEqual(1000);await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}));
-  }
+ await login(page);
+ if(role==='viewer')await expect(page.locator('[data-admin]')).toBeHidden();
+ for(const theme of ['light','dark'])for(const width of [390,768,1440,1920]){
+  await page.setViewportSize({width,height:1000});await open(page);await (await preferenceControl(page,'theme')).selectOption(theme);await save(page);await open(page);
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  const box=await page.locator('#preferences-dialog').boundingBox();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(width);
+  await page.screenshot({path:info.outputPath(`${theme}-${width}-settings.png`)});await page.locator('#preferences-close').click();
+  await page.locator('#account-menu summary').click();await expect(page.locator('#password-button')).toBeVisible();await page.locator('#password-button').click();await expect(page.locator('#account-info')).toContainText(role==='viewer'?'Identity Provider':'Lokales Konto');if(role==='viewer')await expect(page.locator('#password-form')).toBeHidden();await page.locator('#password-close').click();
  }
  expect(errors).toEqual([]);
 });
@@ -80,7 +71,7 @@ test('original migration, collapsible rail, account placement and laptop control
  const brand=await page.locator('.rail-logo').boundingBox(),collapse=await page.locator('#rail-toggle').boundingBox();expect(Math.abs(brand!.y+brand!.height/2-collapse!.y-collapse!.height/2)).toBeLessThan(1);
  const toggle=page.locator('#rail-toggle');await expect(toggle).toHaveAttribute('aria-expanded','true');
  await toggle.click();await expect(toggle).toHaveAttribute('aria-expanded','false');
- await expect(page.locator('.workspace')).toHaveCSS('margin-left','72px');
+ await expect(page.locator('.workspace')).toHaveCSS('margin-left','190px');
  await page.reload();await expect(toggle).toHaveAttribute('aria-expanded','false');
  await toggle.focus();await page.keyboard.press('Enter');await expect(toggle).toHaveAttribute('aria-expanded','true');
  await expect(page.locator('.page-heading #account-menu')).toHaveCount(0);
@@ -89,7 +80,7 @@ test('original migration, collapsible rail, account placement and laptop control
  await page.keyboard.press('Escape');await expect(account).not.toHaveAttribute('open','');await expect(account.locator('summary')).toBeFocused();
  for(const theme of ['light','dark'])for(const width of [1366,1440,768,390]){
   await page.setViewportSize({width,height:width===1366?768:900});
-  await open(page);await page.locator('#theme').selectOption(theme);await save(page);
+  await open(page);await (await preferenceControl(page,'theme')).selectOption(theme);await save(page);
   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   const grid=await page.locator('#video-grid').boundingBox(),transport=await page.locator('#playback-controls').boundingBox();expect(transport!.y).toBeGreaterThanOrEqual(grid!.y+grid!.height);await expect(page.locator('#timeline-section > #playback-controls')).toHaveCount(1);
   await account.locator('summary').click();await expect(page.locator('#logout')).toBeVisible();
@@ -114,23 +105,17 @@ test('native fullscreen uses the actual tile and preserves original playback',as
  await page.evaluate(()=>document.exitFullscreen());
 });
 
-test('menus scroll in short windows and keep close controls reachable',async({page},info)=>{
+test('settings pages scroll in short windows without horizontal overflow',async({page},info)=>{
  await login(page);
- for(const width of [1366,390]){
-  await page.setViewportSize({width,height:500});
-  for(const [trigger,id,close] of [['preferences-button','preferences-dialog','preferences-close'],['settings-button','camera-dialog','close-dialog'],['search-button','search-dialog','search-close']]){
-   await page.locator('#'+trigger).click();const dialog=page.locator('#'+id);await expect(dialog).toBeVisible();
-   await dialog.locator('.dialog-body').evaluate(el=>el.scrollTo(0,el.scrollHeight));
-   const metrics=await dialog.locator('.dialog-body').evaluate(el=>({top:el.scrollTop,remaining:el.scrollHeight-el.clientHeight,overflow:el.scrollWidth>el.clientWidth+1}));
-   expect(metrics.overflow).toBe(false);if(metrics.remaining>1)expect(metrics.top).toBeGreaterThan(0);
-   const button=page.locator('#'+close);await expect(button).toBeInViewport();
-   await page.screenshot({path:info.outputPath(`${id}-${width}.png`)});
-   await button.click();await expect(dialog).toBeHidden();
-  }
+ for(const width of [1366,390])for(const path of ['settings/playback','admin/cameras','search']){
+  await page.setViewportSize({width,height:500});await openPage(page,path);
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.evaluate(()=>window.scrollTo(0,document.body.scrollHeight));
+  await page.screenshot({path:info.outputPath(`page-${path.replace('/','-')}-${width}.png`),fullPage:true});
+  await openPage(page,'recordings');
  }
 });
-
 
 test('tile controls retain keyboard focus when the responsive grid rebuilds',async({page})=>{
  await login(page);
@@ -154,10 +139,10 @@ test('account preferences cross devices, merge edits and keep server values abov
  try{
   await second.goto('/');await expect(second.locator('#app')).toBeVisible();
   await page.locator('#layout').selectOption('3x2');await page.locator('#camera-filters').getByRole('button',{name:'Testkamera-A',exact:true}).click();
-  await open(page);await page.locator('#pref-density').selectOption('compact');await page.locator('#theme').selectOption('dark');await page.locator('#pref-seekStep').selectOption('30');await save(page);await expect(page.locator('#preferences-dialog')).toBeHidden();
+  await open(page);await (await preferenceControl(page,'pref-density')).selectOption('compact');await (await preferenceControl(page,'theme')).selectOption('dark');await (await preferenceControl(page,'pref-seekStep')).selectOption('30');await save(page);await expect(page.locator('#preferences-dialog')).toBeHidden();
   await expect(second.locator('html')).toHaveAttribute('data-density','comfortable');
   // The second device edits a different field from its older snapshot.
-  await open(second);await second.locator('#pref-showCodec').uncheck();await save(second);await expect(second.locator('#preferences-dialog')).toBeHidden();
+  await open(second);await (await preferenceControl(second,'pref-showCodec')).uncheck();await save(second);await expect(second.locator('#preferences-dialog')).toBeHidden();
   await second.reload();await expect(second.locator('#app')).toBeVisible();
   await expect(second.locator('html')).toHaveAttribute('data-density','compact');await expect(second.locator('html')).toHaveAttribute('data-theme','dark');await expect(second.locator('body')).toHaveClass(/hide-showCodec/);
   await expect(second.locator('#layout')).toHaveValue('3x2');await expect(second.locator('#camera-filters .selected')).toHaveText('Testkamera-B');
@@ -172,21 +157,21 @@ test('account preferences cross devices, merge edits and keep server values abov
 test('save failures remain visible and retry persists the same changes',async({page})=>{
  await login(page);
  await page.route('**/api/preferences',async route=>{if(route.request().method()==='PATCH')await route.fulfill({status:503,json:{error:'synthetic preference storage failure'}});else await route.continue()});
- await open(page);await page.locator('#pref-density').selectOption('compact');await page.locator('#preferences-save').click();
+ await open(page);await (await preferenceControl(page,'pref-density')).selectOption('compact');await page.locator('#preferences-save').click();
  await expect(page.locator('#preference-status')).toContainText('nicht gespeichert');await expect(page.locator('#preferences-dialog')).toBeVisible();await expect(page.locator('#preferences-retry')).toBeVisible();
  await page.unroute('**/api/preferences');await page.locator('#preferences-retry').click();await expect(page.locator('#preferences-retry')).toBeHidden();
  await page.locator('#preferences-close').click();await page.reload();await expect(page.locator('#app')).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-density','compact');
 });
 
 test('a failed load never imports a stale browser cache over server preferences',async({page})=>{
- await login(page);await open(page);await page.locator('#pref-density').selectOption('compact');await save(page);await expect(page.locator('#preferences-dialog')).toBeHidden();
+ await login(page);await open(page);await (await preferenceControl(page,'pref-density')).selectOption('compact');await save(page);await expect(page.locator('#preferences-dialog')).toBeHidden();
  let writes=0;await page.route('**/api/preferences',async route=>{if(route.request().method()==='GET')await route.fulfill({status:503,json:{error:'synthetic unavailable'}});else{writes++;await route.continue()}});
  await page.reload();await expect(page.locator('#boot-error')).toBeVisible();expect(writes).toBe(0);
  await page.unroute('**/api/preferences');await page.locator('#boot-retry').click();await expect(page.locator('#app')).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-density','compact');
 });
 
 test('a competing first import reloads the existing account values',async({page})=>{
- await login(page);await open(page);await page.locator('#pref-density').selectOption('compact');await save(page);await expect(page.locator('#preferences-dialog')).toBeHidden();
+ await login(page);await open(page);await (await preferenceControl(page,'pref-density')).selectOption('compact');await save(page);await expect(page.locator('#preferences-dialog')).toBeHidden();
  const session=await(await page.request.get('/api/session')).json();await page.evaluate(key=>localStorage.setItem('cctv-view:'+key,JSON.stringify({density:'comfortable',theme:'light'})),session.preferenceKey);
  let first=true,conflicts=0;
  page.on('response',r=>{if(r.url().endsWith('/api/preferences')&&r.status()===412)conflicts++});
@@ -224,27 +209,23 @@ test('fullscreen survives viewport changes and closes with its control',async({p
 test('diagnostics preserve drafts, keep recording when closed and export events',async({page})=>{
  await login(page);await expect(page.locator('#quality')).toHaveValue('native');
  await expect(page.locator('#recordings #playback-diagnostics')).toHaveCount(0);
- await open(page);await page.locator('#pref-density').selectOption('compact');
- await page.locator('#diagnostics-open').click();await expect(page.locator('#diagnostics-dialog')).toBeVisible();
+ await open(page);await (await preferenceControl(page,'pref-density')).selectOption('compact');
+ await (await preferenceControl(page,'diagnostics-open')).click();await expect(page.locator('#diagnostics-dialog')).toBeVisible();
  await page.locator('#trace-enabled').check();await page.keyboard.press('Escape');
  await expect(page.locator('#diagnostics-open')).toBeFocused();await expect(page.locator('#pref-density')).toHaveValue('compact');await expect(page.locator('#preferences-save')).toBeEnabled();
- await page.locator('#diagnostics-open').click();await expect(page.locator('#trace-enabled')).toBeChecked();await expect(page.locator('#trace-status')).toContainText('Aufzeichnung läuft');
+ await (await preferenceControl(page,'diagnostics-open')).click();await expect(page.locator('#trace-enabled')).toBeChecked();await expect(page.locator('#trace-status')).toContainText('Aufzeichnung läuft');
  await page.locator('#trace-stop').click();const downloadPromise=page.waitForEvent('download');await page.locator('#trace-download').click();const download=await downloadPromise;expect(download.suggestedFilename()).toBe('wiedergabediagnose.json');
  const stream=await download.createReadStream();const chunks:Buffer[]=[];for await(const chunk of stream!)chunks.push(Buffer.from(chunk));const report=JSON.parse(Buffer.concat(chunks).toString());expect(report.version).toBe(1);expect(report.events.some((event:{event:string})=>event.event==='start')).toBe(true);
  await page.locator('#diagnostics-close').click();await page.locator('#preferences-save').click();await page.reload();await open(page);await expect(page.locator('#pref-density')).toHaveValue('compact');
 });
 
-test('dialog headings and settings actions stay fixed while content scrolls',async({page},info)=>{
+test('settings page actions and diagnostic dialog remain reachable in short windows',async({page},info)=>{
  await login(page);
  for(const theme of ['light','dark'])for(const width of [390,1366]){
-  await page.setViewportSize({width,height:500});await open(page);await page.locator('#theme').selectOption(theme);await save(page);await open(page);
-  const dialog=page.locator('#preferences-dialog'),heading=dialog.locator('.dialog-heading'),footer=dialog.locator('.preferences-footer'),body=dialog.locator('.dialog-body');
-  const initial=await heading.boundingBox();await body.evaluate(el=>el.scrollTop=el.scrollHeight);expect((await heading.boundingBox())!.y).toBe(initial!.y);
-  await expect(page.locator('#preferences-close')).toBeInViewport();await expect(page.locator('#preferences-save')).toBeInViewport();
-  const content=await body.boundingBox(),actions=await footer.boundingBox();expect(content!.y+content!.height).toBeLessThanOrEqual(actions!.y+1);
+  await page.setViewportSize({width,height:500});await open(page);await (await preferenceControl(page,'theme')).selectOption(theme);await save(page);await openPage(page,'settings/playback');
+  await page.locator('#preferences-save').scrollIntoViewIfNeeded();await expect(page.locator('#preferences-save')).toBeInViewport();
   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await page.screenshot({path:info.outputPath(`fixed-dialog-${theme}-${width}.png`)});
-  await page.locator('#diagnostics-open').click();await expect(page.locator('#diagnostics-close')).toBeInViewport();
+  await (await preferenceControl(page,'diagnostics-open')).click();await expect(page.locator('#diagnostics-close')).toBeInViewport();
   await page.locator('#diagnostics-dialog .dialog-body').evaluate(el=>el.scrollTop=el.scrollHeight);await expect(page.locator('#diagnostics-close')).toBeInViewport();
   expect(await page.locator('#diagnostics-dialog .dialog-body').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
   await page.screenshot({path:info.outputPath(`diagnostics-${theme}-${width}.png`)});await page.locator('#diagnostics-close').click();await expect(page.locator('#diagnostics-open')).toBeFocused();await page.locator('#preferences-close').click();

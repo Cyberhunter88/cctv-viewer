@@ -1,3 +1,4 @@
+import {openNavigation} from './fixtures';
 import {test,expect,type Page} from './fixtures';
 // The disposable server trusts loopback as a synthetic proxy. Give this test
 // its own client IP so adding a ninth test does not exhaust the login quota.
@@ -12,7 +13,7 @@ async function login(page:Page){await page.goto('/');await page.locator('#login-
 
 test('batch setup, paired views, offset sync, enlargement and cleanup',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);
- await page.locator('#settings-button').click();await page.locator('#new-camera').click();
+ await openNavigation(page,'settings-button');await page.locator('#new-camera').click();
  await page.locator('#view-mode').selectOption('dual');
  await expect(page.locator('#camera-form input[name=wideMarker]')).toHaveValue('_00_');await expect(page.locator('#camera-form input[name=zoomMarker]')).toHaveValue('_01_');
  await page.locator('#camera-form input[name=wideMarker]').fill('_wide');await page.locator('#camera-form input[name=zoomMarker]').fill('_zoom');
@@ -22,7 +23,7 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  await expect(page.locator('#batch-selected input')).toHaveCount(2);
  await page.locator('#batch-save').click();await expect(page.locator('#batch-dialog')).not.toBeVisible();
  await expect(page.locator('#recording-count')).toContainText('6 Aufnahmen',{timeout:20000});await expect(page.locator('#rescan')).toBeEnabled({timeout:20000});
- await page.locator('#settings-button').click();
+ await openNavigation(page,'settings-button');
  await page.locator('#camera-list').getByRole('button',{name:'DualTestA',exact:true}).click();
  await page.locator('#preview').click();
  await expect(page.locator('#preview-result')).toContainText('Kennungen: Weitwinkel _wide, Zoom _zoom');

@@ -27,6 +27,7 @@ type localUser struct {
 }
 
 func (a *App) registerManagement(m *http.ServeMux) {
+	a.registerSessions(m)
 	m.HandleFunc("GET /api/admin/users", a.protect(true, a.users))
 	m.HandleFunc("POST /api/admin/users", a.protect(true, a.saveUser))
 	m.HandleFunc("DELETE /api/admin/users/{name}", a.protect(true, a.deleteUser))
@@ -391,6 +392,10 @@ func (a *App) getSettings(w http.ResponseWriter, r *http.Request) {
 		if _, ok := a.overrides[k]; ok {
 			source[k] = "Weboberfläche"
 		}
+	}
+	source["oidcSecret"] = "Umgebung"
+	if _, ok := a.overrides["oidcSecret"]; ok {
+		source["oidcSecret"] = "Weboberfläche"
 	}
 	jsonOut(w, 200, map[string]any{"version": a.settingsVersion, "values": settingsValues(c), "sources": source, "secretSet": c.OIDCSecret != "", "external": map[string]any{"baseURL": c.BaseURL, "recordingsDir": c.RecordingsDir, "dataDir": c.DataDir, "address": c.Address, "trustedProxies": c.TrustedProxies}})
 }

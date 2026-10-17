@@ -7,7 +7,7 @@
   function apply() {
     document.documentElement.dataset.theme = choice === 'system' ? (system.matches ? 'dark' : 'light') : choice;
     document.querySelectorAll('[data-theme-select]').forEach(select => {
-      if (select.id === 'theme' && select.closest('dialog')?.open) return;
+      if (select.id === 'theme' && select.closest('.content-page')?.querySelector('form')?.dataset.draftActive === 'true') return;
       select.value = choice;
     });
     window.dispatchEvent(new Event('themechange'));

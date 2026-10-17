@@ -34,7 +34,7 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Globale automatische Tagesindexierung | Aus/60 Minuten als Vorgabe, 1–10080 Minuten | Go: SchedulePersistsAndSkipsRecursiveCameras |
 | Persistente Scanplanung, inkrementelle stabile Dateien | Ergänzt; interaktive Warteschlange bevorzugt | Go: IncrementalScanAndReconciliation, SchedulePersists |
 | Offline-Quellen, Löschabgleich, große Verzeichnisse | Erhalten/erweitert, maximal 2 Mio. Einträge | Go: OfflineSourcePreservesIndex, IncrementalScan, LargeSyntheticPartition |
-| Suche mit Kamera, Zeitraum, Mindestdauer | Geschützte API und Dialog; Öffnen eines Treffers, Trefferzähler, recordings(start)-Index | Go: SearchRebuild; Browser: features |
+| Suche mit Kamera, Zeitraum, Mindestdauer | Geschützte API und Suchseite; Öffnen eines Treffers, Trefferzähler, recordings(start)-Index | Go: SearchRebuild; Browser: features |
 | Original/Ausgewogen/Schnell, konfigurierbare Profile | Original unverändert; einmalige Umstellung auf Original, reduzierte Profile ausdrücklich wählbar | Go: ProfilesSpeedTransport; Browser: viewer |
 | Metadaten-/automatisches Vorladen | Ergänzt und gespeichert | Browser: archive |
 | Serverseitige beschleunigte komprimierte Wiedergabe | Faktor bis 16×; hohe Geschwindigkeiten mit Keyframes am Clipbeginn | Go: ProfilesSpeedTransport |
@@ -87,4 +87,14 @@ Bei geschlossenem Zoom verwendet die Zeitleiste ausschließlich die Weitwinkelan
 
 - Kameraverwaltung mit separater Liste und Editor, mobil als eigener Bearbeitungsschritt; Status, Scan und Sortierung pro Kamera.
 - Persönliche Einstellungen einschließlich Farbschema werden erst mit „Speichern“ übernommen. Ungespeicherte Änderungen können nach Rückfrage verworfen werden.
-- Abmelden ist direkt in der Seitenleiste erreichbar. Dialoge behalten ihre abgerundeten Ecken auch bei scrollendem Inhalt.
+- Abmelden ist direkt in der Seitenleiste erreichbar. Einstellungen sind feste Seiten; der Diagnosedialog behält einen eigenen Scrollbereich.
+
+## Seitennavigation und Sitzungen
+
+| Funktion | Verhalten | Prüfung |
+| --- | --- | --- |
+| Untermenüs links | Feste Seiten mit Hash-Direktlinks, Browserhistorie und mobilem Menü | Browser: navigation, redesign |
+| Wiedergabe bei Seitenwechsel | Bild und Ton pausieren; Auswahl und Position bleiben erhalten | Browser: navigation |
+| Lokale Konten | Suchbare Benutzerverwaltung, Rollen, Sperren, Passwortsetzen und Löschen | Go: UserManagement; Browser: navigation |
+| Sitzungen | Eigene Sitzungen einzeln oder gesammelt beenden; Admins können fremde Sitzungen beenden | Go: SessionManagement; Browser: navigation |
+| Minimale Umgebung | Externe Grundeinstellungen in .env.example; optionale Ausgangswerte separat dokumentiert | docs/CONFIGURATION.md |
