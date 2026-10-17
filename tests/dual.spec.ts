@@ -7,7 +7,12 @@ test.afterEach(async({page})=>{
  if(page.isClosed())return;
  const sessionResponse=await page.request.get('/api/session');if(!sessionResponse.ok())return;
  const session=await sessionResponse.json(),cameras=await(await page.request.get('/api/cameras')).json();
- for(const camera of cameras.filter((c:{name:string})=>['DualTestA','DualTestB','Dual isolation','Wide start'].includes(c.name)))await page.request.delete('/api/cameras/'+camera.id,{headers:{'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin}});
+ for(const camera of cameras.filter((c:{name:string})=>['DualTestA','DualTestB','Dual isolation','Wide start'].includes(c.name))){
+  await expect.poll(async()=>{
+   const response=await page.request.delete('/api/cameras/'+camera.id,{headers:{'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin}});
+   return response.status();
+  },{timeout:30000,intervals:[250,500,1000]}).toBe(200);
+ }
 });
 async function login(page:Page){await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:20000});await expect(page.locator('#rescan')).toBeEnabled({timeout:20000})}
 
