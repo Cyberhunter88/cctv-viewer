@@ -92,12 +92,13 @@ anlegen. Callback-URL:
 https://cctv.example.org/auth/oidc/callback
 ```
 
-Beispiel `.env` (Discovery-Issuer des jeweiligen Anbieters verwenden):
+OIDC bevorzugt unter **Verwaltung → Anmeldung / OIDC** einrichten.
+Optionales `.env`-Beispiel (Discovery-Issuer des jeweiligen Anbieters verwenden):
 
 ```dotenv
 CTV_OIDC_ISSUER=https://auth.example.org/application/o/cctv/
 CTV_OIDC_CLIENT_ID=cctv-viewer
-CTV_OIDC_CLIENT_SECRET=dein-client-secret
+CTV_OIDC_CLIENT_SECRET=<client-secret>
 CTV_OIDC_GROUP_CLAIM=groups
 CTV_OIDC_ALLOWED_GROUPS=
 CTV_OIDC_ADMIN_GROUPS=cctv-admin
@@ -105,8 +106,9 @@ CTV_OIDC_ALLOWED_SUBJECTS=
 CTV_OIDC_ADMIN_SUBJECTS=
 ```
 
-Das Client-Secret wird direkt in `.env` eingetragen; die Datei ist in Git
-ausgeschlossen und sollte nur für dich lesbar sein (`chmod 600 .env`).
+Das Client-Secret kann in der GUI gespeichert oder optional über `.env` gesetzt
+werden. Die Datei ist in Git ausgeschlossen und sollte nur für dich lesbar sein
+(`chmod 600 .env`).
 Optional bleibt `CTV_OIDC_CLIENT_SECRET_FILE` unterstützt; dafür die Secret-Datei
 zusätzlich schreibgeschützt in den Container mounten und die direkte Variable
 weglassen. Beide Varianten gleichzeitig werden abgelehnt.
@@ -123,7 +125,7 @@ Konfiguration erhalten nur Mitglieder dieser Gruppe SSO-Zugang und die
 Administratorrolle; weitere Gruppen- und Subject-Freigaben bleiben leer.
 Pocket-ID liefert die Gruppen über den angeforderten Scope `groups` automatisch.
 Über **OIDC Data Preview** lässt sich prüfen, ob das ID-Token
-`"groups": ["cctv-admin"]` enthält. Anmeldungseinstellungen können alternativ unter **Einstellungen → Anmeldung/OIDC**
+`"groups": ["cctv-admin"]` enthält. Anmeldungseinstellungen können alternativ unter **Verwaltung → Anmeldung / OIDC**
 geändert werden. OIDC zuerst speichern, dann die angebotene Testanmeldung mit
 einem freigegebenen Administrator abschließen. Bis dahin bleibt die bisherige
 Konfiguration aktiv. Der Test nutzt dieselbe Callback-URL. Eine alleinige
@@ -155,13 +157,25 @@ starten oder bestehende Sitzungen ablaufen lassen.
 
 ## Benutzer und Webeinstellungen
 
-Über das Zahnrad die Kameraeinrichtung öffnen; **Benutzer · Anmeldung · Betrieb**
-öffnet die weiteren Einstellungsbereiche. Lokale Konten haben die Rolle
+Die linke Navigation bietet unter **Verwaltung** eigene Seiten für Kameras,
+Benutzer, Sitzungen, Anmeldung/OIDC und Betrieb. **Einstellungen** enthält
+Darstellung, Wiedergabe, das eigene Konto und eigene Sitzungen. Auf schmalen
+Bildschirmen öffnet **Menü** die Navigation. Lokale Konten haben die Rolle
 „Administrator“ oder „Betrachter“. Bestehende Administratorkonten und Passwort-Hashes
 werden übernommen. Benutzer können gesperrt, gelöscht und ihre Passwörter
 zurückgesetzt werden. Passwort-, Rollen- und Sperränderungen widerrufen die
 zugehörigen Sitzungen. Der letzte aktive lokale Administrator bleibt geschützt.
-Eigene lokale Passwörter über „Passwort ändern“ ändern; SSO-Passwörter beim Provider.
+Eigene lokale Passwörter unter **Einstellungen → Mein Konto** ändern;
+SSO-Passwörter beim Provider. Unter **Meine Sitzungen** lassen sich eigene aktive
+Anmeldungen einzeln oder gemeinsam beenden; Administratoren können unter
+**Verwaltung → Sitzungen** zusätzlich fremde Sitzungen beenden.
+
+Suche und Einstellungen sind feste Seiten mit Direktlinks und Browser-Zurück/
+Vorwärts. Beim Verlassen der Aufnahmen pausieren Bild und Ton; Datum, Kameras
+und Abspielposition bleiben erhalten. Die Rückkehr startet keine Wiedergabe.
+Ungespeicherte Formularänderungen werden beim Seitenwechsel geschützt.
+Eine Übersicht der GUI- und Umgebungswerte sowie die Schritte für bestehende
+Installationen stehen unter [Konfiguration](docs/CONFIGURATION.md).
 
 Indexintervall, Streamingprofile, Ressourcenlimits und Sitzungsdauer werden ohne
 Neustart übernommen. Bei einem kleineren Streamlimit dürfen laufende Aufträge
@@ -221,7 +235,7 @@ ist auf zwei Millionen Verzeichniseinträge pro Scan begrenzt; für große Archi
 Datumspartitionen verwenden.
 
 Automatische Tagesindexierung ist standardmäßig ausgeschaltet. Unter
-„Benutzer · Anmeldung · Betrieb → Betrieb“ aktivieren; Vorgabe 60 Minuten,
+„Verwaltung → Betrieb“ aktivieren; Vorgabe 60 Minuten,
 zulässig 1–10080 Minuten. Sie läuft ohne geöffneten Browser, jeweils eine Kamera,
 ausschließlich für datumspartitionierte Quellen und den heutigen Tag in deren Zeitzone.
 Vergangene Tage werden nicht automatisch nachgeholt. Erfolgreiche und fehlgeschlagene
@@ -238,7 +252,7 @@ Probe-Lauf mindestens 30 Sekunden alt sein. Die Stabilitätserkennung ist eine H
 
 ## Ansicht, Suche und Wiedergabe
 
-Die Wiedergabediagnose öffnet sich über **Persönliche Einstellungen → Diagnose**.
+Die Wiedergabediagnose öffnet sich über **Einstellungen → Wiedergabe → Diagnose**.
 Eine gestartete Aufzeichnung läuft beim Schließen des Diagnosedialogs weiter;
 zum Beenden und Herunterladen den Dialog erneut öffnen.
 
@@ -293,7 +307,7 @@ Timeline anklicken zum Springen, Mausrad zum Zoomen, Umschalt+Ziehen zum Verschi
 Touch unterstützt Verschieben und Zweifinger-Zoom. Die Tagesübersicht verschiebt
 den sichtbaren Bereich. Der Trenner darüber verändert die Timeline-Höhe, auch mit
 Pfeiltasten. Die Wiedergabesteuerung über den Kamerabildern bleibt beim Scrollen erreichbar.
-„Ansicht anpassen“ öffnet die persönlichen Einstellungen. Die Kameraauswahl bietet
+Die Untermenüs unter „Einstellungen“ öffnen die persönlichen Einstellungen. Die Kameraauswahl bietet
 „Alle auswählen“ und „Auswahl aufheben“; Seitenangaben zeigen die sichtbaren Kameras.
 
 Unter „Einstellungen“ können alle Benutzer Farbschema, Oberflächendichte, Raster,
@@ -302,10 +316,10 @@ Tagesübersicht und Vorschaubilder lassen sich einzeln ein- und ausblenden.
 Ausgeblendete Vorschaubilder werden nicht geladen. Die Timeline-Höhe ist zwischen
 100 und 650 Pixeln einstellbar. Tastenkürzel lassen sich abschalten; Pfeiltasten
 springen wahlweise 5, 10 oder 30 Sekunden, mit Umschalt immer 60 Sekunden.
-Eine Tastenübersicht steht im Einstellungsdialog. Eingabefelder behalten ihre
+Eine Tastenübersicht steht auf der Einstellungsseite. Eingabefelder behalten ihre
 normale Tastaturbedienung.
 
-Änderungen im Einstellungsdialog werden mit „Speichern“ übernommen. Kameraauswahl,
+Änderungen auf der Einstellungsseite werden mit „Speichern“ übernommen. Kameraauswahl,
 Reihenfolge und Wiedergabeoptionen werden direkt gespeichert. Persönliche Einstellungen
 einschließlich Kameraauswahl und Reihenfolge sowie das Farbschema werden dauerhaft je Benutzerkonto auf dem Server
 gespeichert. Beim Anmelden oder Neuladen stehen sie auch auf anderen Geräten zur
@@ -313,7 +327,7 @@ Verfügung; bereits offene Geräte behalten ihre Darstellung. Änderungen versch
 Felder werden zusammengeführt, beim selben Feld gilt die zuletzt gespeicherte Änderung.
 Bestehende Browserpräferenzen werden einmalig übernommen, sofern das Konto noch keine
 Servereinstellungen hat. Der Browser behält eine lokale Kopie; Speicherfehler werden
-angezeigt und können im Einstellungsdialog erneut versucht werden. Vor der Anmeldung
+angezeigt und können auf der Einstellungsseite erneut versucht werden. Vor der Anmeldung
 gilt das lokale Farbschema. Geöffnete Zoom-Ansichten, Ton, Vollbild, Datum und Abspielposition
 bleiben temporär; nach Neuladen ist Zoom geschlossen. Die persönlichen Einstellungen
 liegen mit den übrigen Anwendungsdaten in der SQLite-Datenbank; die zusätzliche Tabelle

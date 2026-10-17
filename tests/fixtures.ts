@@ -3,11 +3,11 @@ import {defaultView} from '../web/src/view-state';
 export {expect};
 export type {Page} from '@playwright/test';
 
-// Successful dialog saves finish asynchronously after the account API reply.
+// Successful page saves finish asynchronously after the account API reply.
 export async function savePreferences(page:Page){
  if(await page.locator('#preferences-save').isEnabled())await page.locator('#preferences-save').click();else await page.locator('#preferences-close').click();
  await expect(page.locator('#preferences-dialog')).toBeHidden();
- await expect(page.locator('#preferences-button')).toBeFocused();
+ await expect(page).toHaveURL(/#recordings$/);
 }
 
 // Browser cases share a disposable server and synthetic account. Reset its
@@ -28,3 +28,22 @@ export const test=base.extend<{preferenceIsolation:void}>({
   await use();
  },{auto:true}],
 });
+
+export async function openPage(page:Page,path:string){
+ if(new URL(page.url()).hash==='#'+path)return;
+ const toggle=page.locator('#mobile-nav-toggle');
+ if(await toggle.isVisible()&&await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();
+ const link=page.locator('a[data-page="'+path+'"]');
+ const group=link.locator('xpath=ancestor::details');
+ if(await group.count()&&!(await group.evaluate((el:HTMLDetailsElement)=>el.open)))await group.locator('summary').click();
+ await link.click();await expect(page).toHaveURL(new RegExp('#'+path+'$'));await expect(page.locator('.content-page[aria-busy=true]:visible')).toHaveCount(0);
+}
+export async function openNavigation(page:Page,id:string){
+ const routes:Record<string,string>={'preferences-button':'settings/appearance','settings-button':'admin/cameras','search-button':'search'};
+ await openPage(page,routes[id]);
+}
+export async function preferenceControl(page:Page,id:string){
+ const appearance=['theme','pref-density'];
+ await openPage(page,'settings/'+(appearance.includes(id)?'appearance':'playback'));
+ return page.locator('#'+id);
+}

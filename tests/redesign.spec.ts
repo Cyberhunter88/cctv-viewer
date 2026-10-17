@@ -1,3 +1,4 @@
+import {openPage,openNavigation,preferenceControl} from './fixtures';
 import {test,expect,savePreferences,type Page} from './fixtures';
 
 test.use({hasTouch:true});
@@ -15,14 +16,14 @@ async function login(page:Page){
  await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:20000});
 }
 
-test('archive and all main dialogs fit phones, landscape, tablets and desktop',async({page},info)=>{
+test('archive and settings pages fit phones, landscape, tablets and desktop',async({page},info)=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  await page.setViewportSize({width:360,height:780});
  await page.goto('/');await expect(page.locator('#login')).toBeVisible();
  await page.screenshot({path:info.outputPath('login-360.png'),fullPage:true});
  await login(page);
  for(const theme of ['dark','light']){
-  await page.locator('#preferences-button').click();await page.locator('#theme').selectOption(theme);await savePreferences(page);
+  await openNavigation(page,'preferences-button');await (await preferenceControl(page,'theme')).selectOption(theme);await savePreferences(page);
   await expect(page.locator('#toast')).toBeHidden({timeout:10000});
   for(const [width,height] of [[360,780],[390,844],[844,390],[768,1024],[1366,768],[1920,1080]]){
    await page.setViewportSize({width,height});
@@ -34,8 +35,7 @@ test('archive and all main dialogs fit phones, landscape, tablets and desktop',a
    await expect(page.locator('#timeline-section > #playback-controls')).toHaveCount(1);
    await expect(page.locator('#playback-controls')).toHaveCSS('position','static');
    if(width<=700){
-    await expect(page.locator('#search-button > span')).toBeVisible();
-    await expect(page.locator('#preferences-button > span')).toBeVisible();
+    await expect(page.locator('#mobile-nav-toggle')).toBeVisible();
     expect(await page.locator('.camera-group').first().evaluate(el=>el.clientWidth)).toBeGreaterThanOrEqual(300);
    }
    const sizes=await page.locator('#app button:not([hidden]),#app .rail-item').filter({visible:true}).evaluateAll(elements=>elements.map(el=>({name:el.getAttribute('aria-label')||el.textContent,width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height})));
@@ -52,15 +52,15 @@ test('archive and all main dialogs fit phones, landscape, tablets and desktop',a
    await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}));
    await page.screenshot({path:info.outputPath(`archive-${theme}-${width}.png`),fullPage:true});
    for(const [trigger,id,close] of [['preferences-button','preferences-dialog','preferences-close'],['search-button','search-dialog','search-close'],['settings-button','camera-dialog','close-dialog']]){
-    await page.locator('#'+trigger).click();
-    const dialog=page.locator('#'+id),body=dialog.locator('.dialog-body');
+    await openNavigation(page,trigger);
+    const dialog=page.locator('#'+id),body=dialog;
     await expect.poll(()=>body.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
-    const box=await dialog.boundingBox();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(width);expect(box!.y).toBeGreaterThanOrEqual(0);expect(box!.y+box!.height).toBeLessThanOrEqual(height);
-    await body.evaluate(el=>el.scrollTop=el.scrollHeight);
+    const box=await dialog.boundingBox();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(width);expect(box!.y).toBeGreaterThanOrEqual(0);
+    await page.locator('#'+close).scrollIntoViewIfNeeded();
     await expect(page.locator('#'+close)).toBeInViewport();
     if(width===360||width===1366)await page.screenshot({path:info.outputPath(`${id}-${theme}-${width}.png`)});
     await page.locator('#'+close).click();
-    await expect(page.locator('#'+trigger)).toBeFocused();
+    await expect(page).toHaveURL(/#recordings$/);
    }
   }
  }
@@ -82,10 +82,10 @@ test.describe('mobile browser',()=>{
  await page.locator('#play').tap();await expect(page.locator('#play')).toHaveAttribute('aria-label','Pause');
  await page.locator('#play').tap();await expect(page.locator('#play')).toHaveAttribute('aria-label','Abspielen');
  await expect(page.locator('.timeline-help-touch')).toBeVisible();await expect(page.locator('.timeline-help-pointer')).toBeHidden();
- await page.locator('#search-button').tap();await expect(page.locator('#search-dialog')).toBeVisible();await page.locator('#search-close').tap();
- await page.locator('#settings-button').tap();await page.locator('#open-management').tap();
- await expect(page.locator('#management-dialog')).toBeVisible();await page.locator('[data-tab=operation]').tap();
- await expect.poll(()=>page.locator('#management-dialog .dialog-body').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+ await openNavigation(page,'search-button');await expect(page.locator('#search-dialog')).toBeVisible();await page.locator('#search-close').tap();
+ await openNavigation(page,'settings-button');await openPage(page,'admin/users');
+ await expect(page.locator('#management-dialog')).toBeVisible();await openPage(page,'admin/operation');
+ await expect.poll(()=>page.locator('#management-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
  await page.locator('#management-close').tap();
  });
 });

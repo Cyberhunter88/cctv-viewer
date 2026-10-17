@@ -1,3 +1,4 @@
+import {openNavigation,preferenceControl} from './fixtures';
 import {test,expect,savePreferences,type Page} from './fixtures';
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.20'}});
 async function login(page:Page){
@@ -68,7 +69,7 @@ test('light, dark and system modes persist and redraw canvas and dialogs',async(
  await page.locator('#login-theme').selectOption('dark');await page.reload();await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  await login(page);
  for(const theme of ['light','dark']){
-  await page.locator('#preferences-button').click();await page.locator('#theme').selectOption(theme);await savePreferences(page);await page.locator('#preferences-button').click();await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
+  await openNavigation(page,'preferences-button');await (await preferenceControl(page,'theme')).selectOption(theme);await savePreferences(page);await openNavigation(page,'preferences-button');await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
   const contrasts=await page.evaluate(()=>{
    const parse=(value:string)=>value.match(/[\d.]+/g)!.map(Number);
    const luminance=(rgb:number[])=>rgb.slice(0,3).map(x=>{const s=x/255;return s<=.04045?s/12.92:((s+.055)/1.055)**2.4}).reduce((n,x,i)=>n+x*[.2126,.7152,.0722][i],0);
@@ -80,11 +81,11 @@ test('light, dark and system modes persist and redraw canvas and dialogs',async(
   });
   for(const entry of contrasts)expect(entry.ratio,`${theme}: ${entry.selector}`).toBeGreaterThanOrEqual(4.5);
 
-  await page.locator('#preferences-close').click();await page.locator('#search-button').click();await page.screenshot({path:info.outputPath(`${theme}-search.png`),fullPage:true});await page.locator('#search-close').click();
-  await page.locator('#settings-button').click();await page.screenshot({path:info.outputPath(`${theme}-settings.png`),fullPage:true});await page.locator('#close-dialog').click();
+  await page.locator('#preferences-close').click();await openNavigation(page,'search-button');await page.screenshot({path:info.outputPath(`${theme}-search.png`),fullPage:true});await page.locator('#search-close').click();
+  await openNavigation(page,'settings-button');await page.screenshot({path:info.outputPath(`${theme}-settings.png`),fullPage:true});await page.locator('#close-dialog').click();
   const background=await page.locator('#overview').evaluate((c:HTMLCanvasElement)=>Array.from(c.getContext('2d')!.getImageData(10,5,1,1).data));
   const expected=theme==='light'?[220,229,234]:[37,53,64];
   for(let i=0;i<3;i++)expect(Math.abs(background[i]-expected[i])).toBeLessThanOrEqual(2);
  }
- await page.locator('#preferences-button').click();await page.locator('#theme').selectOption('system');await savePreferences(page);await page.emulateMedia({colorScheme:'dark'});await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await page.emulateMedia({colorScheme:'light'});await expect(page.locator('html')).toHaveAttribute('data-theme','light');await page.reload();await expect(page.locator('#theme')).toHaveValue('system');
+ await openNavigation(page,'preferences-button');await (await preferenceControl(page,'theme')).selectOption('system');await savePreferences(page);await page.emulateMedia({colorScheme:'dark'});await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await page.emulateMedia({colorScheme:'light'});await expect(page.locator('html')).toHaveAttribute('data-theme','light');await page.reload();await expect(page.locator('#theme')).toHaveValue('system');
 });
