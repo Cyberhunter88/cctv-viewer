@@ -1867,10 +1867,11 @@ dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
 :root[data-density=compact] #app .playback-toolbar { padding:10px 12px; }
 
 @media(min-width:701px) and (max-width:1100px) {
+ :root:not(.rail-collapsed) { --nav-width:232px; }
  #app .rail-heading .rail-logo { padding:6px; }
  #app .rail-heading .rail-collapse { margin:0; }
- #app .rail-item > span,#app .rail-logo > span { display:none; }
- #app .rail-item { justify-content:center; padding:10px; }
+ :root.rail-collapsed #app .rail-logo > span { display:none; }
+ :root.rail-collapsed #app .rail-item { justify-content:center; padding:10px; }
 }
 @media(max-width:1000px) {
  #app .playback-toolbar { gap:8px; }
@@ -1952,7 +1953,9 @@ dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
 .content-page { min-width:0; padding:32px; margin:0 auto; }
 .content-page[hidden],[data-preference-page][hidden] { display:none!important; }
 #app .content-page { width:100%; max-width:1200px; max-height:none; border:0; border-radius:0; background:transparent; }
+#app #preferences-dialog { padding:32px; }
 .content-page > .dialog-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; padding:0 0 20px; border-bottom:1px solid var(--line); }
+#app #preferences-dialog > .dialog-heading { margin:0 0 24px; padding:0 0 20px; background:transparent; }
 .content-page form { max-width:900px; }
 .content-page form label { display:flex; flex-direction:column; gap:6px; margin-bottom:16px; }
 .content-page form label:has(input[type=checkbox]) { flex-direction:row; align-items:center; }
@@ -1960,11 +1963,15 @@ dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
 .content-page pre { white-space:pre-wrap; overflow-wrap:anywhere; }
 .content-page .preferences-footer { position:static; padding:20px 0; border-top:1px solid var(--line); background:transparent; }
 .content-page .preferences-sections { display:block; }
-.content-page .preferences-sections > section { margin-bottom:24px; }
+.content-page .preferences-sections > section { margin-bottom:24px; padding-bottom:0; border:0; }
 #app .rail nav { display:flex; flex-direction:column; gap:6px; overflow-y:auto; }
 #app .rail-item { width:100%; flex:none; flex-direction:row; justify-content:flex-start; min-height:44px; padding:10px 12px; font-size:13px; }
+#app .rail-item > .rail-symbol,.nav-group > summary > .rail-symbol { display:inline-flex; align-items:center; justify-content:center; flex:none; width:22px; font-size:20px; line-height:1; }
+.rail-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .nav-group { margin-top:8px; }
-.nav-group > summary { cursor:pointer; padding:12px; font-size:13px; font-weight:650; border-radius:8px; }
+.nav-group > summary { display:flex; align-items:center; gap:12px; min-height:44px; cursor:pointer; padding:12px; font-size:13px; font-weight:650; border-radius:8px; }
+.nav-group > summary::marker { content:''; }
+.nav-group > summary::-webkit-details-marker { display:none; }
 .nav-group > summary:focus-visible { outline:2px solid var(--accent); }
 .nav-submenu { margin:4px 0 0 12px; border-left:1px solid var(--line); padding-left:6px; }
 #app .nav-submenu .rail-item { font-size:12px; }
@@ -1973,22 +1980,40 @@ dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
 #user-list { margin:16px 0 28px; }
 #user-list .camera-entry { display:flex; justify-content:space-between; gap:12px; }
 #user-list .camera-entry > button:first-child { flex:1; text-align:left; overflow-wrap:anywhere; }
-#app .rail { width:240px; }
-#app .workspace { margin-left:240px; }
-.rail-collapsed #app .rail { width:190px; }
-.rail-collapsed #app .workspace { margin-left:190px; }
-@media (min-width:681px) {
+#app .rail { width:var(--nav-width); }
+#app .workspace { margin-left:var(--nav-width); }
+:root.rail-collapsed #app .rail nav { gap:2px; }
+:root.rail-collapsed #app .rail-item,:root.rail-collapsed #app .nav-group > summary { justify-content:center; gap:0; padding:10px 4px; }
+:root.rail-collapsed #app .rail-label { display:none; }
+:root.rail-collapsed #app .nav-group { margin-top:2px; }
+:root.rail-collapsed #app .nav-submenu { margin:0; padding:0; border:0; }
+:root.rail-collapsed #app .rail-symbol { width:24px; }
+:root.rail-collapsed #app .rail-bottom { display:flex; flex-direction:column; align-items:center; gap:8px; }
+:root.rail-collapsed #app .rail-bottom .account-menu { width:100%; }
+:root.rail-collapsed #app .account-menu summary { justify-content:center; }
+@media (min-width:701px) {
  #app .rail-heading { flex-direction:row; }
  #app .rail-heading .rail-logo { min-width:0; }
+ :root.rail-collapsed #app .rail-heading { flex-direction:column; gap:6px; }
 }
-@media (max-width:680px) {
+@media (max-width:700px) {
+ :root.rail-collapsed #app .rail { width:auto; }
+ :root.rail-collapsed #app .workspace { margin-left:0; }
+ :root.rail-collapsed #app .rail-label { display:inline; }
+ :root.rail-collapsed #app .rail-bottom { flex-direction:row; }
+ :root.rail-collapsed #app .rail-bottom .account-menu { width:auto; }
+ :root.rail-collapsed #app .nav-submenu { margin:4px 0 0 12px; padding-left:6px; border-left:1px solid var(--line); }
+ :root.rail-collapsed #app .rail-item,:root.rail-collapsed #app .nav-group > summary { justify-content:flex-start; gap:12px; padding:10px 12px; }
+ #app .rail-item > .rail-symbol { font-size:20px; }
  #app .rail,.rail-collapsed #app .rail { width:auto; position:static; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; }
  #app .workspace,.rail-collapsed #app .workspace { margin-left:0; }
  #mobile-nav-toggle { display:block; grid-column:1; grid-row:2; justify-self:start; }
  #app .rail nav { display:none; grid-column:1/-1; grid-row:3; width:100%; max-height:65dvh; overflow-y:auto; }
  .mobile-nav-open #app .rail nav { display:flex; }
+ #app #search-button { width:100%; min-height:44px; flex-direction:row; justify-content:flex-start; gap:12px; padding:10px 12px; }
  #app .rail-item.active { box-shadow:inset 3px 0 var(--accent); }
  #app .content-page { padding:20px 16px; }
+ #app #preferences-dialog { padding:20px 16px; }
  .session-entry { align-items:flex-start; flex-direction:column; }
  .content-page .preferences-save-actions { display:flex; flex-wrap:wrap; }
 }

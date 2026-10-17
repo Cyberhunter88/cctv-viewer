@@ -87,7 +87,8 @@ Bei geschlossenem Zoom verwendet die Zeitleiste ausschließlich die Weitwinkelan
 
 - Kameraverwaltung mit separater Liste und Editor, mobil als eigener Bearbeitungsschritt; Status, Scan und Sortierung pro Kamera.
 - Persönliche Einstellungen einschließlich Farbschema werden erst mit „Speichern“ übernommen. Ungespeicherte Änderungen können nach Rückfrage verworfen werden.
-- Abmelden ist direkt in der Seitenleiste erreichbar. Einstellungen sind feste Seiten; der Diagnosedialog behält einen eigenen Scrollbereich.
+- Abmelden ist direkt in der Seitenleiste erreichbar. Die schmale Symbolleiste hält alle Menüziele mit Beschriftungen für Tastatur und Screenreader erreichbar; ihr Zustand bleibt pro Konto gespeichert.
+- Einstellungen sind feste Seiten mit passenden Überschriften und Rückweg zu den Aufnahmen; der Diagnosedialog behält einen eigenen Scrollbereich.
 
 ## Seitennavigation und Sitzungen
 

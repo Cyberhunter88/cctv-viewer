@@ -2,6 +2,36 @@ import {test,expect,openPage,type Page} from './fixtures';
 test.beforeEach(async({context},info)=>{const hash=[...info.testId].reduce((n,c)=>(Math.imul(n,31)+c.charCodeAt(0))>>>0,0);await context.setExtraHTTPHeaders({'X-Forwarded-For':`2001:db8:2::${(hash>>>16).toString(16)}:${(hash&65535).toString(16)}`})});
 async function login(page:Page){await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible()}
 
+test('sidebar collapses to usable icons, persists and expands at tablet width',async({page})=>{
+ await page.setViewportSize({width:1366,height:800});await login(page);
+ const rail=page.locator('#app .rail'),workspace=page.locator('#app .workspace');
+ await expect(page.locator('#rail-toggle')).toHaveAttribute('aria-expanded','true');
+ const saved=page.waitForResponse(response=>response.url().endsWith('/api/preferences')&&response.request().method()==='PATCH'&&response.request().postDataJSON().railCollapsed===true&&response.ok());
+ await page.locator('#rail-toggle').click();await saved;
+ await expect(page.locator('#rail-toggle')).toHaveAttribute('aria-expanded','false');
+ await expect.poll(()=>rail.evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBe(72);
+ await expect.poll(()=>workspace.evaluate(el=>Math.round(parseFloat(getComputedStyle(el).marginLeft)))).toBe(72);
+ await expect(page.locator('a[data-page="recordings"] .rail-label')).toBeHidden();
+ await page.getByRole('link',{name:'Betrieb'}).click();await expect(page).toHaveURL(/#admin\/operation$/);
+ await expect(page.locator('#operation-panel')).toBeVisible();
+ await page.reload();await expect(page.locator('#app')).toBeVisible();
+ await expect.poll(()=>rail.evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBe(72);
+ await page.setViewportSize({width:768,height:800});await page.locator('#rail-toggle').click();
+ await expect.poll(()=>rail.evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBeGreaterThan(200);
+ await expect(page.locator('a[data-page="recordings"] .rail-label')).toBeVisible();
+ await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+test('settings and administration pages use matching menu names and back actions',async({page})=>{
+ await login(page);
+ for(const [path,heading] of [['settings/appearance','Darstellung'],['settings/playback','Wiedergabe'],['settings/account','Mein Konto'],['settings/sessions','Meine Sitzungen'],['admin/cameras','Kameras verwalten'],['admin/users','Benutzer'],['admin/sessions','Alle Sitzungen'],['admin/oidc','Anmeldung / OIDC'],['admin/operation','Betrieb']] as const){
+  await openPage(page,path);await expect(page.locator('a[data-page="'+path+'"]').first()).toHaveAttribute('aria-current','page');
+  await expect(page.locator('.content-page:visible h2').first()).toHaveText(heading);
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
+ await openPage(page,'settings/sessions');await page.locator('#sessions-close').click();await expect(page).toHaveURL(/#recordings$/);
+});
+
 test('direct links, history, draft guards and paused playback',async({page})=>{
  await login(page);await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen');await page.locator('.thumb').first().click();await page.locator('#play').click();await expect(page.locator('#play')).toHaveAttribute('aria-label','Pause');
  const selected=await page.locator('#camera-filters .selected').allTextContents();
