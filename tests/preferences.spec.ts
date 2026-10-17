@@ -71,7 +71,7 @@ test('original migration, collapsible rail, account placement and laptop control
  const brand=await page.locator('.rail-logo').boundingBox(),collapse=await page.locator('#rail-toggle').boundingBox();expect(Math.abs(brand!.y+brand!.height/2-collapse!.y-collapse!.height/2)).toBeLessThan(1);
  const toggle=page.locator('#rail-toggle');await expect(toggle).toHaveAttribute('aria-expanded','true');
  await toggle.click();await expect(toggle).toHaveAttribute('aria-expanded','false');
- await expect(page.locator('.workspace')).toHaveCSS('margin-left','190px');
+ await expect(page.locator('.workspace')).toHaveCSS('margin-left','72px');
  await page.reload();await expect(toggle).toHaveAttribute('aria-expanded','false');
  await toggle.focus();await page.keyboard.press('Enter');await expect(toggle).toHaveAttribute('aria-expanded','true');
  await expect(page.locator('.page-heading #account-menu')).toHaveCount(0);
