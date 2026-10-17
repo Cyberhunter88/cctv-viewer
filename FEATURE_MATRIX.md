@@ -22,7 +22,7 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Kameraauswahl und Zieh-Sortierung | Ergänzt; dauerhaft je Benutzerkonto gespeichert | Browser: archive; Frontend: view-state |
 | Bildverhältnisse 4:3, 16:9, Auto, Ausfüllen | Ergänzt | Browser: archive |
 | Manueller und automatischer Hotspot | Neuester aktiver Aufnahmestart; Gleichstand nach Reihenfolge | Frontend: view-state; Browser: archive |
-| Kompakte/einklappbare mobile Bedienung | Ergänzt im bisherigen Layout | Browser: archive, Screenshot |
+| Responsive Oberfläche für Desktop und Handy | Beschriftete mobile Navigation ab 360 px, Touch-Schaltflächen ab 44 px, Wiedergabe und Zeitleiste gemeinsam unter den Kamerabildern, Hell/Dunkel | Browser: redesign, archive, preferences, multicamera |
 | Kameraanlage, Bearbeiten, Löschen, Ordnerauswahl | Erhalten und erweitert | Go: RootConfinement; Browser: features |
 | Quellstatus/Scanstand in Kamera-Verwaltung | Ergänzt | Go: OfflineSourcePreservesIndex; Browser: features |
 | Datums- und vollständige rekursive Indexierung | Ergänzt | Go: MetadataFallbackAndFullDirectory |

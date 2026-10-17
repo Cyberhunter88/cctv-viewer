@@ -59,7 +59,7 @@ for(const role of ['admin','viewer'])test(`${role} responsive shell and settings
    await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
    const box=await page.locator('#preferences-dialog').boundingBox();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(width);
    await page.screenshot({path:info.outputPath(`${theme}-${width}-settings.png`)});await page.locator('#preferences-close').click();
-   expect(await page.locator('.rail-item').evaluateAll(items=>items.filter(item=>!item.hasAttribute('hidden')).every(item=>{const button=item.getBoundingClientRect(),icon=item.querySelector('svg')!.getBoundingClientRect();return Math.abs(button.y+button.height/2-icon.y-icon.height/2)<1}))).toBe(true);
+   expect(await page.locator('.rail-item').evaluateAll(items=>items.filter(item=>!item.hasAttribute('hidden')).every(item=>{const button=item.getBoundingClientRect(),icon=item.querySelector('svg')!.getBoundingClientRect();return innerWidth<=700?Math.abs(button.x+button.width/2-icon.x-icon.width/2)<1:Math.abs(button.y+button.height/2-icon.y-icon.height/2)<1}))).toBe(true);
    const icon=await page.locator('.rail-logo svg').boundingBox(),logo=await page.locator('.rail-logo').boundingBox();expect(Math.abs(icon!.y+icon!.height/2-logo!.y-logo!.height/2)).toBeLessThan(1);
    await expect(page.locator('#search-button')).toHaveAccessibleName('Aufnahmen suchen');await expect(page.locator('#play')).toBeVisible();
    await page.locator('#account-menu summary').click({force:role==='viewer'});await expect(page.locator('#logout')).toBeVisible();if(role==='viewer'){await expect(page.locator('#password-button')).toBeHidden();await expect(page.locator('.account-actions')).toBeHidden();await expect(page.locator('.account-chevron')).toBeHidden();await expect(page.locator('#account-menu')).not.toHaveAttribute('open','')}else await expect(page.locator('#password-button')).toBeVisible();await page.keyboard.press('Escape');
@@ -91,7 +91,7 @@ test('original migration, collapsible rail, account placement and laptop control
   await page.setViewportSize({width,height:width===1366?768:900});
   await open(page);await page.locator('#theme').selectOption(theme);await save(page);
   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  if(width>=1366){const top=await page.locator('.view-toolbar').boundingBox(),bottom=await page.locator('#playback-controls').boundingBox();expect(bottom!.y-top!.y).toBeLessThanOrEqual(160)}
+  const grid=await page.locator('#video-grid').boundingBox(),transport=await page.locator('#playback-controls').boundingBox();expect(transport!.y).toBeGreaterThanOrEqual(grid!.y+grid!.height);await expect(page.locator('#timeline-section > #playback-controls')).toHaveCount(1);
   await account.locator('summary').click();await expect(page.locator('#logout')).toBeVisible();
   const menu=await account.locator('.account-actions').boundingBox();expect(menu!.x).toBeGreaterThanOrEqual(0);expect(menu!.y).toBeGreaterThanOrEqual(0);expect(menu!.x+menu!.width).toBeLessThanOrEqual(width);expect(menu!.y+menu!.height).toBeLessThanOrEqual(width===1366?768:900);
   await page.screenshot({path:info.outputPath(`account-${theme}-${width}.png`)});await page.keyboard.press('Escape');

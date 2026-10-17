@@ -25,7 +25,7 @@ async function cleanup(page:Page,setup:Awaited<ReturnType<typeof six>>){
 for(const kind of ['single','dual','mixed'] as const)test(`six ${kind} cameras remain readable across sizes and layouts`,async({page},info)=>{
  test.setTimeout(120000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);const setup=await six(page,kind);
  try{
-  for(const width of [390,768,980,1440,1920]){
+  for(const width of [360,390,768,980,1366,1440,1920]){
    await page.setViewportSize({width,height:1000});
    for(const layout of ['auto','3x2','custom','hotspot']){
     await page.locator('#layout').selectOption(layout);
@@ -35,8 +35,8 @@ for(const kind of ['single','dual','mixed'] as const)test(`six ${kind} cameras r
     await page.locator('#page-prev').evaluate((button:HTMLButtonElement)=>{while(!button.disabled){button.click()}});
     do{for(const name of await page.locator('.camera-group .tile-title').allTextContents())visited.add(name.split(' · ')[0]);if(await page.locator('#page-next').isDisabled())break;await page.locator('#page-next').click()}while(true);
     expect(visited.size).toBe(6);
-    if(width===390)expect(await page.locator('.camera-group').count()).toBeLessThanOrEqual(2);
-    if(width===390&&kind!=='single'){
+    if(width<=390)expect(await page.locator('.camera-group').count()).toBeLessThanOrEqual(2);
+    if(width<=390&&kind!=='single'){
      for(const group of await page.locator('.camera-group.dual').all()){
       await expect(group.locator('.camera-tile')).toHaveCount(1);await group.locator('.zoom-toggle').click();
       const boxes=await group.locator('.camera-tile').evaluateAll(tiles=>tiles.map(t=>t.getBoundingClientRect().toJSON()));expect(boxes[1].top).toBeGreaterThanOrEqual(boxes[0].bottom);

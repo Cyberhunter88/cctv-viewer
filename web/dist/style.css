@@ -1756,3 +1756,194 @@ button:focus-visible,summary:focus-visible { outline:2px solid var(--accent); ou
 .account-actions:not(:has(> button:not([hidden]))) { display:none; }
 .account-menu:has(summary[aria-disabled=true]) .account-chevron { display:none; }
 .account-menu summary[aria-disabled=true] { cursor:default; }
+
+/* Archive workspace. Keep these rules scoped so the login retains its design. */
+#app {
+ --workspace-line:color-mix(in srgb,var(--line) 55%,transparent);
+ --workspace-radius:14px;
+ min-height:100dvh;
+ background:radial-gradient(ellipse at 75% 0,color-mix(in srgb,var(--accent) 4%,transparent),transparent 50%),var(--background);
+}
+#app .rail { border-color:var(--workspace-line); padding-top:24px; gap:28px; }
+#app .rail-logo { font-size:17px; letter-spacing:-.4px; }
+#app .rail-item { min-height:48px; border:0; border-radius:10px; gap:12px; }
+#app .rail-item.active { background:var(--selected); box-shadow:inset 3px 0 var(--accent); }
+#app .rail-heading .rail-collapse { width:44px; min-height:44px; }
+#app .rail-bottom { border-color:var(--workspace-line); }
+#app .account-actions { border-color:var(--workspace-line); border-radius:12px; padding:8px; }
+#app .account-actions .text-button { min-height:44px; }
+#app main { padding-top:32px; padding-bottom:calc(32px + env(safe-area-inset-bottom)); }
+#app .page-heading { margin-bottom:24px; gap:16px; }
+#app .page-heading .eyebrow { display:block; color:var(--accent); font-size:10px; letter-spacing:2px; margin-bottom:8px; }
+#app .page-heading h1 { font-size:32px; font-weight:600; letter-spacing:-1px; margin:0; }
+#app .index-state { font-size:12px; }
+#app .archive-controls { margin-bottom:20px; padding:4px 16px; background:var(--panel); border:1px solid var(--workspace-line); border-radius:var(--workspace-radius); }
+#app .view-toolbar { padding:10px 0; border:0; border-radius:0; background:transparent; gap:12px; }
+#app .date-control { border:0; padding:0; gap:4px; background:transparent; }
+#app .date-control input { font-size:14px; min-height:44px; }
+#app .date-control .text-button { border-left:1px solid var(--workspace-line); border-radius:0; margin-left:8px; padding-inline:16px; }
+#app .view-options { gap:16px; }
+#app .compact-label { font-size:11px; gap:8px; }
+#app .compact-label select { min-height:44px; padding:8px 12px; border-color:var(--workspace-line); border-radius:9px; background:var(--input); }
+#app .camera-selection { background:transparent; border:0; border-top:1px solid var(--workspace-line); border-radius:0; padding:12px 0; margin:0; gap:10px 16px; }
+#app .selection-heading { gap:12px; }
+#app .selection-heading strong { font-size:12px; font-weight:600; }
+#app .selection-heading > div { flex-wrap:wrap; }
+#app .selection-heading .text-button { min-height:44px; padding:8px; }
+#app .camera-filters { gap:8px; }
+#app .camera-filters .filter { min-height:44px; max-width:100%; padding:10px 14px; border-radius:24px; border-color:transparent; background:var(--input); font-size:12px; overflow-wrap:anywhere; text-align:left; }
+#app .camera-filters .filter.selected { border-color:transparent; background:var(--selected); color:var(--accent); }
+#app .camera-filters .filter:hover { border-color:var(--accent-line); }
+#app .camera-page-controls { gap:6px; }
+#app #camera-range { font-size:11px; }
+#app .video-grid { gap:16px; }
+#app .camera-tile { border-color:var(--workspace-line); border-radius:var(--workspace-radius); }
+#app .tile-header { padding:12px 14px; font-size:12px; gap:12px; }
+#app .tile-header .tile-title { text-align:left; min-height:44px; margin-top:-8px; margin-bottom:-8px; }
+#app .camera-tile .tile-footer { border-color:var(--workspace-line); padding:8px 12px; font-size:11px; gap:8px; }
+#app .tile-footer > span:nth-child(2) { font-size:9px; color:var(--muted); letter-spacing:1px; }
+#app .tile-actions { gap:4px; }
+#app .tile-actions button { min-width:44px; min-height:44px; border:0; border-radius:9px; padding:10px; background:var(--surface); color:var(--text); }
+#app .tile-actions .zoom-toggle { padding-inline:12px; }
+#app .tile-actions button[aria-pressed=true] { background:var(--accent); color:var(--accent-ink); }
+#app .timeline-section { margin-top:20px; border-color:var(--workspace-line); border-radius:var(--workspace-radius); scroll-margin-top:16px; }
+#app .playback-toolbar { position:static; margin:0; border:0; border-radius:0; box-shadow:none; padding:16px; gap:12px 24px; }
+#app .transport { gap:8px; }
+#app .play-button { width:44px; height:44px; flex:none; font-size:15px; }
+#app .transport strong { font-size:20px; font-weight:500; letter-spacing:0; font-variant-numeric:tabular-nums; }
+#app .transport select { min-height:44px; min-width:58px; font-size:13px; border-radius:9px; background:var(--input); }
+#app .transport-divider { background:var(--workspace-line); margin-inline:8px; }
+#app .timeline-tools { width:auto; padding:0; border:0; gap:6px; font-size:11px; }
+#app .timeline-tools .legend { margin-right:16px; }
+#app .timeline-tools .text-button { min-height:44px; padding:8px 12px; }
+#app #zoom-label { min-width:52px; text-align:center; font-variant-numeric:tabular-nums; }
+#app #timeline-resize { background:var(--panel); height:18px; }
+#app #overview { border-color:var(--workspace-line); }
+#app .timeline-bottom { border-color:var(--workspace-line); padding:12px 16px; line-height:1.6; }
+#app .timeline-help-touch { display:none; }
+#app .thumbnails { padding:0 16px 16px; gap:10px; }
+#app .thumb { border-color:var(--workspace-line); border-radius:8px; }
+#app .thumb:focus-visible { outline-offset:-3px; }
+#app .scan-details { background:transparent; border:0; border-top:1px solid var(--workspace-line); border-radius:0; padding:0; margin:24px 0 0; }
+#app .scan-details summary { display:list-item; padding:14px 4px; min-height:44px; color:var(--muted); }
+#app .scan-details[open] summary { color:var(--text); }
+#app :is(.icon-button,.text-button) { min-width:44px; min-height:44px; }
+#app .icon-button { display:inline-flex; align-items:center; justify-content:center; }
+#app .icon-button:hover { background:var(--surface); }
+body:has(#app:not([hidden])) #toast { left:auto; right:24px; bottom:calc(24px + env(safe-area-inset-bottom)); transform:none; width:max-content; max-width:min(420px,calc(100vw - 32px)); border-radius:12px; line-height:1.6; pointer-events:none; }
+
+/* Dialog surfaces share the archive's spacing, without affecting login inputs. */
+dialog { border-color:color-mix(in srgb,var(--line) 65%,transparent); }
+dialog > .dialog-heading,#preferences-dialog > .dialog-heading { padding:24px 28px 20px; border-bottom-color:color-mix(in srgb,var(--line) 50%,transparent); }
+dialog .dialog-heading h2 { font-size:24px; line-height:1.25; }
+dialog .dialog-heading .eyebrow { display:block; color:var(--accent); margin-bottom:8px; }
+dialog .dialog-heading .icon-button { display:flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; border-radius:10px; background:var(--surface); }
+dialog .dialog-body { line-height:1.6; }
+dialog :is(input:not([type=checkbox]),select) { min-height:44px; border-radius:9px; background:var(--input); }
+dialog :is(button,.button) { min-height:44px; }
+dialog .button { border-radius:9px; font-size:13px; }
+dialog .secondary { background:var(--surface); border-color:transparent; }
+dialog .preferences-sections { gap:24px; }
+dialog .preferences-sections section { padding-bottom:24px; border-bottom-color:color-mix(in srgb,var(--line) 50%,transparent); }
+dialog .preferences-sections h3 { font-size:15px; margin-bottom:16px; }
+dialog .preferences-checks label { min-height:44px; }
+dialog > .preferences-footer { gap:10px; padding:16px 28px; }
+dialog .settings-tabs { display:flex; flex-wrap:wrap; gap:6px; padding:6px; border:0; border-radius:12px; background:var(--input); }
+dialog .settings-tabs button { flex:1 1 auto; border:0; border-radius:8px; padding:10px 12px; color:var(--muted); font-size:12px; }
+dialog .settings-tabs button[aria-pressed=true] { background:var(--selected); color:var(--accent); }
+dialog .search-result { border-radius:10px; padding:16px; overflow-wrap:anywhere; }
+dialog :is(pre,.source-row span) { overflow-wrap:anywhere; white-space:pre-wrap; }
+dialog .camera-entry { border-radius:10px; }
+dialog :is(.camera-entry button,.batch-row) { overflow-wrap:anywhere; }
+dialog .camera-maintenance { border-top-color:color-mix(in srgb,var(--line) 50%,transparent); }
+dialog .camera-advanced { background:var(--input); border-color:transparent; border-radius:10px; }
+dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
+
+:root[data-density=compact] #app main { padding-top:20px; }
+:root[data-density=compact] #app .page-heading { margin-bottom:16px; }
+:root[data-density=compact] #app .archive-controls { margin-bottom:12px; }
+:root[data-density=compact] #app :is(.view-toolbar,.camera-selection) { padding:6px 0; }
+:root[data-density=compact] #app .video-grid { gap:8px; }
+:root[data-density=compact] #app .playback-toolbar { padding:10px 12px; }
+
+@media(min-width:701px) and (max-width:1100px) {
+ #app .rail-heading .rail-logo { padding:6px; }
+ #app .rail-heading .rail-collapse { margin:0; }
+ #app .rail-item > span,#app .rail-logo > span { display:none; }
+ #app .rail-item { justify-content:center; padding:10px; }
+}
+@media(max-width:1000px) {
+ #app .playback-toolbar { gap:8px; }
+ #app .timeline-tools { flex:1; justify-content:flex-end; }
+ #app .timeline-tools .legend { display:none; }
+}
+@media(max-width:700px) {
+ #app .rail { display:grid; grid-template-columns:minmax(0,1fr) auto; padding:calc(10px + env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) 8px max(12px,env(safe-area-inset-left)); gap:10px 8px; }
+ #app .rail-heading { min-width:0; }
+ #app .rail-logo,#app.rail-collapsed .rail-logo { padding:0; gap:8px; }
+ #app .rail-logo > span { display:inline; font-size:16px; }
+ #app .rail-collapse { display:none; }
+ #app .rail-bottom { grid-column:2; grid-row:1; display:flex; flex-direction:row; padding:0; margin:0; border:0; gap:4px; }
+ #app .rail-bottom .account-menu { width:auto; }
+ #app .rail nav { grid-column:1/-1; grid-row:2; display:flex; flex-direction:row; gap:4px; margin:0; overflow:visible; }
+ #app .rail-item,#app #search-button { flex:1; width:auto; min-width:0; min-height:58px; flex-direction:column; justify-content:center; gap:5px; padding:8px 4px; border-radius:9px; }
+ #app .rail-item > span { display:inline; font-size:10px; line-height:1.3; }
+ #app .rail-item.active { box-shadow:inset 0 -2px var(--accent); }
+ #app .rail-item svg { width:20px; height:20px; }
+ #app .account-actions { top:calc(100% + 8px); bottom:auto; right:0; left:auto; }
+ #app main { padding:22px max(12px,env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); }
+ body:has(#app:not([hidden])) #toast { right:max(16px,env(safe-area-inset-right)); }
+ #app .page-heading { margin-bottom:18px; gap:12px; }
+ #app .page-heading h1 { font-size:28px; }
+ #app .page-heading .eyebrow { font-size:9px; margin-bottom:6px; }
+ #app .page-heading .index-state { font-size:10px; gap:6px; }
+ #app .archive-controls { padding:4px 12px; margin-bottom:16px; }
+ #app .view-toolbar { display:flex; gap:12px; padding:8px 0 14px; }
+ #app .date-control { width:100%; gap:0; }
+ #app .date-control input { max-width:none; min-width:0; width:0; flex:1; font-size:16px; text-align:center; }
+ #app .date-control .text-button { margin-left:4px; padding-inline:10px; }
+ #app .view-options { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; width:100%; }
+ #app .compact-label { gap:6px; }
+ #app .compact-label select { width:100%; min-width:0; font-size:16px; }
+ #app .camera-selection { padding:10px 0; gap:8px; }
+ #app .selection-heading { width:100%; justify-content:space-between; gap:4px; }
+ #app .selection-heading > div { gap:0; }
+ #app .selection-heading .text-button { padding:8px 6px; font-size:11px; }
+ #app .camera-filters { flex-basis:100%; gap:6px; }
+ #app .camera-filters .filter { padding:10px 12px; }
+ #app .camera-page-controls { justify-content:flex-end; gap:4px; }
+ #app #camera-range { flex-basis:auto; margin-right:auto; }
+ #app #grid-hint { flex-basis:100%; }
+ #app .video-grid { gap:12px; }
+ #app .camera-tile .tile-footer { padding:6px 10px; }
+ #app .tile-footer > span:nth-child(2) { display:none; }
+ #app .tile-header { padding:12px; }
+ #app .timeline-section { margin-top:16px; }
+ #app .playback-toolbar { padding:12px 10px; gap:10px; }
+ #app .transport { width:100%; justify-content:space-between; gap:2px; }
+ #app .transport strong { font-size:18px; margin-left:auto; }
+ #app .transport select { min-width:54px; padding:6px; font-size:16px; }
+ #app .transport .timezone,#app .transport-divider { display:none; }
+ #app .timeline-tools { flex-basis:100%; width:100%; justify-content:flex-end; gap:4px; padding-top:8px; border-top:1px solid var(--workspace-line); }
+ #app .timeline-tools .text-button { margin-right:auto; order:-1; padding:8px; }
+ #app .timeline-bottom { padding:10px 12px; font-size:10px; }
+ #app .timeline-bottom > span:last-child { display:none; }
+ #app .timeline-bottom .timeline-help-pointer { display:none; }
+ #app .timeline-bottom > span.timeline-help-touch { display:block; }
+ #app .thumbnails { padding:0 12px 12px; }
+ dialog:where([id]) { max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+ dialog > .dialog-heading,#preferences-dialog > .dialog-heading { padding:18px 16px; gap:12px; }
+ dialog .dialog-heading h2 { font-size:21px; }
+ dialog .dialog-body,#preferences-dialog .dialog-body { padding:18px 16px; }
+ dialog > .preferences-footer { padding:12px 16px; gap:8px; }
+ dialog .preferences-footer > .muted { font-size:11px; }
+ dialog .preferences-save-actions { gap:8px; }
+ dialog .button { padding:10px 12px; }
+ dialog :is(input:not([type=checkbox]),select) { font-size:16px; }
+ dialog .settings-tabs button { padding:8px; }
+ dialog .dialog-actions { gap:8px; }
+}
+@media(pointer:coarse) {
+ #app .timeline-help-pointer { display:none; }
+ #app .timeline-bottom > span.timeline-help-touch { display:block; }
+}

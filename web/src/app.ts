@@ -357,7 +357,11 @@ async function boot(){
  const response=await fetch('/api/session');
  if(response.status===401){
   const methods=await api<{local:boolean;oidc:boolean}>('/auth/methods');
-  loginForm.hidden=!methods.local;$('oidc-login').hidden=!methods.oidc;$('login-divider').hidden=!(methods.local&&methods.oidc);$('boot-error').hidden=true;$('login').hidden=false;return;
+  loginForm.hidden=!methods.local;$('oidc-login').hidden=!methods.oidc;$('login-divider').hidden=!(methods.local&&methods.oidc);$('boot-error').hidden=true;$('login').hidden=false;
+  // Focus synchronously after revealing the form. Native autofocus on a hidden
+  // input can run later in WebKit and steal focus from password entry.
+  if(methods.local)loginForm.querySelector<HTMLInputElement>('[name=username]')!.focus();
+  return;
  }
  if(!response.ok)throw new Error(`Sitzung konnte nicht geladen werden (${response.status})`);
  session=await response.json();$('password-button').hidden=session.kind!=='local';accountMenu.open=false;const accountSummary=accountMenu.querySelector('summary')!;accountSummary.setAttribute('aria-disabled',String(session.kind!=='local'));accountSummary.tabIndex=session.kind==='local'?0:-1;
