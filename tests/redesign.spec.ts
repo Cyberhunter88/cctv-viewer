@@ -38,8 +38,17 @@ test('archive and all main dialogs fit phones, landscape, tablets and desktop',a
     await expect(page.locator('#preferences-button > span')).toBeVisible();
     expect(await page.locator('.camera-group').first().evaluate(el=>el.clientWidth)).toBeGreaterThanOrEqual(300);
    }
-   const sizes=await page.locator('#app button:not([hidden]),#app .rail-item').evaluateAll(elements=>elements.filter(el=>el.getClientRects().length>0).map(el=>({name:el.getAttribute('aria-label')||el.textContent,width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height})));
+   const sizes=await page.locator('#app button:not([hidden]),#app .rail-item').filter({visible:true}).evaluateAll(elements=>elements.map(el=>({name:el.getAttribute('aria-label')||el.textContent,width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height})));
    for(const size of sizes){expect(size.width,size.name||'touch width').toBeGreaterThanOrEqual(44);expect(size.height,size.name||'touch height').toBeGreaterThanOrEqual(44)}
+   if(width===360){
+    await expect(page.locator('#password-button')).toBeHidden();
+    await page.locator('#account-menu summary').tap();
+    await expect(page.locator('#password-button')).toBeVisible();
+    const action=await page.locator('#password-button').boundingBox();
+    expect(action!.width).toBeGreaterThanOrEqual(44);expect(action!.height).toBeGreaterThanOrEqual(44);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#password-button')).toBeHidden();
+   }
    await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}));
    await page.screenshot({path:info.outputPath(`archive-${theme}-${width}.png`),fullPage:true});
    for(const [trigger,id,close] of [['preferences-button','preferences-dialog','preferences-close'],['search-button','search-dialog','search-close'],['settings-button','camera-dialog','close-dialog']]){
