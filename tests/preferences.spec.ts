@@ -37,12 +37,13 @@ test('shortcuts share the configured step and never interfere with forms',async(
  // Exercise the asynchronous save/close boundary even on fast local servers.
  await page.route('**/api/preferences',async route=>{
   if(route.request().method()!=='PATCH')return route.continue();
-  const response=await route.fetch();await new Promise(resolve=>setTimeout(resolve,250));await route.fulfill({response});
+  const response=await route.fetch(),body=await response.body(),status=response.status(),headers=response.headers();await new Promise(resolve=>setTimeout(resolve,250));await route.fulfill({status,headers,body});
  });
  await open(page);await page.locator('#pref-seekStep').selectOption('30');await save(page);await page.locator('#timeline').focus();await expect(page.locator('#clock')).toHaveText('08:30:00');await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');await page.keyboard.press('Shift+ArrowLeft');await expect(page.locator('#clock')).toHaveText('08:29:30');await page.keyboard.press('Shift+ArrowRight');await expect(page.locator('#clock')).toHaveText('08:30:30');const after=await page.locator('#clock').textContent();
  await open(page);await page.locator('#pref-shortcuts').uncheck();await save(page);await page.locator('#timeline').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);await page.locator('#overview').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);
  await open(page);await page.locator('#pref-shortcuts').check();await page.locator('#pref-timelineHeight').focus();await page.keyboard.press('ArrowDown');await expect(page.locator('#clock')).toHaveText(after!);page.once('dialog',d=>d.accept());await page.keyboard.press('Escape');await expect(page.locator('#preferences-dialog')).toBeHidden();await expect(page.locator('#preferences-button')).toBeFocused();
  await page.locator('#select-none').click();await expect(page.locator('#video-grid')).toContainText('Keine Kameras ausgewählt');await expect(page.locator('#camera-range')).toHaveText('Keine Kamera ausgewählt');await page.locator('#select-all').click();await expect(page.locator('.camera-tile')).toHaveCount(2);
+ await page.unrouteAll({behavior:'wait'});
 });
 for(const role of ['admin','viewer'])test(`${role} responsive shell and settings in both themes`,async({page},info)=>{
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
@@ -218,4 +219,55 @@ test('fullscreen survives viewport changes and closes with its control',async({p
  await tile.locator('.tile-expand').click();
  await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
  await expect(page.locator('.camera-tile')).toHaveCount(2);
+});
+
+test('diagnostics preserve drafts, keep recording when closed and export events',async({page})=>{
+ await login(page);await expect(page.locator('#quality')).toHaveValue('native');
+ await expect(page.locator('#recordings #playback-diagnostics')).toHaveCount(0);
+ await open(page);await page.locator('#pref-density').selectOption('compact');
+ await page.locator('#diagnostics-open').click();await expect(page.locator('#diagnostics-dialog')).toBeVisible();
+ await page.locator('#trace-enabled').check();await page.keyboard.press('Escape');
+ await expect(page.locator('#diagnostics-open')).toBeFocused();await expect(page.locator('#pref-density')).toHaveValue('compact');await expect(page.locator('#preferences-save')).toBeEnabled();
+ await page.locator('#diagnostics-open').click();await expect(page.locator('#trace-enabled')).toBeChecked();await expect(page.locator('#trace-status')).toContainText('Aufzeichnung läuft');
+ await page.locator('#trace-stop').click();const downloadPromise=page.waitForEvent('download');await page.locator('#trace-download').click();const download=await downloadPromise;expect(download.suggestedFilename()).toBe('wiedergabediagnose.json');
+ const stream=await download.createReadStream();const chunks:Buffer[]=[];for await(const chunk of stream!)chunks.push(Buffer.from(chunk));const report=JSON.parse(Buffer.concat(chunks).toString());expect(report.version).toBe(1);expect(report.events.some((event:{event:string})=>event.event==='start')).toBe(true);
+ await page.locator('#diagnostics-close').click();await page.locator('#preferences-save').click();await page.reload();await open(page);await expect(page.locator('#pref-density')).toHaveValue('compact');
+});
+
+test('dialog headings and settings actions stay fixed while content scrolls',async({page},info)=>{
+ await login(page);
+ for(const theme of ['light','dark'])for(const width of [390,1366]){
+  await page.setViewportSize({width,height:500});await open(page);await page.locator('#theme').selectOption(theme);await save(page);await open(page);
+  const dialog=page.locator('#preferences-dialog'),heading=dialog.locator('.dialog-heading'),footer=dialog.locator('.preferences-footer'),body=dialog.locator('.dialog-body');
+  const initial=await heading.boundingBox();await body.evaluate(el=>el.scrollTop=el.scrollHeight);expect((await heading.boundingBox())!.y).toBe(initial!.y);
+  await expect(page.locator('#preferences-close')).toBeInViewport();await expect(page.locator('#preferences-save')).toBeInViewport();
+  const content=await body.boundingBox(),actions=await footer.boundingBox();expect(content!.y+content!.height).toBeLessThanOrEqual(actions!.y+1);
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`fixed-dialog-${theme}-${width}.png`)});
+  await page.locator('#diagnostics-open').click();await expect(page.locator('#diagnostics-close')).toBeInViewport();
+  await page.locator('#diagnostics-dialog .dialog-body').evaluate(el=>el.scrollTop=el.scrollHeight);await expect(page.locator('#diagnostics-close')).toBeInViewport();
+  expect(await page.locator('#diagnostics-dialog .dialog-body').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`diagnostics-${theme}-${width}.png`)});await page.locator('#diagnostics-close').click();await expect(page.locator('#diagnostics-open')).toBeFocused();await page.locator('#preferences-close').click();
+ }
+});
+
+test('expanded fallback restores its icon and label on Escape',async({page})=>{
+ await page.addInitScript(()=>Object.defineProperty(document,'fullscreenEnabled',{get:()=>false}));
+ await login(page);const tile=page.locator('.camera-tile').first(),button=tile.locator('.tile-expand');
+ const original=await button.locator('path').getAttribute('d');await button.click();await expect(tile).toHaveClass(/expanded/);await expect(button).toHaveAccessibleName('Vergrößerte Ansicht schließen');expect(await button.locator('path').getAttribute('d')).not.toBe(original);
+ await page.keyboard.press('Escape');await expect(tile).not.toHaveClass(/expanded/);await expect(button).toHaveAccessibleName('Ansicht vergrößern');await expect(button.locator('path')).toHaveAttribute('d',original!);
+});
+
+test('a scan completing during the day response refreshes the recording snapshot',async({page})=>{
+ await login(page);let requests=0,finished=false;
+ await page.route('**/api/scan',route=>route.fulfill({json:{running:false,completion:finished?1000000:0,warnings:[],cameras:[]}}));
+ await page.route('**/api/day?*',async route=>{
+  const response=await route.fetch(),day=await response.json();requests++;
+  // Match an index commit between the database reads and status serialization.
+  if(requests===1)day.recordings=day.recordings.slice(0,1);
+  day.scan={...day.scan,running:false,completion:1000000};finished=true;await route.fulfill({json:day});
+ });
+ await page.locator('#date').dispatchEvent('change');await expect(page.locator('#recording-count')).toContainText('1 Aufnahmen');
+ await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:12000});expect(requests).toBeGreaterThanOrEqual(2);
+ await page.unrouteAll({behavior:'wait'});
 });

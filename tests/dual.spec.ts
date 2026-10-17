@@ -52,6 +52,17 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
   await expect(page.locator('.camera-group.dual')).toHaveCount(2);
   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  }
+ // Exercise the actual camera-group breakpoint independently of viewport/grid heuristics.
+ await firstGroup.evaluate(el=>{el.style.width='719px';el.style.maxWidth='none'});
+ let pair=await firstGroup.locator('.camera-tile').evaluateAll(items=>items.map(el=>el.getBoundingClientRect().toJSON()));expect(pair[1].top).toBeGreaterThanOrEqual(pair[0].bottom);
+ await firstGroup.evaluate(el=>el.style.width='720px');
+ pair=await firstGroup.locator('.camera-tile').evaluateAll(items=>items.map(el=>el.getBoundingClientRect().toJSON()));expect(Math.abs(pair[0].top-pair[1].top)).toBeLessThan(1);expect(pair[0].width).toBeGreaterThan(350);
+ for(const button of await firstGroup.locator('.tile-audio,.tile-expand').all()){
+  const box=await button.boundingBox(),icon=await button.locator('svg').boundingBox();expect(box!.width).toBe(44);expect(box!.height).toBe(44);expect(icon!.width).toBe(20);expect(icon!.height).toBe(20);
+ }
+ await expect(page.locator('#quality')).toHaveValue('native');
+ for(const video of await firstGroup.locator('video').all())await expect(video).toHaveAttribute('src',/\/api\/recordings\/[^/]+\/file$/);
+ await firstGroup.evaluate(el=>{el.style.removeProperty('width');el.style.removeProperty('max-width')});
  await firstGroup.locator('.zoom-toggle').click();await expect(firstGroup.locator('video')).toHaveCount(1);
  await expect(firstGroup.locator('.zoom-toggle')).toBeFocused();
  await page.reload();await expect(page.locator('.camera-group.dual video')).toHaveCount(2);

@@ -23,7 +23,8 @@ const dateInput=$<HTMLInputElement>('date'),canvas=$<HTMLCanvasElement>('timelin
 const timelineLayer=document.createElement('canvas');let timelineKey='',timelineRecords:Recording[]|undefined;
 const speed=()=>Number($<HTMLSelectElement>('speed').value);
 let refreshRange=()=>{};let page=0,order:string[]=[],hotspot:string|undefined,lastHotspotCursor:number|undefined;
-let scanCompletion=0;
+// A completion observed during a day request may be newer than its recording snapshot.
+let scanCompletion=0,loadedScanCompletion=0;
 let toastTimer:ReturnType<typeof setTimeout>|undefined;
  const state:ViewState=defaultView();
  let trace:{at:number;event:string;camera?:string;detail?:string}[]=[],tracing=false,traceStart=0;
@@ -34,12 +35,12 @@ async function toggleFullscreen(tile:HTMLElement){
  try{
   if(document.fullscreenElement){await document.exitFullscreen();return}
   if(document.fullscreenEnabled&&tile.requestFullscreen)await tile.requestFullscreen();
-  else {tile.classList.toggle('expanded');tile.querySelector('.tile-expand')?.setAttribute('aria-label',tile.classList.contains('expanded')?'Vergrößerte Ansicht schließen':'Ansicht vergrößern')}
+  else {tile.classList.toggle('expanded');const button=tile.querySelector('.tile-expand');if(button){button.setAttribute('aria-label',tile.classList.contains('expanded')?'Vergrößerte Ansicht schließen':'Ansicht vergrößern');setControlIcon(button,tile.classList.contains('expanded')?'collapse':'expand')}}
  }catch{notify('Vollbild konnte nicht geöffnet werden. Bitte erneut versuchen.')}
 }
 document.addEventListener('fullscreenchange',()=>{
  if(!document.fullscreenElement&&fullscreenGridPending){fullscreenGridPending=false;renderGrid();update()}
- for(const tile of tiles.values()){const active=document.fullscreenElement===tile.container;const button=tile.container.querySelector('.tile-expand');if(button){button.setAttribute('aria-label',active?'Vollbild schließen':document.fullscreenEnabled?'Vollbild öffnen':'Ansicht vergrößern');button.textContent=active?'⤡':'⤢'}tile.applyAspect()}
+ for(const tile of tiles.values()){const active=document.fullscreenElement===tile.container;const button=tile.container.querySelector('.tile-expand');if(button){button.setAttribute('aria-label',active?'Vollbild schließen':document.fullscreenEnabled?'Vollbild öffnen':'Ansicht vergrößern');setControlIcon(button,active?'collapse':'expand')}tile.applyAspect()}
 });
 function applyRail(){
  const collapsed=state.railCollapsed??matchMedia('(max-width:1100px)').matches;
@@ -93,6 +94,13 @@ function grid(){return gridSize($<HTMLSelectElement>('layout').value,state.colum
 function visiblePageCapacity(){const [cols,rows]=grid();return pageCapacity($<HTMLSelectElement>('layout').value,cols,rows)}
 function visible():Camera[]{const all=ordered(),capacity=visiblePageCapacity();page=clamp(page,0,Math.max(0,Math.ceil(all.length/capacity)-1));return all.slice(page*capacity,(page+1)*capacity)}
 function setMessage(tile:Tile,message:string,error=false){if(tile.messageState===message&&tile.messageError===error)return;tile.messageState=message;tile.messageError=error;tile.message.replaceChildren();if(message){tile.message.append(element('span','symbol',error?'⚠':'▧'),element('span','',message))}tile.message.hidden=!message;tile.message.classList.toggle('error',error);if(error){const retry=element('button','tile-retry','Erneut versuchen');retry.type='button';retry.onclick=()=>tile.retry();tile.message.append(retry)}}
+type ControlIcon='expand'|'collapse'|'sound'|'muted';
+function setControlIcon(button:Element,name:ControlIcon){
+ const paths:Record<ControlIcon,string>={expand:'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',collapse:'M3 8h5V3m13 5h-5V3M8 21v-5H3m13 5v-5h5',sound:'M11 5 6 9H3v6h3l5 4V5Zm4 3a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14',muted:'M11 5 6 9H3v6h3l5 4V5Zm5 4 5 6m0-6-5 6'};
+ const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+ svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.setAttribute('fill','none');svg.setAttribute('stroke','currentColor');svg.setAttribute('stroke-width','1.7');svg.setAttribute('stroke-linecap','round');svg.setAttribute('stroke-linejoin','round');
+ const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',paths[name]);svg.append(path);button.replaceChildren(svg);
+}
 class Tile {
  audioButton=element('button','tile-audio');
  frameCallback?:number;messageState?:string;messageError=false;playPending=false;video=element('video');container=element('div','camera-tile');message=element('div','tile-message');timestamp=element('span');codec=element('small');stream?:string;record?:Recording;loading=false;failed=false;epoch=0;offset=0;factor=1;abort?:AbortController;hls?:Hls;loadedSpeed=1;attempts=0;recoveryStart=0;recoveryTimer?:ReturnType<typeof setTimeout>;stallTimer?:ReturnType<typeof setTimeout>;pauseTimer?:ReturnType<typeof setTimeout>;
@@ -101,7 +109,7 @@ class Tile {
   const header=element('div','tile-header'),title=element('button','tile-title',camera.name+(view==='wide'?' · Weitwinkel':view==='zoom'?' · Zoom':''));title.type='button';title.setAttribute('aria-label',title.textContent+' · Als Hotspot wählen');title.title=title.textContent+' · Als Hotspot wählen';title.onclick=()=>{hotspot=camera.id;state.autoHotspot=false;$<HTMLInputElement>('auto-hotspot').checked=false;renderGrid();saveView()};header.append(title,this.codec);
   const footer=element('div','tile-footer');footer.append(this.timestamp,element('span','','AUFNAHME'));this.container.append(this.video,header,this.message,footer);this.container.setAttribute('role','group');this.container.setAttribute('aria-label',title.textContent!);
   this.container.ondblclick=()=>void toggleFullscreen(this.container);
-  const expand=element('button','tile-expand','⤢');expand.type='button';expand.setAttribute('aria-label',document.fullscreenEnabled?'Vollbild öffnen':'Ansicht vergrößern');expand.onclick=()=>void toggleFullscreen(this.container);this.audioButton.type='button';this.setAudio(false);
+  const expand=element('button','tile-expand');setControlIcon(expand,'expand');expand.type='button';expand.setAttribute('aria-label',document.fullscreenEnabled?'Vollbild öffnen':'Ansicht vergrößern');expand.onclick=()=>void toggleFullscreen(this.container);this.audioButton.type='button';this.setAudio(false);
   this.audioButton.onclick=()=>{const enabled=audioTile!==this;if(audioTile)audioTile.setAudio(false);audioTile=enabled?this:undefined;this.setAudio(enabled);if(enabled&&playing)this.startPlayback()};
   this.audioButton.ondblclick=e=>e.stopPropagation();expand.ondblclick=e=>e.stopPropagation();const actions=element('div','tile-actions');actions.append(this.audioButton,expand);footer.append(actions);
   this.video.addEventListener('error',()=>{if(this.record&&!this.loading){if($<HTMLSelectElement>('quality').value==='native'&&this.video.error?.code===4)this.fail('Originalformat im Browser nicht unterstützt. Bitte Ausgewogen oder Schnell wählen');else this.recover('Video konnte nicht geladen werden')}});
@@ -115,7 +123,7 @@ class Tile {
   this.video.addEventListener('volumechange',()=>{if(audioTile!==this&&!this.video.muted)this.video.muted=true});
   this.video.addEventListener('ended',()=>{if(this.record&&cursor<this.record.start+this.record.duration-1){this.release();this.update()}});
  }
- setAudio(enabled:boolean){this.video.muted=!enabled;this.audioButton.textContent=enabled?'Ton an':'Ton aus';this.audioButton.setAttribute('aria-pressed',String(enabled));const label=`${enabled?'Ton ausschalten':'Ton einschalten'} · ${this.camera.name}${this.view==='wide'?' · Weitwinkel':this.view==='zoom'?' · Zoom':''}`;this.audioButton.setAttribute('aria-label',label);this.audioButton.title=label}
+ setAudio(enabled:boolean){this.video.muted=!enabled;setControlIcon(this.audioButton,enabled?'sound':'muted');this.audioButton.setAttribute('aria-pressed',String(enabled));const label=`${enabled?'Ton ausschalten':'Ton einschalten'} · ${this.camera.name}${this.view==='wide'?' · Weitwinkel':this.view==='zoom'?' · Zoom':''}`;this.audioButton.setAttribute('aria-label',label);this.audioButton.title=label}
  startPlayback(){if(this.playPending)return;this.playPending=true;const epoch=this.epoch;void this.video.play().catch((error:Error)=>{if(epoch!==this.epoch)return;if(error.name==='NotAllowedError'&&audioTile===this){audioTile=undefined;this.setAudio(false);notify('Der Browser hat die Tonwiedergabe blockiert. Bitte Ton erneut einschalten.')}}).finally(()=>{if(epoch===this.epoch)this.playPending=false})}
  applyAspect(){this.container.style.aspectRatio=state.aspect==='auto'?`${this.video.videoWidth||16} / ${this.video.videoHeight||9}`:state.aspect==='fill'?'16 / 9':state.aspect;this.video.style.objectFit=state.aspect==='fill'?'cover':'contain'}
  fail(message:string){const record=this.record;this.release();this.record=record;this.failed=true;setMessage(this,message+' · Bitte erneut versuchen.',true);log('failed',this.camera.id,message)}
@@ -213,7 +221,7 @@ function setScan(scan:Scan){
  $('scan-queue').textContent=`${scan.queue?.length||0} Aufträge warten${scan.queue?.length?' · '+scan.queue.map(q=>`${cameras.find(c=>c.id===q.camera)?.name||'Alle Kameras'} (${q.date})`).join(', '):''}`;
  $('warnings').hidden=!scan.warnings?.length;$('warnings').textContent=(scan.warnings||[]).join('\n');
 }
-async function loadDay(reset=true){const generation=++loadGeneration;if(reset){pause();tiles.forEach(t=>t.release())}const data=await api<Day>('/api/day?date='+encodeURIComponent(dateInput.value));if(generation!==loadGeneration)return;records=data.recordings;playableRecords=playbackRecordings(records,cameras);from=data.from;to=data.to;setScan(data.scan);refreshDisplayedRecords();if(reset){const ids=new Set(visible().map(c=>c.id));cursor=firstRecordingStart(displayedRecords.filter(r=>ids.has(r.cameraId)),from);viewStart=from;viewEnd=to}$('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;update();void thumbnails();refreshRange()}
+async function loadDay(reset=true){const generation=++loadGeneration,completionAtStart=scanCompletion;if(reset){pause();tiles.forEach(t=>t.release())}const data=await api<Day>('/api/day?date='+encodeURIComponent(dateInput.value));if(generation!==loadGeneration)return;loadedScanCompletion=completionAtStart;records=data.recordings;playableRecords=playbackRecordings(records,cameras);from=data.from;to=data.to;setScan(data.scan);refreshDisplayedRecords();if(reset){const ids=new Set(visible().map(c=>c.id));cursor=firstRecordingStart(displayedRecords.filter(r=>ids.has(r.cameraId)),from);viewStart=from;viewEnd=to}$('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;update();void thumbnails();refreshRange()}
 async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');for(const id of openZoom)if(!cameras.some(c=>c.id===id&&c.viewMode==='dual'))openZoom.delete(id);order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList()}
 function updateTimelineDescription(cams:Camera[]){
  const description=$('timeline-description'),list=element('ul');
@@ -377,8 +385,8 @@ async function boot(){
  preferenceWriter=new PreferenceWriter({...initialSnapshot,cameras:saved.cameras??initialSnapshot.cameras,order:saved.order??initialSnapshot.order},changes=>api('/api/preferences',{method:'PATCH',body:JSON.stringify(changes),keepalive:true}),preferenceStatus);
  try{localStorage.setItem('cctv-view:'+session.preferenceKey,JSON.stringify(preferenceSnapshot()))}catch{}
  refreshRange=attachTimelineControls(canvas,{bounds:()=>({from,to,cursor,viewStart,viewEnd}),seek,zoom,shortcuts:()=>state.shortcuts,seekStep:()=>state.seekStep,pan:(start,end)=>{viewStart=start;viewEnd=end;draw();refreshRange()}});
- $('boot-error').hidden=true;$('app').hidden=false;$('playback-diagnostics').hidden=false;requestAnimationFrame(frame);
- setInterval(async()=>{try{const scan=await api<Scan>('/api/scan');const wasRunning=scanRunning,completedBefore=scanCompletion;setScan(scan);if((wasRunning&&!scan.running)||scanCompletion>completedBefore)await loadDay(false)}catch(e){notify((e as Error).message)}},4000);
+ $('boot-error').hidden=true;$('app').hidden=false;requestAnimationFrame(frame);
+ setInterval(async()=>{try{const scan=await api<Scan>('/api/scan');const wasRunning=scanRunning;setScan(scan);if((wasRunning&&!scan.running)||scanCompletion>loadedScanCompletion)await loadDay(false)}catch(e){notify((e as Error).message)}},4000);
 }
 function showBootError(error:unknown){$('boot-error-message').textContent=(error as Error).message||'Unbekannter Fehler';$('boot-error').hidden=false}
 async function runBoot(){const button=$<HTMLButtonElement>('boot-retry');button.disabled=true;if(!$('boot-error').hidden)$('boot-error-message').textContent='Verbindung wird hergestellt …';try{await boot()}catch(error){showBootError(error)}finally{button.disabled=false}}
@@ -404,6 +412,8 @@ function applyPreferences(){
 }
 function openPreferences(){syncPreferences();resetPreferencesPending=false;preferencesBaseline=preferencesSnapshot();updatePreferencesSave();preferences.showModal()}
 function closePreferences(){if((resetPreferencesPending||preferencesSnapshot()!==preferencesBaseline)&&!confirm('Ungespeicherte Einstellungen verwerfen?'))return;preferences.close();syncPreferences();resetPreferencesPending=false}
+const diagnostics=$<HTMLDialogElement>('diagnostics-dialog');
+on('diagnostics-open',()=>diagnostics.showModal());on('diagnostics-close',()=>diagnostics.close());
 on('preferences-button',openPreferences);on('preferences-close',closePreferences);on('preferences-cancel',closePreferences);
 preferences.addEventListener('cancel',e=>{e.preventDefault();closePreferences()});
 preferencesForm.addEventListener('input',updatePreferencesSave);preferencesForm.addEventListener('change',updatePreferencesSave);
@@ -486,7 +496,7 @@ on('trace-download',async()=>{const status=await api('/api/playback-status');con
 $<HTMLSelectElement>('view-mode').onchange=cameraFormatChanged;
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'&&document.fullscreenElement)void document.exitFullscreen().catch(()=>notify('Vollbild konnte nicht geschlossen werden.'));
- if(e.key==='Escape'&&!document.querySelector('dialog[open]'))document.querySelectorAll('.camera-tile.expanded').forEach(t=>{t.classList.remove('expanded');t.querySelector('.tile-expand')?.setAttribute('aria-label','Ansicht vergrößern')});
+ if(e.key==='Escape'&&!document.querySelector('dialog[open]'))document.querySelectorAll('.camera-tile.expanded').forEach(t=>{t.classList.remove('expanded');const button=t.querySelector('.tile-expand');if(button){button.setAttribute('aria-label','Ansicht vergrößern');setControlIcon(button,'expand')}});
  const target=e.target instanceof HTMLElement?e.target:undefined;
  const tag=target?.tagName;
  if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA'||tag==='CANVAS'||target?.isContentEditable)return;

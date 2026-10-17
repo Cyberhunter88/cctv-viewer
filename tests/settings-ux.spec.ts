@@ -10,7 +10,7 @@ test('preferences are drafts until saved, including theme, reset and validation'
  // Delay account writes so UI updates cannot stand in for durable storage.
  await page.route('**/api/preferences',async route=>{
   if(route.request().method()!=='PATCH')return route.continue();
-  const response=await route.fetch();await new Promise(resolve=>setTimeout(resolve,250));await route.fulfill({response});
+  const response=await route.fetch(),body=await response.body(),status=response.status(),headers=response.headers();await new Promise(resolve=>setTimeout(resolve,250));await route.fulfill({status,headers,body});
  });
  const session=await(await page.request.get('/api/session')).json();
  const stored=()=>page.evaluate(key=>localStorage.getItem('cctv-view:'+key),session.preferenceKey);
@@ -32,6 +32,7 @@ test('preferences are drafts until saved, including theme, reset and validation'
  page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await persistPreferences(page);await expect(page.locator('html')).toHaveAttribute('data-density','comfortable');await expect(page.locator('html')).toHaveAttribute('data-theme','light');
  const qualitySaved=page.waitForResponse(response=>response.url().endsWith('/api/preferences')&&response.request().method()==='PATCH'&&response.request().postDataJSON().quality==='balanced'&&response.ok());
  await page.locator('#quality').selectOption('balanced');await qualitySaved;await page.reload();await expect(page.locator('#quality')).toHaveValue('balanced');
+ await page.unrouteAll({behavior:'wait'});
 });
 
 test('six-camera editor preserves drafts and failed saves, and adapts to narrow windows',async({page},info)=>{
@@ -99,7 +100,7 @@ for(const dpr of [1,2])test.describe(`dialog corners at device scale ${dpr}`,()=
      expect(m.radii.every(r=>r==='14px')).toBe(true);expect(m.overflow).toBe('hidden');expect(m.bodyOverflow).toBe(false);await expect(page.locator('#'+close)).toBeInViewport();
      await page.screenshot({path:info.outputPath(`${id}-${theme}-${width}-dpr${dpr}.png`)});await page.locator('#'+close).click();
     }
-    await page.locator('#settings-button').click();await page.locator('#open-management').click();await expect(page.locator('#management-dialog')).toBeVisible();
+    await page.locator('#settings-button').click();await page.locator('#open-management').click();await expect(page.locator('#management-dialog')).toBeVisible();await expect(page.locator('#management-dialog')).toHaveCSS('overflow','hidden');
     await page.locator('#management-dialog .dialog-body').evaluate(el=>el.scrollTop=el.scrollHeight);await expect(page.locator('#management-close')).toBeInViewport();await page.screenshot({path:info.outputPath(`management-${theme}-${width}-dpr${dpr}.png`)});await page.locator('#management-close').click();
     await page.locator('#account-menu summary').click();await page.locator('#password-button').click();await expect(page.locator('#password-dialog .dialog-body')).toBeVisible();await page.locator('#password-close').click();
    }

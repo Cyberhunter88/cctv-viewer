@@ -841,9 +841,7 @@ footer span:last-child {
   color: var(--accent)
 }
 #management-dialog {
-  width: min(720px,94vw);
-  max-height: 90vh;
-  overflow: auto
+  width: min(720px,94vw)
 }
 dialog label {
   display: block;
@@ -1016,16 +1014,6 @@ dialog {
   background: var(--panel);
   color: inherit;
   margin-top: 8px
-}
-.playback-diagnostics {
-  margin: 20px auto;
-  max-width: 1200px;
-  padding: 0 20px
-}
-.playback-diagnostics label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px
 }
 .camera-entry .scan-camera {
   font-size: 12px
@@ -1331,7 +1319,7 @@ input[type=checkbox] {
 .camera-group.dual { grid-template-columns:minmax(0,1fr); }
 .camera-group.dual.zoom-open { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .camera-group .camera-tile { width:100%; height:auto; max-height:none; }
-@container (max-width:487px) {
+@container (width < 720px) {
 .camera-group.dual > .camera-tile { grid-column:1 / -1; } }
 .tile-header { gap:6px; }
 .camera-tile .tile-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; display:block; }
@@ -1498,7 +1486,7 @@ button:disabled { cursor:default; }
 
 .login-theme { margin-bottom:24px; max-width:180px; }
 
-#preferences-dialog .dialog-heading { position:sticky; top:0; z-index:1; padding:10px 0; background:var(--panel); }
+
 
 
 @media(min-width:701px) and (max-width:1100px) {
@@ -1644,35 +1632,35 @@ button:disabled { cursor:default; }
  .timeline-bottom { font-size:10px; }
 }
 
-/* Keep long menus usable on short windows and mobile screens. */
+/* Dialog chrome stays outside the single scrolling content surface. */
 @media(min-width:701px) {
  .rail-heading,.rail-bottom { flex-shrink:0; }
  .rail nav { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
 }
-dialog { max-height:calc(100dvh - 24px); overflow-y:auto; overscroll-behavior:contain; }
-dialog .dialog-heading { position:sticky; top:0; z-index:3; background:var(--panel); padding-block:10px; }
-dialog .dialog-heading h2 { min-width:0; overflow-wrap:anywhere; }
+html:has(dialog[open]) { overflow:hidden; }
+dialog:where([id]) { padding:0; overflow:hidden; max-height:calc(100dvh - 24px); }
+dialog[open] { display:flex; flex-direction:column; }
+dialog > .dialog-heading,#preferences-dialog > .dialog-heading { position:static; flex:none; margin:0; padding:18px 28px 14px; gap:16px; border-bottom:1px solid var(--line); background:var(--panel); }
+dialog .dialog-heading h2 { min-width:0; overflow-wrap:anywhere; margin:0; }
 dialog .dialog-heading .icon-button { flex-shrink:0; }
-/* Cover the dialog's padding when its heading sticks during scrolling. */
-dialog .dialog-heading { top:-28px; }
-#preferences-dialog .dialog-heading { top:-24px; }
-@media(max-width:700px) {
- dialog .dialog-heading,#preferences-dialog .dialog-heading { top:-18px; }
-}
+.dialog-body { padding:24px 28px; overflow:auto; overscroll-behavior:contain; min-height:0; min-width:0; scrollbar-gutter:stable; }
+#preferences-dialog { padding:0; }
+#preferences-dialog .dialog-body { padding:24px; }
+dialog > .preferences-footer { position:static; flex:none; margin:0; padding:12px 24px; background:var(--panel); border-top:1px solid var(--line); }
+.diagnostics-controls { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.diagnostics-controls label,#trace-status { flex-basis:100%; }
+.preferences-diagnostics { margin-top:24px; border-top:1px solid var(--line); padding-top:12px; }
+.tile-actions { flex-wrap:wrap; max-width:100%; min-width:0; }
+.camera-tile .tile-actions button { display:inline-flex; align-items:center; justify-content:center; flex:none; min-height:44px; height:44px; font-size:13px; border:1px solid var(--line); border-radius:7px; padding:0 12px; background:var(--panel); color:var(--text); }
+.camera-tile .tile-actions .tile-audio,.camera-tile .tile-actions .tile-expand { width:44px; padding:0; }
+.tile-actions svg { display:block; width:20px; height:20px; flex:none; }
+.camera-tile .tile-actions .tile-audio[aria-pressed=true] { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+.camera-tile .tile-actions button:hover { box-shadow:inset 0 0 0 1px var(--accent); }
 @media(min-width:701px) and (max-width:1100px) {
  :root { --nav-width:72px; }
  .rail-heading { flex-direction:column; gap:10px; }
  .rail-heading .rail-logo { flex:none; padding:6px; }
 }
-
-/* Scroll inside the dialog so native scrollbars cannot square off its corners. */
-dialog:where([id]) { padding:0; overflow:hidden; max-height:calc(100dvh - 24px); }
-.dialog-body { padding:28px; overflow:auto; overscroll-behavior:contain; max-height:calc(100dvh - 26px); min-width:0; }
-#preferences-dialog { padding:0; }
-#preferences-dialog .dialog-body { padding:24px; }
-dialog .dialog-heading,#preferences-dialog .dialog-heading { top:-28px; margin-top:-10px; padding-block:10px; }
-#preferences-dialog .dialog-heading { top:-24px; }
-.preferences-footer { position:sticky; bottom:-24px; background:var(--panel); border-top:1px solid var(--line); padding-block:16px; margin-top:20px; z-index:2; }
 .preferences-footer > .muted { flex-basis:100%; }
 .preferences-save-actions { display:flex; gap:8px; margin-left:auto; }
 .rail-bottom { display:flex; align-items:center; gap:4px; }
@@ -1735,9 +1723,9 @@ button:focus-visible,summary:focus-visible { outline:2px solid var(--accent); ou
 }
 @media(max-width:700px) {
  .dialog-body,#preferences-dialog .dialog-body { padding:18px; }
- dialog .dialog-heading,#preferences-dialog .dialog-heading { top:-18px; }
+ dialog > .dialog-heading,#preferences-dialog > .dialog-heading { padding:14px 18px; }
  #preferences-dialog { max-height:calc(100dvh - 24px); }
- .preferences-footer { bottom:-18px; }
+ dialog > .preferences-footer { padding:12px 18px; }
  .preferences-footer > .button { width:auto; }
  .preferences-save-actions { flex-wrap:wrap; }
  .preferences-save-actions .button { width:auto; }
@@ -1761,6 +1749,7 @@ button:focus-visible,summary:focus-visible { outline:2px solid var(--accent); ou
 .camera-intro { display:flex; align-items:center; justify-content:space-between; gap:8px 16px; flex-wrap:wrap; margin-bottom:18px; }
 #camera-dialog .camera-intro p { margin:0; }
 .camera-intro .management-link { margin:0; padding-inline:0; min-height:36px; }
+#camera-dialog .camera-intro { margin-bottom:0; }
 #camera-list .camera-entry-actions .move-button { font-size:18px; }
 
 /* SSO accounts have no local password action; do not render an empty popover. */
