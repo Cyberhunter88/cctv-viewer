@@ -1,0 +1,5 @@
+#!/bin/sh
+# Git supplies proposed ref updates on standard input.
+set -eu
+repo_root=$(git rev-parse --show-toplevel)
+node "$repo_root/scripts/check-secrets.mjs" --pre-push
