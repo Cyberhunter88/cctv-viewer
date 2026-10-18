@@ -742,35 +742,6 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 	return true
 }
 
-func (a *App) reconcile(camera, p string, seen map[string]bool) bool {
-	rows, e := a.db.QueryContext(a.ctx, `SELECT id,path FROM recordings WHERE camera_id=? AND path>=? AND path<?`, camera, p+"/", p+"0")
-	if e != nil {
-		return false
-	}
-	ids := []string{}
-	for rows.Next() {
-		var id, name string
-		if err := rows.Scan(&id, &name); err != nil {
-			rows.Close()
-			return false
-		}
-		if (strings.HasPrefix(name, p+"/")) && !seen[name] {
-			ids = append(ids, id)
-		}
-	}
-	readErr := rows.Err()
-	rows.Close()
-	if readErr != nil {
-		return false
-	}
-	for _, id := range ids {
-		if _, e := a.db.ExecContext(a.ctx, `DELETE FROM recordings WHERE id=?`, id); e != nil {
-			return false
-		}
-	}
-	return true
-}
-
 const formats = "mov,matroska,webm,avi,mpegts,h264,hevc,dhav"
 
 func probe(ctx context.Context, f *os.File) (float64, string, error) {
