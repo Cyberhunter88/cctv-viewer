@@ -1987,6 +1987,14 @@ dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
 :root.rail-collapsed #app .rail-label { display:none; }
 :root.rail-collapsed #app .nav-group { margin-top:2px; }
 :root.rail-collapsed #app .nav-submenu { margin:0; padding:0; border:0; }
+:root.rail-collapsed #app .nav-group .nav-submenu { display:none; }
+.search-day { margin:20px 0 8px; font-size:14px; }
+.search-preview { width:96px; height:54px; flex:none; object-fit:cover; border-radius:6px; background:var(--surface); }
+.search-result { display:flex; align-items:center; gap:12px; text-align:left; }
+.scan-history { margin-top:24px; border-top:1px solid var(--line); padding-top:16px; }
+.scan-history-entry { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid var(--line); font-size:12px; }
+.scan-history-entry strong { font-size:13px; }
+.scan-history-entry .warning { width:100%; margin:0; }
 :root.rail-collapsed #app .rail-symbol { width:24px; }
 :root.rail-collapsed #app .rail-bottom { display:flex; flex-direction:column; align-items:center; gap:8px; }
 :root.rail-collapsed #app .rail-bottom .account-menu { width:100%; }
@@ -2003,6 +2011,7 @@ dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
  :root.rail-collapsed #app .rail-bottom { flex-direction:row; }
  :root.rail-collapsed #app .rail-bottom .account-menu { width:auto; }
  :root.rail-collapsed #app .nav-submenu { margin:4px 0 0 12px; padding-left:6px; border-left:1px solid var(--line); }
+ :root.rail-collapsed #app .nav-group[open] .nav-submenu { display:block; }
  :root.rail-collapsed #app .rail-item,:root.rail-collapsed #app .nav-group > summary { justify-content:flex-start; gap:12px; padding:10px 12px; }
  #app .rail-item > .rail-symbol { font-size:20px; }
  #app .rail,.rail-collapsed #app .rail { width:auto; position:static; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; }

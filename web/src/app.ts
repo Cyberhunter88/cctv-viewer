@@ -53,6 +53,13 @@ function applyRail(){
  scheduleResize();
 }
 on('rail-toggle',()=>{state.railCollapsed=!(state.railCollapsed??matchMedia('(max-width:1100px)').matches);applyRail();saveView()});
+for(const group of document.querySelectorAll<HTMLDetailsElement>('#rail-nav .nav-group')){
+ group.querySelector('summary')?.addEventListener('click',event=>{
+  if(!document.documentElement.classList.contains('rail-collapsed')||matchMedia('(max-width:700px)').matches)return;
+  event.preventDefault();group.open=true;state.railCollapsed=false;applyRail();saveView();
+  group.querySelector<HTMLAnchorElement>('.nav-submenu a')?.focus();
+ });
+}
 matchMedia('(max-width:1100px)').addEventListener('change',applyRail);
 const accountMenu=$<HTMLDetailsElement>('account-menu');
 accountMenu.querySelector('summary')!.addEventListener('click',e=>{if($('password-button').hidden)e.preventDefault()});
@@ -241,6 +248,23 @@ async function thumbnails(){const generation=++thumbGeneration;for(const url of 
  await Promise.allSettled(pairs.map(async({record,img})=>{try{const response=await fetch('/api/recordings/'+record.id+'/thumbnail');if(!response.ok)return;const blob=await response.blob();if(generation!==thumbGeneration)return;const url=URL.createObjectURL(blob);thumbURLs.push(url);img.src=url}catch{}}));
 }
 const dialog=$('camera-dialog'),cameraForm=$<HTMLFormElement>('camera-form');
+const historySection=element('section','scan-history');historySection.innerHTML='<h4>Letzte Indexierungen</h4><div id="scan-history-list" aria-live="polite"></div>';
+dialog.querySelector('.camera-maintenance')?.append(historySection);
+type ScanHistoryRow={cameraId:string;cameraName:string;date:string;manual:boolean;finished:number;state:string;inspected:number;added:number;changed:number;skipped:number;warnings:string[]};
+async function loadScanHistory(){
+ const rows=await api<ScanHistoryRow[]>('/api/index/history'),root=$('scan-history-list');root.replaceChildren();
+ for(const row of rows){
+  const item=element('div','scan-history-entry');
+  const when=new Date(row.finished*1000).toLocaleString('de-DE');
+  item.append(element('strong','',`${row.cameraName} · ${when} · ${row.state}`),element('span','',` ${row.inspected} geprüft · ${row.added} neu · ${row.changed} geändert · ${row.skipped} übersprungen`));
+  for(const warning of row.warnings)item.append(element('p','warning',warning));
+  if(row.manual&&['partial','failed','interrupted'].includes(row.state)){
+   const retry=element('button','button secondary','Erneut scannen');retry.type='button';retry.onclick=async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({camera:row.cameraId,date:row.date,all:true})}));notify('Scan erneut gestartet.')};item.append(retry);
+  }
+  root.append(item);
+ }
+ if(!rows.length)root.textContent='Noch keine abgeschlossene Indexierung.';
+}
 let cameraSaving=false;
 const {cameraInput,discardCamera,markCameraSaved,resetCamera,showCameraEditor,editCamera,leaveCameraEditor}=initCameraEditor(cameraForm,dialog,renderCameraList,()=>cameraSaving);
 function renderCameraList(){
@@ -262,6 +286,13 @@ function renderCameraList(){
   const cameraId=c.id;
   function reorder(target:number){order=moveCamera(order,cameraId,order[target]);renderCameras();renderCameraList();saveView()}
   addAction('Scannen','Kamera scannen',async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({date:dateInput.value,camera:c.id,all:true})}))},'scan-camera');
+  addAction('Bereinigen','Fehlende Indexeinträge bereinigen',async()=>{
+   const preview=await api<{camera:string;count:number;digest:string}>('/api/index/cleanup?camera='+encodeURIComponent(c.id));
+   if(!preview.count){notify('Keine fehlenden Indexeinträge.');return}
+   if(!confirm(`${preview.count} fehlende Indexeinträge von „${c.name}“ entfernen? Originalaufnahmen bleiben erhalten. Bitte vorher prüfen, ob die Quelle vollständig gemountet ist.`))return;
+   const result=await api<{removed:number}>('/api/index/cleanup',{method:'POST',body:JSON.stringify({camera:c.id,digest:preview.digest})});
+   notify(`${result.removed} Indexeinträge entfernt.`);await refreshCameras();await loadDay();
+  },'cleanup-camera');
   addAction('Entfernen','Kamera entfernen',async()=>{
    if(!confirm(`Kamera „${c.name}“ aus dem Viewer entfernen? Die Originalaufnahmen bleiben erhalten.`))return;
    if(editing===c.id&&!discardCamera())return;
@@ -296,7 +327,7 @@ on('camera-back',leaveCameraEditor);on('camera-cancel',leaveCameraEditor);
 function closeCamera(){navigate('recordings')}
 on('close-dialog',closeCamera);
 registerPage('recordings',{element:$('recordings'),title:'Aufnahmen',enter:()=>scheduleResize()});
-registerPage('admin/cameras',{element:dialog,title:'Kameras',admin:true,leave:next=>{if(cameraSaving)return false;if(next==='admin/cameras/batch')return true;if(!discardCamera())return false;resetCamera();dialog.classList.remove('camera-editing');return true}});
+registerPage('admin/cameras',{element:dialog,title:'Kameras',admin:true,enter:loadScanHistory,leave:next=>{if(cameraSaving)return false;if(next==='admin/cameras/batch')return true;if(!discardCamera())return false;resetCamera();dialog.classList.remove('camera-editing');return true}});
 on('add-first',()=>{navigate('admin/cameras');resetCamera();showCameraEditor()});
 on('mobile-nav-toggle',()=>{const expanded=document.documentElement.classList.toggle('mobile-nav-open');$('mobile-nav-toggle').setAttribute('aria-expanded',String(expanded))});
 document.addEventListener('pageerror',e=>notify((e as CustomEvent<string>).detail));
@@ -347,7 +378,7 @@ async function boot(){
  try{localStorage.setItem('cctv-view:'+session.preferenceKey,JSON.stringify(preferenceSnapshot()))}catch{}
  refreshRange=attachTimelineControls(canvas,{bounds:()=>({from,to,cursor,viewStart,viewEnd}),seek,zoom,shortcuts:()=>state.shortcuts,seekStep:()=>state.seekStep,pan:(start,end)=>{viewStart=start;viewEnd=end;draw();refreshRange()}});
  $('boot-error').hidden=true;$('app').hidden=false;startNavigation(()=>session.role==='admin',pause);requestAnimationFrame(frame);
- setInterval(async()=>{try{const scan=await api<Scan>('/api/scan');const wasRunning=scanRunning;setScan(scan);if((wasRunning&&!scan.running)||scanCompletion>loadedScanCompletion)await loadDay(false)}catch(e){notify((e as Error).message)}},4000);
+ setInterval(async()=>{try{const scan=await api<Scan>('/api/scan');const wasRunning=scanRunning;setScan(scan);if((wasRunning&&!scan.running)||scanCompletion>loadedScanCompletion){await loadDay(false);if(currentPage()==='admin/cameras')await loadScanHistory()}}catch(e){notify((e as Error).message)}},4000);
 }
 function showBootError(error:unknown){$('boot-error-message').textContent=(error as Error).message||'Unbekannter Fehler';$('boot-error').hidden=false}
 async function runBoot(){const button=$<HTMLButtonElement>('boot-retry');button.disabled=true;if(!$('boot-error').hidden)$('boot-error-message').textContent='Verbindung wird hergestellt …';try{await boot()}catch(error){showBootError(error)}finally{button.disabled=false}}

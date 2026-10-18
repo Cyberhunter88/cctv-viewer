@@ -2,6 +2,8 @@ package viewer
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"math"
 	"net/http"
 	"os"
@@ -32,8 +34,29 @@ func (a *App) registerViewerRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/search", a.protect(false, a.searchRecordings))
 	m.HandleFunc("POST /api/scan", a.protect(true, a.requestScan))
 	m.HandleFunc("POST /api/index/rebuild", a.protect(true, a.rebuildIndex))
+	m.HandleFunc("GET /api/index/history", a.protect(true, a.scanHistory))
+	m.HandleFunc("GET /api/index/cleanup", a.protect(true, a.previewIndexCleanup))
+	m.HandleFunc("POST /api/index/cleanup", a.protect(true, a.applyIndexCleanup))
 	m.HandleFunc("GET /api/playback-status", a.protect(false, a.playbackStatus))
 	m.HandleFunc("GET /api/playback-sessions/{id}", a.protect(false, a.playbackSession))
+}
+func (a *App) scanHistory(w http.ResponseWriter, r *http.Request) {
+	rows,err:=a.db.QueryContext(r.Context(),`SELECT camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings FROM scan_history ORDER BY finished DESC,id DESC LIMIT 50`)
+	if err!=nil { fail(w,500,"Scanverlauf nicht lesbar"); return }
+	defer rows.Close()
+	out:=[]map[string]any{}
+	for rows.Next() {
+		var id,name,date,state,warnings string
+		var manual bool
+		var finished int64
+		var inspected,added,changed,skipped int
+		if err:=rows.Scan(&id,&name,&date,&manual,&finished,&state,&inspected,&added,&changed,&skipped,&warnings);err!=nil { fail(w,500,"Scanverlauf nicht lesbar");return }
+		var parsed []string
+		if err:=json.Unmarshal([]byte(warnings),&parsed);err!=nil { fail(w,500,"Scanverlauf nicht lesbar");return }
+		out=append(out,map[string]any{"cameraId":id,"cameraName":name,"date":date,"manual":manual,"finished":finished,"state":state,"inspected":inspected,"added":added,"changed":changed,"skipped":skipped,"warnings":parsed})
+	}
+	if rows.Err()!=nil { fail(w,500,"Scanverlauf nicht lesbar");return }
+	jsonOut(w,200,out)
 }
 func (a *App) requestScan(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -67,7 +90,7 @@ func mustBerlin() *time.Location { l, _ := time.LoadLocation("Europe/Berlin"); r
 func (a *App) rebuildIndex(w http.ResponseWriter, r *http.Request) {
 	a.index.mu.Lock()
 	defer a.index.mu.Unlock()
-	if a.index.status.Running || len(a.index.queue) > 0 {
+	if a.index.status.Running || len(a.index.queue) > 0 || a.index.cleanup {
 		fail(w, 409, "Indexierung läuft")
 		return
 	}
@@ -138,6 +161,16 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	const limit = 100
+	order := q.Get("order")
+	if order == "" { order = "desc" }
+	if order != "desc" && order != "asc" { fail(w,400,"Sortierung ungültig");return }
+	direction, comparison := "DESC", "<"
+	if order == "asc" { direction, comparison = "ASC", ">" }
+	var cursor struct { Start float64 `json:"start"`; ID string `json:"id"` }
+	if raw:=q.Get("cursor");raw!="" {
+		decoded,e:=base64.RawURLEncoding.DecodeString(raw)
+		if e!=nil || json.Unmarshal(decoded,&cursor)!=nil || cursor.ID=="" || math.IsNaN(cursor.Start) || math.IsInf(cursor.Start,0) { fail(w,400,"Suchcursor ungültig");return }
+	}
 	offset := 0
 	if raw := q.Get("offset"); raw != "" {
 		n, e := strconv.Atoi(raw)
@@ -147,14 +180,22 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 		}
 		offset = n
 	}
+	if cursor.ID!="" { offset=0 }
 	where := strings.Join(conditions, " AND ")
 	var total int
-	if e := a.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+where, args...).Scan(&total); e != nil {
+	if q.Get("count")!="0" { if e := a.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+where, args...).Scan(&total); e != nil {
 		fail(w, 500, "Suche nicht verfügbar")
 		return
+	} }
+	queryArgs:=append([]any{},args...)
+	if cursor.ID!="" {
+		where+=" AND ("+effectiveStart+comparison+"? OR ("+effectiveStart+"=? AND r.id"+comparison+"?))"
+		queryArgs=append(queryArgs,cursor.Start,cursor.Start,cursor.ID)
+		if order=="desc" { where+=" AND r.start<=?+(SELECT COALESCE(MAX(ABS(zoom_offset)),0) FROM cameras)" } else { where+=" AND r.start>=?-(SELECT COALESCE(MAX(ABS(zoom_offset)),0) FROM cameras)" }
+		queryArgs=append(queryArgs,cursor.Start)
 	}
-	queryArgs := append(append([]any{}, args...), limit, offset)
-	rows, e := a.db.QueryContext(r.Context(), `SELECT r.id,r.camera_id,c.name,r.path,`+effectiveStart+`,r.duration FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+where+` ORDER BY `+effectiveStart+` DESC,r.id LIMIT ? OFFSET ?`, queryArgs...)
+	queryArgs=append(queryArgs,limit+1,offset)
+	rows, e := a.db.QueryContext(r.Context(), `SELECT r.id,r.camera_id,c.name,r.path,`+effectiveStart+`,r.duration FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+where+` ORDER BY `+effectiveStart+` `+direction+`,r.id `+direction+` LIMIT ? OFFSET ?`, queryArgs...)
 	if e != nil {
 		fail(w, 500, "Suche nicht verfügbar")
 		return
@@ -174,12 +215,17 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Suche fehlgeschlagen")
 		return
 	}
+	hasMore:=len(out)>limit
+	if hasMore { out=out[:limit] }
+	nextCursor:=""
+	if hasMore && len(out)>0 { last:=out[len(out)-1];encoded,_:=json.Marshal(map[string]any{"start":last["start"],"id":last["id"]});nextCursor=base64.RawURLEncoding.EncodeToString(encoded) }
 	jsonOut(w, 200, map[string]any{
 		"results": out,
 		"total":   total,
 		"offset":  offset,
 		"limit":   limit,
-		"hasMore": offset+len(out) < total,
+		"hasMore": hasMore,
+		"nextCursor":nextCursor,
 	})
 }
 func (a *App) playbackStatus(w http.ResponseWriter, r *http.Request) {

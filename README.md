@@ -227,12 +227,21 @@ um 5,1 Sekunden nach vorne. Änderungen verschieben vorhandene Indexeinträge,
 ohne Videos erneut zu untersuchen. Änderungen an Quelle, Muster oder Zeitzone
 verwerfen den abgeleiteten Kameraindex.
 
-Manuelle Scans für einzelne oder alle Kameras lesen die gesamten Kameraordner und
-gleichen entfernte Dateien ab. „Index neu aufbauen“ entfernt abgeleitete Aufnahmen,
+Manuelle Scans für einzelne oder alle Kameras lesen die gesamten Kameraordner.
+Fehlende Dateien bleiben im Index, damit eine ausgefallene Netzwerkquelle keine
+Aufnahmen aus dem Archiv entfernt. In der Kameraverwaltung zeigt „Bereinigen“ die
+Zahl fehlender Einträge und entfernt sie erst nach Bestätigung. Vorher den Mount
+prüfen: Ein leerer, aber lesbarer Ordner kann auch auf einen NAS-Ausfall hinweisen.
+„Index neu aufbauen“ entfernt abgeleitete Aufnahmen,
 Scanstände und Vorschaubilder; Kameras, Anmeldung und Originalvideos bleiben erhalten.
 Die Aktion ist während laufender oder wartender Indexaufträge gesperrt. Eine Quelle
 ist auf zwei Millionen Verzeichniseinträge pro Scan begrenzt; für große Archive
 Datumspartitionen verwenden.
+
+Wartende und unterbrochene Scanaufträge werden nach einem Neustart erneut
+ausgeführt. Bei einem fehlgeschlagenen automatischen Scan folgt nach fünf Minuten
+ein neuer Versuch. Die letzten Scanergebnisse und Warnungen stehen in der
+Kameraverwaltung; fehlgeschlagene manuelle Scans lassen sich dort erneut starten.
 
 Automatische Tagesindexierung ist standardmäßig ausgeschaltet. Unter
 „Verwaltung → Betrieb“ aktivieren; Vorgabe 60 Minuten,

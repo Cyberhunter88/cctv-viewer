@@ -157,6 +157,9 @@ func OpenStore(dir string) (*Store, error) {
 	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS camera_days(camera_id TEXT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,date TEXT NOT NULL,checked INTEGER NOT NULL,complete INTEGER NOT NULL,PRIMARY KEY(camera_id,date));
 
 CREATE TABLE IF NOT EXISTS scan_schedule(camera_id TEXT PRIMARY KEY REFERENCES cameras(id) ON DELETE CASCADE,next_run INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS scan_jobs(id TEXT PRIMARY KEY, payload TEXT NOT NULL, queued_at INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 0);
+ CREATE TABLE IF NOT EXISTS scan_history(id TEXT PRIMARY KEY, camera_id TEXT NOT NULL, camera_name TEXT NOT NULL, scan_date TEXT NOT NULL, manual INTEGER NOT NULL, finished INTEGER NOT NULL, state TEXT NOT NULL, inspected INTEGER NOT NULL, added INTEGER NOT NULL, changed INTEGER NOT NULL, skipped INTEGER NOT NULL, warnings TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS scan_history_recent ON scan_history(finished DESC);
  CREATE INDEX IF NOT EXISTS recordings_path ON recordings(camera_id,path);
  CREATE INDEX IF NOT EXISTS recordings_start ON recordings(start);
 `); err != nil {

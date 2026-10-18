@@ -18,6 +18,14 @@ test('search loads later pages and reports the full result count',async({page})=
  await expect(page.locator('.search-result')).toHaveCount(100);await expect(page.locator('#search-count')).toHaveText('100 von 150 Treffern angezeigt');await page.locator('#search-more').click();
  await expect(page.locator('.search-result')).toHaveCount(150);await expect(page.locator('#search-count')).toHaveText('150 von 150 Treffern angezeigt');await expect(page.locator('#search-more')).toBeHidden();expect(offsets).toEqual([0,100]);
 });
+
+test('search offers chronological order and groups results by day',async({page})=>{
+ await login(page);await openNavigation(page,'search-button');
+ await page.locator('#search-form select[name=order]').selectOption('asc');
+ await page.locator('#search-form button[type=submit]').click();
+ await expect(page.locator('.search-day').first()).toBeVisible();
+ await expect(page.locator('.search-result img.search-preview').first()).toHaveAttribute('loading','lazy');
+});
 test('search result opens the right hotspot page',async({page})=>{
  await page.route('**/api/cameras',async route=>{
   if(route.request().method()!=='GET')return route.continue();

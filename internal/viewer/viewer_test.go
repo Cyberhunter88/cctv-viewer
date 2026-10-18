@@ -276,8 +276,8 @@ func TestIndexAndMedia(t *testing.T) {
 	os.Remove(file)
 	a.scanDay("2026-10-14")
 	rs, _ = a.db.Recordings(c.ID, 0, 2e10)
-	if len(rs) != 0 {
-		t.Fatal("removed recording retained")
+	if len(rs) != 1 {
+		t.Fatal("ordinary scan removed missing recording")
 	}
 }
 func TestH265AndCorruptFile(t *testing.T) {

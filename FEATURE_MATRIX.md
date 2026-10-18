@@ -33,8 +33,9 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Einzel-/Gesamtscans und Index-Neuaufbau | Geschützt; Neuaufbau während Scan gesperrt | Go: SearchRebuildAndRemovedEndpoints |
 | Globale automatische Tagesindexierung | Aus/60 Minuten als Vorgabe, 1–10080 Minuten | Go: SchedulePersistsAndSkipsRecursiveCameras |
 | Persistente Scanplanung, inkrementelle stabile Dateien | Ergänzt; interaktive Warteschlange bevorzugt | Go: IncrementalScanAndReconciliation, SchedulePersists |
-| Offline-Quellen, Löschabgleich, große Verzeichnisse | Erhalten/erweitert, maximal 2 Mio. Einträge | Go: OfflineSourcePreservesIndex, IncrementalScan, LargeSyntheticPartition |
-| Suche mit Kamera, Zeitraum, Mindestdauer | Geschützte API und Suchseite; Öffnen eines Treffers, Trefferzähler, recordings(start)-Index | Go: SearchRebuild; Browser: features |
+| Offline-Quellen, bestätigte Indexbereinigung, große Verzeichnisse | Gewöhnliche Scans löschen keine fehlenden Einträge; gesonderte Bereinigung mit Vorschau; maximal 2 Mio. Einträge | Go: MissingRecordingRequiresConfirmedCleanup, OfflineSourcePreservesIndex |
+| Persistente Scanaufträge und Verlauf | Wartende Aufträge werden nach Neustart fortgesetzt; begrenzter Verlauf und Wiederholung fehlgeschlagener automatischer Scans | Go: ScanJobPersistedUntilCompletion; Browser: Kameraverwaltung |
+| Suche mit Kamera, Zeitraum, Mindestdauer | Geschützte API und Suchseite; Cursor-Seiten, Sortierung, Tagesgruppen, Vorschaubilder | Go: SearchRebuild; Browser: features |
 | Original/Ausgewogen/Schnell, konfigurierbare Profile | Original unverändert; einmalige Umstellung auf Original, reduzierte Profile ausdrücklich wählbar | Go: ProfilesSpeedTransport; Browser: viewer |
 | Metadaten-/automatisches Vorladen | Ergänzt und gespeichert | Browser: archive |
 | Serverseitige beschleunigte komprimierte Wiedergabe | Faktor bis 16×; hohe Geschwindigkeiten mit Keyframes am Clipbeginn | Go: ProfilesSpeedTransport |

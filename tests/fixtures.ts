@@ -35,7 +35,9 @@ export async function openPage(page:Page,path:string){
  if(await toggle.isVisible()&&await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();
  const link=page.locator('a[data-page="'+path+'"]');
  const group=link.locator('xpath=ancestor::details');
- if(await group.count()&&!(await group.evaluate((el:HTMLDetailsElement)=>el.open)))await group.locator('summary').click();
+ if(await group.count()&&!(await link.isVisible())){
+  if(await group.getAttribute('open')===null||await page.locator('#rail-toggle').getAttribute('aria-expanded')==='false'&&!(await toggle.isVisible()))await group.locator('summary').click();
+ }
  await link.click();await expect(page).toHaveURL(new RegExp('#'+path+'$'));await expect(page.locator('.content-page[aria-busy=true]:visible')).toHaveCount(0);
 }
 export async function openNavigation(page:Page,id:string){

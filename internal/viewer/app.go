@@ -90,6 +90,10 @@ func New(ctx context.Context, cfg Config, assets fs.FS) (*App, error) {
 		return nil, e
 	}
 	a.db.Exec(`DELETE FROM sessions WHERE kind='oidc'`)
+	if e = a.restoreScans(); e != nil {
+		a.Close()
+		return nil, e
+	}
 	a.work.Add(1)
 	go a.background()
 	return a, nil

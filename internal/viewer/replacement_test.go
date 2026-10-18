@@ -231,8 +231,8 @@ func TestIncrementalScanAndReconciliation(t *testing.T) {
 		t.Fatal("incremental reconciled deletion")
 	}
 	a.scanPartition(c, c.Folder, 0, math.MaxInt64)
-	if _, e := a.db.Recording(r.ID); e == nil {
-		t.Fatal("interactive scan retained deletion")
+	if _, e := a.db.Recording(r.ID); e != nil {
+		t.Fatal("interactive scan removed missing recording")
 	}
 }
 func TestProfilesSpeedTransportAndSessionOwnership(t *testing.T) {
