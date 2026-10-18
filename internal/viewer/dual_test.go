@@ -198,6 +198,16 @@ func TestReolinkTestCameraBUnequalStarts(t *testing.T) {
 			t.Fatal(w.Body.String())
 		}
 	}
+	c.ZoomOffset = -1
+	if err := a.db.SaveCamera(c); err != nil {
+		t.Fatal(err)
+	}
+	w = request(a, "GET", fmt.Sprintf("/api/search?camera=camera-b&to=%.0f", starts["zoom"]-1), nil, cookie, session.CSRF)
+	search.Results = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &search); err != nil || w.Code != 200 || len(search.Results) != 1 || search.Results[0].Start != starts["zoom"]-1 {
+		t.Fatal(w.Code, w.Body.String(), err)
+	}
+	c.ZoomOffset = 1
 	w = request(a, "POST", "/api/cameras/preview", c, cookie, session.CSRF)
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
