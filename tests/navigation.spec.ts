@@ -12,11 +12,15 @@ test('sidebar collapses to usable icons, persists and expands at tablet width',a
  await expect.poll(()=>rail.evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBe(72);
  await expect.poll(()=>workspace.evaluate(el=>Math.round(parseFloat(getComputedStyle(el).marginLeft)))).toBe(72);
  await expect(page.locator('a[data-page="recordings"] .rail-label')).toBeHidden();
+ await expect(page.getByRole('link',{name:'Betrieb'})).toBeHidden();
+ await expect(page.locator('#rail-nav .nav-group')).toHaveCount(2);
+ await page.locator('#rail-nav .nav-group[data-admin] > summary').click();
+ await expect(page.locator('#rail-toggle')).toHaveAttribute('aria-expanded','true');
  await page.getByRole('link',{name:'Betrieb'}).click();await expect(page).toHaveURL(/#admin\/operation$/);
  await expect(page.locator('#operation-panel')).toBeVisible();
  await page.reload();await expect(page.locator('#app')).toBeVisible();
- await expect.poll(()=>rail.evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBe(72);
- await page.setViewportSize({width:768,height:800});await page.locator('#rail-toggle').click();
+ await expect.poll(()=>rail.evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBeGreaterThan(200);
+ await page.setViewportSize({width:768,height:800});
  await expect.poll(()=>rail.evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBeGreaterThan(200);
  await expect(page.locator('a[data-page="recordings"] .rail-label')).toBeVisible();
  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
