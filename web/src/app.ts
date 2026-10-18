@@ -4,15 +4,17 @@ import {prepareDialogs} from './dialogs';
 import Hls from 'hls.js';
 import {validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveCamera,defaultView,type ViewState} from './view-state';
 import {attachTimelineControls} from './timeline-controls';
-import {initManagement,berlinEpoch} from './management';
+import {initManagement} from './management';
 import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline';
+import {initSearchPage,type SearchPage} from './search-page';
+import {initCameraEditor} from './camera-editor';
+import {createTimelineView} from './timeline-view';
 interface Camera {viewMode?:string;wideMarker?:string;zoomMarker?:string;zoomOffset?:number;supportsZoom?:boolean;id:string;name:string;folder:string;pattern:string;timezone:string;offset:number;format?:string;prefix?:string;indexingMode?:string;directoryPattern?:string;sourceStatus?:string;lastScan?:number;indexedVideos?:number}
 interface ViewDetection {status:'confirmed'|'swapped'|'unclear';message:string;pairs:number}
 interface Session {preferenceKey:string;name:string;role:'admin'|'viewer';csrf:string;kind:'local'|'oidc'}
 interface CameraScan {id:string;name:string;state:string;inspected:number;added:number;changed:number;skipped:number}
 interface Scan {jobId?:string;state?:string;completion?:number;queue?:{id:string;date:string;camera:string;automatic:boolean}[];cameras?:CameraScan[];active?:string[];completed?:number;total?:number;running:boolean;date:string;camera:string;indexed:number;warnings:string[]}
 interface Day {recordings:Recording[];from:number;to:number;scan:Scan}
-interface SearchPage {results:{id:string;cameraId:string;cameraName:string;filename:string;start:number;duration:number}[];total:number;offset:number;limit:number;hasMore:boolean}
 prepareDialogs();
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 let session:Session, cameras:Camera[]=[],records:Recording[]=[],playableRecords:Recording[]=[],displayedRecords:Recording[]=[],selected=new Set<string>(),from=0,to=0,cursor=0,viewStart=0,viewEnd=0,playing=false,lastFrame=0,scanRunning=false,loadGeneration=0;
@@ -20,8 +22,8 @@ let thumbGeneration=0;const thumbURLs:string[]=[];
 const tiles=new Map<string,Tile>();
 const openZoom=new Set<string>();
 let audioTile:Tile|undefined;
-const dateInput=$<HTMLInputElement>('date'),canvas=$<HTMLCanvasElement>('timeline');
-const timelineLayer=document.createElement('canvas');let timelineKey='',timelineRecords:Recording[]|undefined;
+const dateInput=$<HTMLInputElement>('date'),canvas=$<HTMLCanvasElement>('timeline'),overview=$<HTMLCanvasElement>('overview');
+const timelineView=createTimelineView(canvas,overview);
 const speed=()=>Number($<HTMLSelectElement>('speed').value);
 let refreshRange=()=>{};let page=0,order:string[]=[],hotspot:string|undefined,lastHotspotCursor:number|undefined;
 // A completion observed during a day request may be newer than its recording snapshot.
@@ -224,41 +226,7 @@ function setScan(scan:Scan){
 }
 async function loadDay(reset=true){const generation=++loadGeneration,completionAtStart=scanCompletion;if(reset){pause();tiles.forEach(t=>t.release())}const data=await api<Day>('/api/day?date='+encodeURIComponent(dateInput.value));if(generation!==loadGeneration)return;loadedScanCompletion=completionAtStart;records=data.recordings;playableRecords=playbackRecordings(records,cameras);from=data.from;to=data.to;setScan(data.scan);refreshDisplayedRecords();if(reset){const ids=new Set(visible().map(c=>c.id));cursor=firstRecordingStart(displayedRecords.filter(r=>ids.has(r.cameraId)),from);viewStart=from;viewEnd=to}$('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;update();void thumbnails();refreshRange()}
 async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');for(const id of openZoom)if(!cameras.some(c=>c.id===id&&c.viewMode==='dual'))openZoom.delete(id);order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList()}
-function updateTimelineDescription(cams:Camera[]){
- const description=$('timeline-description'),list=element('ul');
- description.replaceChildren(element('p','',`Aufnahmebereiche zwischen ${clock(viewStart)} und ${clock(viewEnd)}:`));
- for(const camera of cams){
-  const ranges=displayedRecords.filter(r=>r.cameraId===camera.id&&r.start<viewEnd&&r.start+r.duration>viewStart);
-  if(!ranges.length){list.append(element('li','',`${camera.name}: keine Aufnahme in diesem Zeitfenster`));continue}
-  for(const record of ranges){
-   const start=Math.max(viewStart,record.start),end=Math.min(viewEnd,record.start+record.duration);
-   const view=record.view==='wide'?' · Weitwinkel':record.view==='zoom'?' · Zoom':'';
-   list.append(element('li','',`${camera.name}${view}: ${clock(start)} bis ${clock(end)}`));
-  }
- }
- if(!cams.length)list.append(element('li','','Keine Kameras sichtbar.'));
- description.append(list);
-}
-function timelineColors(){const css=getComputedStyle(document.documentElement);return Object.fromEntries(['line','muted','track','record','cursor','panel'].map(k=>[k,css.getPropertyValue('--timeline-'+k).trim()]))}
-function draw(){if(!from)return;const palette=timelineColors();const cams=visible(),width=canvas.parentElement!.clientWidth,height=48+Math.max(1,cams.length)*34,dpr=devicePixelRatio||1;
- if(width<=0)return;
- // Compact the default viewport to its tracks; keep custom saved heights.
- $('timeline-viewport').style.height=(state.timelineHeight===240?Math.min(240,Math.max(100,height+12)):state.timelineHeight)+'px';
- if(canvas.width!==Math.round(width*dpr)||canvas.height!==Math.round(height*dpr)){canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);canvas.style.height=height+'px'}
- const ctx=canvas.getContext('2d')!;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);const left=85,right=width-15,area=right-left,span=viewEnd-viewStart,x=(t:number)=>left+(t-viewStart)/span*area;
- const intervals=[60,300,600,1800,3600,7200,14400,21600];const interval=intervals.find(s=>span/s<area/65)||21600;
- const key=[width,height,dpr,viewStart,viewEnd,...cams.map(c=>c.id+':'+c.name+':'+c.viewMode)].join('/');
- if(timelineKey!==key||timelineRecords!==displayedRecords){
- ctx.font='11px system-ui';ctx.textAlign='center';for(let t=Math.ceil(viewStart/interval)*interval;t<=viewEnd;t+=interval){const p=x(t);ctx.strokeStyle=palette.line;ctx.beginPath();ctx.moveTo(p,30);ctx.lineTo(p,height-10);ctx.stroke();ctx.fillStyle=palette.muted;ctx.fillText(clock(t).slice(0,5),p,19)}
- cams.forEach((camera,i)=>{const y=39+i*34;ctx.fillStyle=palette.muted;ctx.textAlign='left';ctx.fillText(camera.name.length>11?camera.name.slice(0,10)+'…':camera.name,12,y+14);ctx.fillStyle=palette.track;ctx.fillRect(left,y,area,23);
-  ctx.save();ctx.beginPath();ctx.rect(left,y,area,23);ctx.clip();for(const r of displayedRecords.filter(r=>r.cameraId===camera.id&&r.start<viewEnd&&(r.kind==='image'?r.start>=viewStart:r.start+r.duration>viewStart))){ctx.fillStyle=palette.record;ctx.fillRect(x(r.start),y+3,r.kind==='image'?4:Math.max(2,r.duration/span*area),17)}ctx.restore();
- });
- timelineLayer.width=canvas.width;timelineLayer.height=canvas.height;timelineLayer.getContext('2d')!.drawImage(canvas,0,0);timelineKey=key;timelineRecords=displayedRecords;updateTimelineDescription(cams);
- }else ctx.drawImage(timelineLayer,0,0,width,height);
- if(cursor>=viewStart&&cursor<=viewEnd){const p=x(cursor);ctx.strokeStyle=palette.cursor;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(p,29);ctx.lineTo(p,height-8);ctx.stroke();ctx.fillStyle=palette.cursor;ctx.beginPath();ctx.moveTo(p-4,27);ctx.lineTo(p+4,27);ctx.lineTo(p,33);ctx.fill()}
- drawOverview();
- const hours=span/3600;$('zoom-label').textContent=hours>=1?`${Math.round(hours*10)/10} Std.`:`${Math.round(span/60)} Min.`;
-}
+function draw(){timelineView.draw({from,to,cursor,viewStart,viewEnd,cameras:visible(),records:displayedRecords,height:state.timelineHeight})}
 function zoom(factor:number,anchor=cursor){const span=clamp((viewEnd-viewStart)*factor,300,to-from);viewStart=clamp(anchor-span/2,from,to-span);viewEnd=viewStart+span;draw();refreshRange()}
 // Resize callbacks only schedule work: changing an observed layout inside the
 // callback causes undelivered notifications in WebKit, especially for paired tiles.
@@ -272,23 +240,9 @@ async function thumbnails(){const generation=++thumbGeneration;for(const url of 
  const pairs=sample.map(record=>{const button=element('button','thumb'),img=element('img'),label=element('span','',clock(record.start));img.alt='Vorschau '+clock(record.start);button.title=clock(record.start);button.append(img,label);button.onclick=()=>seek(record.start);root.append(button);return{record,img}});
  await Promise.allSettled(pairs.map(async({record,img})=>{try{const response=await fetch('/api/recordings/'+record.id+'/thumbnail');if(!response.ok)return;const blob=await response.blob();if(generation!==thumbGeneration)return;const url=URL.createObjectURL(blob);thumbURLs.push(url);img.src=url}catch{}}));
 }
-function cameraFormatChanged(){ $('dual-fields').hidden=$<HTMLSelectElement>('view-mode').value!=='dual';const automatic=$<HTMLSelectElement>('camera-format').value==='automatic';$('pattern-label').hidden=automatic;(cameraForm.elements.namedItem('pattern') as HTMLInputElement).required=!automatic;$('directory-pattern-label').hidden=$<HTMLSelectElement>('indexing-mode').value==='full'}
 const dialog=$('camera-dialog'),cameraForm=$<HTMLFormElement>('camera-form');
-function cameraInput():Camera{const data={get:(name:string)=>(cameraForm.elements.namedItem(name) as HTMLInputElement|HTMLSelectElement)?.value};return{id:String(data.get('id')||''),name:String(data.get('name')),folder:String(data.get('folder')),pattern:String(data.get('pattern')),timezone:String(data.get('timezone')),offset:Number(data.get('offset')),format:String(data.get('format')),indexingMode:String(data.get('indexingMode')),directoryPattern:String(data.get('directoryPattern')),viewMode:String(data.get('viewMode')),wideMarker:String(data.get('wideMarker')),zoomMarker:String(data.get('zoomMarker')),zoomOffset:Number(data.get('zoomOffset')),supportsZoom:(cameraForm.elements.namedItem('supportsZoom') as HTMLInputElement)?.checked ?? true}}
-let cameraBaseline='',cameraSaving=false;
-function cameraSnapshot(){return JSON.stringify(cameraInput())}
-function cameraDirty(){return cameraSnapshot()!==cameraBaseline}
-function discardCamera(){return !cameraDirty()||confirm('Ungespeicherte Kameraänderungen verwerfen?')}
-function markCameraSaved(){cameraBaseline=cameraSnapshot();cameraForm.dataset.dirty='false';renderCameraList()}
-function resetCamera(){cameraForm.reset();(cameraForm.elements.namedItem('id') as HTMLInputElement).value='';$('preview-result').hidden=true;$('camera-error').textContent='';$('folder-browser').hidden=true;$('camera-editor-title').textContent='Neue Kamera';$<HTMLDetailsElement>('camera-advanced').open=false;cameraFormatChanged();markCameraSaved()}
-function showCameraEditor(){dialog.classList.add('camera-editing');dialog.scrollTop=0;$('camera-editor-title').focus({preventScroll:true})}
-function editCamera(c:Camera){
- cameraForm.reset();
- for(const[key,value]of Object.entries(c)){const input=cameraForm.elements.namedItem(key);if(input instanceof HTMLInputElement){if(input.type==='checkbox')input.checked=value==='true'||value===true;else input.value=String(value)}else if(input instanceof HTMLSelectElement)input.value=String(value)}
- $('preview-result').hidden=true;$('camera-error').textContent='';$('folder-browser').hidden=true;$('camera-editor-title').textContent=c.name+' bearbeiten';
- $<HTMLDetailsElement>('camera-advanced').open=!!(c.offset||c.format&&c.format!=='automatic'||c.timezone!=='Europe/Berlin');cameraFormatChanged();markCameraSaved();
-}
-function leaveCameraEditor(){if(cameraSaving||!discardCamera())return;resetCamera();dialog.classList.remove('camera-editing');$('new-camera').focus()}
+let cameraSaving=false;
+const {cameraInput,discardCamera,markCameraSaved,resetCamera,showCameraEditor,editCamera,leaveCameraEditor}=initCameraEditor(cameraForm,dialog,renderCameraList,()=>cameraSaving);
 function renderCameraList(){
  const list=$('camera-list');list.replaceChildren();$('camera-list-count').textContent=String(cameras.length);
  if(!cameras.length){const empty=element('p','camera-empty','Noch keine Kameras eingerichtet. Füge deine erste Aufnahmequelle hinzu.');list.append(empty)}
@@ -329,13 +283,12 @@ cameraForm.addEventListener('submit',async e=>{
  try{
   $('camera-error').textContent='';const saved=await api<Camera&{detection?:ViewDetection}>('/api/cameras',{method:'POST',body:JSON.stringify(payload)});
   // The POST committed successfully even if refreshing recordings subsequently fails.
-  (cameraForm.elements.namedItem('id') as HTMLInputElement).value=saved.id;cameraBaseline=cameraSnapshot();
+  (cameraForm.elements.namedItem('id') as HTMLInputElement).value=saved.id;markCameraSaved();
   await refreshCameras();editCamera(cameras.find(c=>c.id===saved.id)||saved);await loadDay();notify(saved.detection?`Kamera gespeichert. ${saved.detection.message}`:'Kamera gespeichert. Aufnahmen werden eingelesen.');
  }catch(e){$('camera-error').textContent=(e as Error).message}
  finally{controls.forEach((c,i)=>c.disabled=disabled[i]);cameraSaving=false;submit.disabled=false;renderCameraList()}
 });
 on('preview',async()=>{try{const result=await api<{examples:{file:string;time?:string;error?:string;view?:string}[];limited:boolean;detection?:ViewDetection;wideMarker:string;zoomMarker:string}>('/api/cameras/preview',{method:'POST',body:JSON.stringify(cameraInput())});$('preview-result').hidden=false;const status=result.detection?`${result.detection.message}\nKennungen: Weitwinkel ${result.wideMarker}, Zoom ${result.zoomMarker}\n\n`:'';$('preview-result').textContent=status+(result.examples.length?result.examples.map(v=>`${v.file}${v.view?" · "+({wide:"Weitwinkel",zoom:"Zoom",unknown:"Kennung unklar"}[v.view]||v.view):""}\n→ ${v.error||v.time}`).join('\n\n'):'Keine passenden Videodateien gefunden.');if(result.limited)$('preview-result').textContent+='\nSuche auf 10.000 Einträge begrenzt.'}catch(e){$('camera-error').textContent=(e as Error).message}});
-$<HTMLSelectElement>('camera-format').addEventListener('change',cameraFormatChanged);
 async function browseFolder(folder=''){const data=await api<{path:string;folders:string[];samples:string[];limited:boolean}>('/api/cameras/folders?path='+encodeURIComponent(folder));const root=$('folder-browser');root.hidden=false;root.replaceChildren();root.append(element('strong','',data.path==='.'?'Aufnahmeverzeichnis':data.path));if(data.path!=='.'){const back=element('button','text-button','↑ Übergeordneter Ordner');back.type='button';back.onclick=()=>void browseFolder(data.path.split('/').slice(0,-1).join('/')).catch(e=>notify(e.message));root.append(back);const choose=element('button','button secondary','Diesen Ordner verwenden');choose.type='button';choose.onclick=()=>{(cameraForm.elements.namedItem('folder') as HTMLInputElement).value=data.path;const name=data.path.split('/').pop()||'';(cameraForm.elements.namedItem('name') as HTMLInputElement).value=name;root.hidden=true};root.append(choose)}for(const folder of data.folders){const b=element('button','text-button',folder.split('/').pop());b.type='button';b.onclick=()=>void browseFolder(folder).catch(e=>notify(e.message));root.append(b)}if(data.limited)root.append(element('small','','Suche begrenzt; bitte einen Unterordner wählen.'))}
 on('browse-folder',()=>browseFolder());
 on('new-camera',()=>{if(cameraSaving||!discardCamera())return;resetCamera();showCameraEditor()});
@@ -344,7 +297,6 @@ function closeCamera(){navigate('recordings')}
 on('close-dialog',closeCamera);
 registerPage('recordings',{element:$('recordings'),title:'Aufnahmen',enter:()=>scheduleResize()});
 registerPage('admin/cameras',{element:dialog,title:'Kameras',admin:true,leave:next=>{if(cameraSaving)return false;if(next==='admin/cameras/batch')return true;if(!discardCamera())return false;resetCamera();dialog.classList.remove('camera-editing');return true}});
-cameraForm.addEventListener('input',()=>cameraForm.dataset.dirty=String(cameraDirty()));cameraForm.addEventListener('change',()=>cameraForm.dataset.dirty=String(cameraDirty()));
 on('add-first',()=>{navigate('admin/cameras');resetCamera();showCameraEditor()});
 on('mobile-nav-toggle',()=>{const expanded=document.documentElement.classList.toggle('mobile-nav-open');$('mobile-nav-toggle').setAttribute('aria-expanded',String(expanded))});
 document.addEventListener('pageerror',e=>notify((e as CustomEvent<string>).detail));
@@ -447,13 +399,9 @@ on('preferences-reset',()=>{
 });
 on('select-all',()=>{selected=new Set(cameras.map(c=>c.id));page=0;renderCameras();saveView()});
 on('select-none',()=>{selected.clear();page=0;renderCameras();saveView()});
-$<HTMLSelectElement>('indexing-mode').onchange=cameraFormatChanged;
 on('page-prev',()=>{page--;renderCameras()});on('page-next',()=>{page++;renderCameras()});
 on('scan-all',async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({date:dateInput.value,all:true})}))});
 on('rebuild-index',async()=>{if(!confirm('Den abgeleiteten Index und Vorschaubilder neu aufbauen? Kameras und Originalvideos bleiben erhalten.'))return;pause();tiles.forEach(t=>t.release());await api('/api/index/rebuild',{method:'POST'});records=[];await loadDay();notify('Index geleert. Der geöffnete Tag wird erneut eingelesen.')});
-const overview=$<HTMLCanvasElement>('overview'),overviewLayer=document.createElement('canvas');let overviewKey='',overviewRecords:Recording[]|undefined;
-function drawOverview(){if(!from)return;const palette=timelineColors();const width=Math.max(100,overview.parentElement!.clientWidth),dpr=devicePixelRatio||1;if(overview.width!==width*dpr){overview.width=width*dpr;overview.height=34*dpr}const ctx=overview.getContext('2d')!;ctx.setTransform(dpr,0,0,dpr,0,0);const ids=visible().map(c=>c.id),key=[from,to,width,dpr,...ids].join('/');if(overviewKey!==key||overviewRecords!==displayedRecords){ctx.fillStyle=palette.track;ctx.fillRect(0,0,width,34);ctx.fillStyle=palette.record;for(const r of displayedRecords)if(ids.includes(r.cameraId)){const start=clamp(r.start,from,to);ctx.fillRect((start-from)/(to-from)*width,10,Math.max(1,(Math.min(to,r.start+r.duration)-start)/(to-from)*width),14)}overviewLayer.width=overview.width;overviewLayer.height=overview.height;overviewLayer.getContext('2d')!.drawImage(overview,0,0);overviewKey=key;overviewRecords=displayedRecords}else ctx.drawImage(overviewLayer,0,0,width,34);ctx.strokeStyle=palette.cursor;ctx.strokeRect((viewStart-from)/(to-from)*width,1,(viewEnd-viewStart)/(to-from)*width,32);ctx.fillStyle=palette.cursor;ctx.fillRect((cursor-from)/(to-from)*width,0,1,34)}
-
 overview.onpointerdown=e=>{overview.setPointerCapture(e.pointerId);seek(from+clamp((e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth,0,1)*(to-from));const span=viewEnd-viewStart;viewStart=clamp(cursor-span/2,from,to-span);viewEnd=viewStart+span;draw()};
 overview.onpointermove=e=>{if(e.buttons===1){const span=viewEnd-viewStart,start=clamp(from+(e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth*(to-from)-span/2,from,to-span);viewStart=start;viewEnd=start+span;draw()}};
 overview.onkeydown=e=>{if(state.shortcuts&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();seek(cursor+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?60:state.seekStep))}};
@@ -461,52 +409,17 @@ function setTimelineHeight(height:number){state.timelineHeight=Math.round(clamp(
 let resizeStart=0,resizeHeight=0;const resize=$('timeline-resize');resize.onpointerdown=e=>{resize.setPointerCapture(e.pointerId);resizeStart=e.clientY;resizeHeight=state.timelineHeight};resize.onpointermove=e=>{if(!resize.hasPointerCapture(e.pointerId))return;setTimelineHeight(resizeHeight+e.clientY-resizeStart)};resize.onpointerup=()=>saveView();resize.onkeydown=e=>{if(['ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();setTimelineHeight(state.timelineHeight+(e.key==='ArrowDown'?20:-20));saveView()}};
 let observedGridWidth=-1;
 new ResizeObserver(([entry])=>{const width=entry.contentRect.width;if(width===observedGridWidth)return;observedGridWidth=width;scheduleResize(true)}).observe($('video-grid'));
-registerPage('search',{element:$('search-dialog'),title:'Suche',enter:()=>{const select=$<HTMLSelectElement>('search-camera');const previous=select.value;select.replaceChildren(new Option('Alle Kameras',''));for(const c of cameras)select.add(new Option(c.name,c.id));select.value=previous}});
-on('search-close',()=>navigate('recordings'));
-let searchGeneration=0,searchParams:URLSearchParams|undefined,searchOffset=0;
-async function loadSearchPage(append=false){
- if(!searchParams)return;
- const own=searchGeneration,params=new URLSearchParams(searchParams);
- params.set('offset',String(searchOffset));
- const more=$<HTMLButtonElement>('search-more');
- more.disabled=true;
- if(!append){$('search-error').textContent='';$<HTMLButtonElement>('search-submit').disabled=true}
- try{
-  const data=await api<SearchPage>('/api/search?'+params);
-  if(own!==searchGeneration)return;
-  const root=$('search-results');if(!append)root.replaceChildren();
-  for(const r of data.results){
-   const button=element('button','search-result',`${r.cameraName} · ${berlinDate(new Date(r.start*1000))} ${clock(r.start)} · ${r.filename} · ${Math.round(r.duration)} s`);
-   button.onclick=()=>{void(async()=>{
-    navigate('recordings');selected.add(r.cameraId);dateInput.value=berlinDate(new Date(r.start*1000));page=0;renderCameras();await loadDay();seek(r.start);
-    const cameraIndex=ordered().findIndex(c=>c.id===r.cameraId);if(cameraIndex>=0)page=Math.floor(cameraIndex/visiblePageCapacity());renderCameras();saveView();
-   })().catch(e=>notify((e as Error).message))};
-   root.append(button);
-  }
-  searchOffset=data.offset+data.results.length;
-  $('search-count').hidden=data.total===0;
-  $('search-count').textContent=data.total?`${searchOffset} von ${data.total} Treffern angezeigt`:'';
-  if(!data.total)root.textContent='Keine Treffer im bisherigen Index. Weitere Tage öffnen oder Kameras scannen.';
-  more.hidden=!data.hasMore;
-  more.textContent=`Weitere ${Math.min(data.limit,data.total-searchOffset)} laden`;
- }catch(e){if(own===searchGeneration)$('search-error').textContent=(e as Error).message}
- finally{if(own===searchGeneration){more.disabled=false;$<HTMLButtonElement>('search-submit').disabled=false}}
-}
-$<HTMLFormElement>('search-form').onsubmit=e=>{
- e.preventDefault();searchGeneration++;searchOffset=0;
- try{
-  const data=new FormData(e.currentTarget as HTMLFormElement);searchParams=new URLSearchParams();
-  for(const[key,value]of data){if(!value)continue;searchParams.set(key,(key==='from'||key==='to')?String(berlinEpoch(String(value).length===16?String(value)+':00':String(value))):String(value))}
-  $('search-results').replaceChildren();$('search-count').hidden=true;$<HTMLButtonElement>('search-more').hidden=true;
-  void loadSearchPage();
- }catch(error){$('search-error').textContent=(error as Error).message}
-};
-on('search-more',()=>loadSearchPage(true));
+initSearchPage({
+ cameras:()=>cameras,request:url=>api<SearchPage>(url),notify,
+ open:async r=>{
+  navigate('recordings');selected.add(r.cameraId);dateInput.value=berlinDate(new Date(r.start*1000));page=0;renderCameras();await loadDay();seek(r.start);
+  const cameraIndex=ordered().findIndex(c=>c.id===r.cameraId);if(cameraIndex>=0)page=Math.floor(cameraIndex/visiblePageCapacity());renderCameras();saveView();
+ }
+});
 on('trace-stop',()=>{tracing=false;$<HTMLInputElement>('trace-enabled').checked=false;$<HTMLButtonElement>('trace-stop').disabled=true;$<HTMLButtonElement>('trace-download').disabled=trace.length===0;$('trace-status').textContent='Gestoppt · '+trace.length+' Einträge'});
 $<HTMLInputElement>('trace-enabled').onchange=()=>{tracing=$<HTMLInputElement>('trace-enabled').checked;if(tracing){trace=[];traceStart=performance.now();log('start')}else log('stop');$<HTMLButtonElement>('trace-stop').disabled=!tracing;$<HTMLButtonElement>('trace-download').disabled=tracing||trace.length===0;$('trace-status').textContent=tracing?'Aufzeichnung läuft (maximal 20.000 Einträge)':'Gestoppt'};
 on('trace-download',async()=>{const status=await api('/api/playback-status');const blob=new Blob([JSON.stringify({version:1,status,events:trace},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=element('a');a.href=url;a.download='wiedergabediagnose.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)});
 
-$<HTMLSelectElement>('view-mode').onchange=cameraFormatChanged;
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'&&document.fullscreenElement)void document.exitFullscreen().catch(()=>notify('Vollbild konnte nicht geschlossen werden.'));
  if(e.key==='Escape'&&!document.querySelector('dialog[open]'))document.querySelectorAll('.camera-tile.expanded').forEach(t=>{t.classList.remove('expanded');const button=t.querySelector('.tile-expand');if(button){button.setAttribute('aria-label','Ansicht vergrößern');setControlIcon(button,'expand')}});
@@ -547,6 +460,6 @@ on('batch-open',()=>navigate('admin/cameras/batch'));
 on('batch-close',()=>navigate('admin/cameras'));
 on('batch-save',async()=>{if(batchSaving)return;batchSaving=true;const button=$<HTMLButtonElement>('batch-save');button.disabled=true;try{const settings=cameraInput();const added=await api<(Camera&{detection?:ViewDetection})[]>('/api/cameras/batch',{method:'POST',body:JSON.stringify({date:dateInput.value,cameras:[...batchSelection].map(([folder,name])=>({...settings,id:'',folder,name}))})});batchSelection.clear();$('batch-dialog').dataset.dirty='false';batchSaving=false;resetCamera();dialog.classList.remove('camera-editing');navigate('recordings');await refreshCameras();await loadDay();const dual=added.filter(c=>c.viewMode==='dual').length,swapped=added.filter(c=>c.detection?.status==='swapped').length,unclear=added.filter(c=>c.detection?.status==='unclear').length;notify(dual?`Kameras hinzugefügt. ${swapped} Zuordnungen korrigiert${unclear?`, ${unclear} nicht sicher bestimmbar`:''}.`:'Kameras hinzugefügt. Bis zu drei Kameras werden gleichzeitig indexiert.')}catch(e){$('batch-error').textContent=(e as Error).message}finally{batchSaving=false;button.disabled=false}});
 
-window.addEventListener('themechange',()=>{timelineKey='';overviewKey='';draw()});
+window.addEventListener('themechange',()=>{timelineView.invalidate();draw()});
 
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&!(e.target instanceof Element&&e.target.closest('dialog'))&&!document.querySelector('dialog[open]')&&currentPage()!=='recordings'){e.preventDefault();navigate('recordings')}});
