@@ -38,7 +38,7 @@ export function initSearchPage(options:SearchOptions){
     const day=berlinDate(new Date(result.start*1000));
     if(day!==lastDay){const heading=document.createElement('h3');heading.className='search-day';heading.textContent=day;root.append(heading);lastDay=day}
     const button=document.createElement('button');button.className='search-result';
-    const thumb=document.createElement('img');thumb.className='search-preview';thumb.loading='lazy';thumb.alt='';thumb.src='/api/recordings/'+encodeURIComponent(result.id)+'/thumbnail';thumb.onerror=()=>thumb.remove();
+    const thumb=document.createElement('img');thumb.className='search-preview';thumb.loading='lazy';thumb.alt='';thumb.src='/api/recordings/'+encodeURIComponent(result.id)+'/thumbnail';thumb.onerror=()=>{thumb.hidden=true};
     const label=document.createElement('span');label.textContent=`${result.cameraName} · ${clock(result.start)} · ${result.filename} · ${Math.round(result.duration)} s`;
     button.append(thumb,label);
     button.onclick=()=>void options.open(result).catch(e=>options.notify((e as Error).message));

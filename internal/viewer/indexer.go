@@ -87,9 +87,11 @@ func (a *App) restoreScans() error {
 		a.index.queue = append(a.index.queue,j)
 	}
 	if err := rows.Err(); err != nil { return err }
+	if err := rows.Close(); err != nil { return err }
 	if len(a.index.queue)>0 {
 		a.index.current=a.index.queue[0]
 		a.index.queue=a.index.queue[1:]
+		if _,err:=a.db.Exec(`UPDATE scan_jobs SET active=1 WHERE id=?`,a.index.current.id);err!=nil { return err }
 		a.index.status=ScanStatus{Running:true,Date:a.index.current.date,JobID:a.index.current.id,State:"running",Warnings:[]string{}}
 		a.work.Add(1)
 		go a.runScanQueue(a.index.current)
@@ -333,6 +335,12 @@ func safeScanWarning(message string) string {
 
 func (a *App) saveScanHistoryLocked(job scanJob) {
 	status:=a.index.status
+	globalWarnings:=[]string{}
+	for _,warning:=range status.Warnings {
+		assigned:=false
+		for _,camera:=range status.Cameras { if strings.HasPrefix(warning,camera.Name+": ") { assigned=true;break } }
+		if !assigned { globalWarnings=append(globalWarnings,safeScanWarning(warning)) }
+	}
 	for _,camera:=range status.Cameras {
 		warnings:=[]string{}
 		for _,warning:=range status.Warnings {
@@ -345,6 +353,12 @@ func (a *App) saveScanHistoryLocked(job scanJob) {
 		if a.ctx.Err()!=nil { state="interrupted" }
 		_,err:=a.db.Exec(`INSERT INTO scan_history(id,camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,job.id+"/"+camera.ID+"/"+fmt.Sprint(time.Now().UnixNano()),camera.ID,camera.Name,job.date,job.manual,time.Now().Unix(),state,camera.Inspected,camera.Added,camera.Changed,camera.Skipped,string(encoded))
 		if err!=nil { a.index.status.Warnings=append(a.index.status.Warnings,"Scanverlauf konnte nicht gespeichert werden"); return }
+	}
+	if len(globalWarnings)>0 || len(status.Cameras)==0 {
+		encoded,_:=json.Marshal(globalWarnings)
+		state:=status.State
+		if a.ctx.Err()!=nil { state="interrupted" }
+		_,_ = a.db.Exec(`INSERT INTO scan_history(id,camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,job.id+"/system/"+fmt.Sprint(time.Now().UnixNano()),"","System",job.date,job.manual,time.Now().Unix(),state,status.Inspected,status.Added,status.Changed,status.Skipped,string(encoded))
 	}
 	_,_ = a.db.Exec(`DELETE FROM scan_history WHERE id IN (SELECT id FROM scan_history ORDER BY finished DESC,id DESC LIMIT -1 OFFSET 200)`)
 }
