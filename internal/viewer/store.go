@@ -321,7 +321,7 @@ func (s *Store) DayRecordings(cameras []Camera, from, to float64) ([]Recording, 
 		byID[camera.ID] = camera
 		margin = math.Max(margin, math.Abs(camera.ZoomOffset))
 	}
-	rows, err := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE start<? AND start+duration>? AND codec!='jpeg' ORDER BY camera_id,start,id`, to+margin, from-margin)
+	rows, err := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE start<? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, to+margin, from-margin)
 	if err != nil {
 		return nil, err
 	}
