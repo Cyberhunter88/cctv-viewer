@@ -26,6 +26,15 @@ test('sidebar collapses to usable icons, persists and expands at tablet width',a
  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 
+test('mobile navigation exposes settings links with a collapsed rail preference',async({page})=>{
+ await page.setViewportSize({width:390,height:844});await login(page);
+ await expect(page.locator('#rail-toggle')).toHaveAttribute('aria-expanded','false');
+ await page.locator('#mobile-nav-toggle').click();
+ await expect(page.getByRole('link',{name:'Darstellung'})).toBeVisible();
+ await openPage(page,'settings/appearance');
+ await expect(page.locator('#preferences-dialog')).toBeVisible();
+});
+
 test('settings and administration pages use matching menu names and back actions',async({page})=>{
  await login(page);
  for(const [path,heading] of [['settings/appearance','Darstellung'],['settings/playback','Wiedergabe'],['settings/account','Mein Konto'],['settings/sessions','Meine Sitzungen'],['admin/cameras','Kameras verwalten'],['admin/users','Benutzer'],['admin/sessions','Alle Sitzungen'],['admin/oidc','Anmeldung / OIDC'],['admin/operation','Betrieb']] as const){

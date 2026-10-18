@@ -2011,6 +2011,7 @@ dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
  :root.rail-collapsed #app .rail-bottom { flex-direction:row; }
  :root.rail-collapsed #app .rail-bottom .account-menu { width:auto; }
  :root.rail-collapsed #app .nav-submenu { margin:4px 0 0 12px; padding-left:6px; border-left:1px solid var(--line); }
+ :root.rail-collapsed #app .nav-group[open] .nav-submenu { display:block; }
  :root.rail-collapsed #app .rail-item,:root.rail-collapsed #app .nav-group > summary { justify-content:flex-start; gap:12px; padding:10px 12px; }
  #app .rail-item > .rail-symbol { font-size:20px; }
  #app .rail,.rail-collapsed #app .rail { width:auto; position:static; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; }
