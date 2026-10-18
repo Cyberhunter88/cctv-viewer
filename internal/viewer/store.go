@@ -311,6 +311,54 @@ func (s *Store) Recordings(camera string, from, to float64) ([]Recording, error)
 	}
 	return out, rows.Err()
 }
+func (s *Store) DayRecordings(cameras []Camera, from, to float64) ([]Recording, error) {
+	if len(cameras) == 0 {
+		return []Recording{}, nil
+	}
+	byID := make(map[string]Camera, len(cameras))
+	var margin float64
+	for _, camera := range cameras {
+		byID[camera.ID] = camera
+		margin = math.Max(margin, math.Abs(camera.ZoomOffset))
+	}
+	rows, err := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE start<? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, to+margin, from-margin)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	grouped := make(map[string][]Recording, len(cameras))
+	for rows.Next() {
+		var recording Recording
+		if err := rows.Scan(&recording.ID, &recording.CameraID, &recording.Path, &recording.Start, &recording.Duration, &recording.Codec, &recording.Size, &recording.Mod); err != nil {
+			return nil, err
+		}
+		camera, ok := byID[recording.CameraID]
+		if !ok {
+			continue
+		}
+		cameraMargin := math.Abs(camera.ZoomOffset)
+		if recording.Start >= to+cameraMargin || recording.Start+recording.Duration <= from-cameraMargin {
+			continue
+		}
+		recording.Container = strings.ToLower(filepath.Ext(recording.Path))
+		recording.Kind = "video"
+		recording.View = recordingView(camera, recording.Path)
+		if recording.View == "zoom" {
+			recording.Start += camera.ZoomOffset
+		}
+		if recording.Start < to && recording.Start+recording.Duration > from {
+			grouped[camera.ID] = append(grouped[camera.ID], recording)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := []Recording{}
+	for _, camera := range cameras {
+		out = append(out, grouped[camera.ID]...)
+	}
+	return out, nil
+}
 func (s *Store) Recording(id string) (Recording, error) {
 	var r Recording
 	e := s.QueryRow(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE id=? AND codec!='jpeg'`, id).Scan(&r.ID, &r.CameraID, &r.Path, &r.Start, &r.Duration, &r.Codec, &r.Size, &r.Mod)

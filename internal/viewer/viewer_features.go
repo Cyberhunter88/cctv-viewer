@@ -129,6 +129,12 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 			expr := map[string]string{"from": effectiveStart + "+r.duration>=?", "to": effectiveStart + "<=?", "minDuration": "r.duration>=?"}[key]
 			conditions = append(conditions, expr)
 			args = append(args, n)
+			if key == "to" {
+				// Keep the original zoom-adjusted predicate, but let the start index
+				// discard recordings that cannot possibly precede the upper bound.
+				conditions = append(conditions, "r.start<=?+(SELECT COALESCE(MAX(ABS(zoom_offset)),0) FROM cameras)")
+				args = append(args, n)
+			}
 		}
 	}
 	const limit = 100

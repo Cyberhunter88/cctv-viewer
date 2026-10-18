@@ -3,7 +3,6 @@ package viewer
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -497,17 +496,13 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 	}()
 	healthy := true
 	seen := map[string]bool{}
-	err := a.walkMedia(p, 0, func(name string, d fs.DirEntry) error {
-		count++
-		if count > 2000000 {
-			return errors.New("mehr als 2000000 Einträge; Tagesordner verwenden")
-		}
-		if d.IsDir() || !supportedMedia(name) {
-			return nil
-		}
-		if !incremental {
-			seen[name] = true
-		}
+	type mediaEntry struct {
+		name string
+		entry fs.DirEntry
+	}
+	type fileState struct{ size, mod int64 }
+	batch := make([]mediaEntry, 0, 128)
+	process := func(name string, d fs.DirEntry, old fileState, exists bool) error {
 		inspected++
 		a.progress(c, "inspected")
 		skip := func(message string) { healthy = false; a.progress(c, "skipped"); a.warn(c.Name + ": " + message) }
@@ -527,14 +522,7 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 			return nil
 		}
 		size, mod := st.Size(), st.ModTime().UnixNano()
-		var oldSize, oldMod int64
-		e = a.db.QueryRowContext(a.ctx, `SELECT size,mod FROM recordings WHERE camera_id=? AND path=?`, c.ID, name).Scan(&oldSize, &oldMod)
-		exists := e == nil
-		if e != nil && !errors.Is(e, sql.ErrNoRows) {
-			skip("Index nicht lesbar")
-			return nil
-		}
-		if exists && size == oldSize && mod == oldMod {
+		if exists && size == old.size && mod == old.mod {
 			if incremental && time.Since(st.ModTime()) >= 120*time.Second {
 				if _, e := a.db.ExecContext(a.ctx, `UPDATE recordings SET settled=1 WHERE camera_id=? AND path=? AND settled=0`, c.ID, name); e != nil {
 					skip("Index konnte nicht gespeichert werden")
@@ -585,7 +573,65 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 			a.progress(c, "added")
 		}
 		return nil
+	}
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")
+		args := make([]any, 0, len(batch)+1)
+		args = append(args, c.ID)
+		for _, item := range batch {
+			args = append(args, item.name)
+		}
+		rows, err := a.db.QueryContext(a.ctx, `SELECT path,size,mod FROM recordings WHERE camera_id=? AND path IN (`+placeholders+`)`, args...)
+		if err != nil {
+			return err
+		}
+		states := make(map[string]fileState, len(batch))
+		for rows.Next() {
+			var name string
+			var state fileState
+			if err := rows.Scan(&name, &state.size, &state.mod); err != nil {
+				rows.Close()
+				return err
+			}
+			states[name] = state
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		for _, item := range batch {
+			state, exists := states[item.name]
+			if err := process(item.name, item.entry, state, exists); err != nil {
+				return err
+			}
+		}
+		batch = batch[:0]
+		return nil
+	}
+	err := a.walkMedia(p, 0, func(name string, d fs.DirEntry) error {
+		count++
+		if count > 2000000 {
+			return errors.New("mehr als 2000000 Einträge; Tagesordner verwenden")
+		}
+		if !incremental {
+			seen[name] = true
+		}
+		if d.IsDir() || !supportedMedia(name) {
+			return nil
+		}
+		batch = append(batch, mediaEntry{name, d})
+		if len(batch) == cap(batch) {
+			return flush()
+		}
+		return nil
 	})
+	if err == nil {
+		err = flush()
+	}
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			if _, e := a.root.Stat(c.Folder); e == nil {
