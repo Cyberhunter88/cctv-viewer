@@ -74,7 +74,7 @@ func (j scanJob) persisted() persistedScanJob {
 }
 
 func (a *App) restoreScans() error {
-	rows, err := a.db.Query(`SELECT id,payload FROM scan_jobs ORDER BY queued_at,id`)
+	rows, err := a.db.Query(`SELECT id,payload FROM scan_jobs ORDER BY active DESC,queued_at,id`)
 	if err != nil { return err }
 	defer rows.Close()
 	for rows.Next() {
@@ -235,7 +235,8 @@ func (a *App) queueScan(job scanJob, force bool) bool {
 	job.id = token()[:16]
 	payload, err := json.Marshal(job.persisted())
 	if err != nil { return false }
-	if _, err = a.db.ExecContext(a.ctx, `INSERT INTO scan_jobs(id,payload,queued_at) VALUES(?,?,?)`, job.id, string(payload), time.Now().UnixNano()); err != nil {
+	active:=!a.index.status.Running
+	if _, err = a.db.ExecContext(a.ctx, `INSERT INTO scan_jobs(id,payload,queued_at,active) VALUES(?,?,?,?)`, job.id, string(payload), time.Now().UnixNano(), active); err != nil {
 		a.index.status.Warnings=append(a.index.status.Warnings,"Scanauftrag konnte nicht gespeichert werden")
 		return false
 	}
@@ -314,6 +315,7 @@ func (a *App) runScanQueue(job scanJob) {
 				return
 			}
 			current = a.index.nextJob()
+			if _,err:=a.db.Exec(`UPDATE scan_jobs SET active=1 WHERE id=?`,current.id);err!=nil { a.index.status.Warnings=append(a.index.status.Warnings,"Aktiver Scanauftrag konnte nicht gespeichert werden") }
 			a.index.current = current
 			a.index.status = ScanStatus{Running: true, Date: current.date, JobID: current.id, State: "running", Warnings: []string{}}
 			a.index.mu.Unlock()
