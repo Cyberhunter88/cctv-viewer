@@ -10,7 +10,7 @@ Von einem aktuellen `main` starten und einen eigenen Branch verwenden:
 
 ```bash
 git fetch origin
-git switch -c codex/meine-aenderung origin/main
+git switch --no-track -c codex/meine-aenderung origin/main
 # Änderungen vornehmen und lokal prüfen
 git add <betroffene-dateien>
 git commit -m "feat: beschreibe die Änderung"

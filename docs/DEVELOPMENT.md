@@ -15,10 +15,10 @@ Check `git status --short --branch` and the GitHub PR state. If the checkout has
 
 ```sh
 git fetch origin
-git switch -c codex/mein-thema origin/main
+git switch --no-track -c codex/mein-thema origin/main
 ```
 
-Choose a unique topic. If the task already has a branch, use that branch instead of creating another one. Do not commit directly to `main`. Stage only related files, inspect `git diff --cached` for secrets and local artifacts, run relevant tests, then commit. Push only when authorized; create a PR against `main` and let the owner merge it manually.
+Choose a unique topic. `--no-track` prevents the new feature branch from using `origin/main` as its push target. If the task already has a branch, use that branch instead of creating another one. Do not commit directly to `main`. Stage only related files, inspect `git diff --cached` for secrets and local artifacts, run relevant tests, then commit. For the first authorized push, use `git push -u origin codex/mein-thema`; later pushes use the feature branch as their upstream. Create a PR against `main` and let the owner merge it manually.
 
 ## Continue the same feature on another computer
 
