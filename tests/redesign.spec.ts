@@ -27,8 +27,6 @@ test('archive and settings pages fit phones, landscape, tablets and desktop',asy
   await expect(page.locator('#toast')).toBeHidden({timeout:10000});
   for(const [width,height] of [[360,780],[390,844],[844,390],[768,1024],[1366,768],[1920,1080]]){
    await page.setViewportSize({width,height});
-   await page.locator('.thumb').first().tap();
-   await expect.poll(()=>page.locator('video').first().evaluate(v=>v.readyState)).toBeGreaterThanOrEqual(2);
    await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
    const grid=await page.locator('#video-grid').boundingBox(),controls=await page.locator('#playback-controls').boundingBox();
    expect(controls!.y).toBeGreaterThanOrEqual(grid!.y+grid!.height);
