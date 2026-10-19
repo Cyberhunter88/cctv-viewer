@@ -1776,6 +1776,7 @@ button:focus-visible,summary:focus-visible { outline:2px solid var(--accent); ou
 #app .page-heading { margin-bottom:24px; gap:16px; }
 #app .page-heading .eyebrow { display:block; color:var(--accent); font-size:10px; letter-spacing:2px; margin-bottom:8px; }
 #app .page-heading h1 { font-size:32px; font-weight:600; letter-spacing:-1px; margin:0; }
+#app .page-heading h1:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 #app .index-state { font-size:12px; }
 #app .archive-controls { margin-bottom:20px; padding:4px 16px; background:var(--panel); border:1px solid var(--workspace-line); border-radius:var(--workspace-radius); }
 #app .view-toolbar { padding:10px 0; border:0; border-radius:0; background:transparent; gap:12px; }
@@ -1967,6 +1968,7 @@ dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
 #app .rail nav { display:flex; flex-direction:column; gap:6px; overflow-y:auto; }
 #app .rail-item { width:100%; flex:none; flex-direction:row; justify-content:flex-start; min-height:44px; padding:10px 12px; font-size:13px; }
 #app .rail-item > .rail-symbol,.nav-group > summary > .rail-symbol { display:inline-flex; align-items:center; justify-content:center; flex:none; width:22px; font-size:20px; line-height:1; }
+.rail-symbol svg { display:block; width:20px; height:20px; }
 .rail-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .nav-group { margin-top:8px; }
 .nav-group > summary { display:flex; align-items:center; gap:12px; min-height:44px; cursor:pointer; padding:12px; font-size:13px; font-weight:650; border-radius:8px; }

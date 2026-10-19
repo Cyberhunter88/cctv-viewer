@@ -1,8 +1,8 @@
 # Repository Guidelines
 
-## Session Start and Status
+## Session Start
 
-At the start of every Codex session, read `STATUS.md`, then inspect `git status --short --branch` and the current branch before editing. Keep existing project conventions and deeper `AGENTS.md` rules. Update `STATUS.md` when work changes the development state, open tasks, technical decisions, or next steps. Keep both files suitable for a public repository: no credentials, private notes, personal paths, or confidential infrastructure details.
+At the start of every Codex session, inspect `git status --short --branch` and the current branch before editing. Check Git and GitHub for the current commit and pull request state instead of relying on a manually maintained status file. Keep existing project conventions and deeper `AGENTS.md` rules. Keep this file suitable for a public repository: no credentials, private notes, personal paths, or confidential infrastructure details.
 
 ## Project Structure & Architecture
 

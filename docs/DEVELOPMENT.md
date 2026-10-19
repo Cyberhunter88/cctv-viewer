@@ -1,6 +1,6 @@
 # Local development on Windows and CachyOS
 
-Use VS Code and a local Codex CLI from a normal checkout. Read `AGENTS.md` and `STATUS.md` before work. Check `git status --short --branch`, then work on a dedicated feature branch. Keep local settings and credentials outside Git.
+Use VS Code and a local Codex CLI from a normal checkout. Read `AGENTS.md` before work. Check `git status --short --branch` and the current branch, then work on a dedicated feature branch. Check GitHub for the current pull request state when needed. Keep local settings and credentials outside Git.
 
 Install Node and Go, then run `npm ci`, `npm run typecheck`, `npm test`, `npm run build`, `go vet ./...`, and `go test -race ./...` for changes that affect both parts. Run relevant browser and workflow checks described in `AGENTS.md` when those areas change. Review `git diff --cached` before committing and run relevant tests before pushing.
 
