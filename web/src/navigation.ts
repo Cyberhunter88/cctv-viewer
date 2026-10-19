@@ -26,7 +26,7 @@ function switchPage(path:string,fromHistory:boolean){
  document.getElementById('mobile-nav-toggle')?.setAttribute('aria-expanded','false');
  document.dispatchEvent(new CustomEvent('pagechange',{detail:path}));
  void Promise.resolve(next.enter?.()).catch(e=>{document.dispatchEvent(new CustomEvent('pageerror',{detail:(e as Error).message}))});
- const heading=next.element.querySelector<HTMLElement>('h1,h2,h3');if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true})}
+ if(!initial){const heading=next.element.querySelector<HTMLElement>('h1,h2,h3');if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true})}}
  window.scrollTo(0,0);
 }
 export function startNavigation(admin:()=>boolean,pause:()=>void){

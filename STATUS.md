@@ -1,12 +1,12 @@
 # Development status
 
-Updated: 2026-10-18. This file records public, project-level information only.
+Updated: 2026-10-19. This file records public, project-level information only.
 
 ## Current state
 
-- Go backend and TypeScript frontend are maintained in this repository. `package.json` currently declares version 0.9.5.
+- Go backend and TypeScript frontend are maintained in this repository. `package.json` currently declares version 0.9.6.
 - The frontend build creates `web/dist/app.js`; HTML, CSS, and theme JavaScript in `web/dist/` are maintained sources.
-- The main branch contains the current project baseline; this workflow setup is being prepared on a feature branch.
+- The main branch contains the current project baseline. Heading focus, navigation icons, and version 0.9.6 are in progress on a feature branch.
 
 ## Open tasks
 
@@ -24,3 +24,4 @@ Updated: 2026-10-18. This file records public, project-level information only.
 
 1. Install and verify the Git hook on the CachyOS checkout.
 2. Open a pull request after explicit push authorization.
+3. Verify the heading-focus and navigation icon changes in a browser once Go is available in the local development environment.
