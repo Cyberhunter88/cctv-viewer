@@ -10,12 +10,12 @@ Von einem aktuellen `main` starten und einen eigenen Branch verwenden:
 
 ```bash
 git fetch origin
-git switch -c feat/meine-aenderung origin/main
+git switch -c codex/meine-aenderung origin/main
 # Änderungen vornehmen und lokal prüfen
 git add <betroffene-dateien>
 git commit -m "feat: beschreibe die Änderung"
-git push -u origin feat/meine-aenderung
-gh pr create --base main --title "feat: beschreibe die Änderung" --body-file /tmp/pr.md
+git push -u origin codex/meine-aenderung
+gh pr create --base main --fill
 ```
 
 Die Workflows sind nach Ereignis getrennt: `pr.yml` läuft ausschließlich für Pull Requests, `ci.yml` ausschließlich für Pushes auf `main`. Dadurch werden ereignisfremde Jobs nicht angelegt und erscheinen nicht als übersprungen. Bei jedem PR gegen `main`, auch aus einem Fork, laufen Go-Vet und Go-Race-Tests, TypeScript-Prüfung, Frontend-Tests/-Build, Python-Tests der Release-Skripte, actionlint mit SHA256-geprüfter Tool-Version, ShellCheck sowie die vorhandenen Chrome- und WebKit-Tests. Der Job „Code prüfen“ erstellt nach dem Frontend-Build auch den eingebetteten Browser-Testserver. Anschließend führen „Browser prüfen (chrome)“ und „Browser prüfen (webkit)“ jeweils die vollständige Browser-Suite mit einem eigenen Testserver und Acht-Minuten-Limit aus. Fehlerartefakte werden je Browser hochgeladen. Damit erscheinen beim PR vier aktive Checks: Code, Chrome, WebKit und „Anwendung prüfen“. Auf Main entfallen Browser-Testserver, Artefakt-Upload und beide Browser-Läufe. Dort laufen Code, zwei Docker-Prüfungen, Commit-Image-Veröffentlichung und Abschlusscheck, insgesamt fünf aktive Checks. Bereits vorhandene FFmpeg-/ShellCheck-Werkzeuge werden direkt verwendet; nur fehlende Pakete werden installiert. Neuere PR-Commits brechen veraltete PR-Läufe ab. Ein Feature-Push ohne PR startet keinen zweiten CI-Lauf. PRs erhalten keine Berechtigung zum Schreiben von Paketen und bauen keine Docker-Images.
