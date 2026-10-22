@@ -52,7 +52,8 @@ export function createTimelineView(canvas:HTMLCanvasElement,overview:HTMLCanvasE
   if(!from)return;
   const palette=colors(),width=canvas.parentElement!.clientWidth,height=48+Math.max(1,cameras.length)*34,dpr=devicePixelRatio||1;
   if(width<=0)return;
-  document.getElementById('timeline-viewport')!.style.height=(preferredHeight===240?Math.min(240,Math.max(100,height+12)):preferredHeight)+'px';
+  const viewport=document.getElementById('timeline-viewport')!,viewportHeight=(preferredHeight===240?Math.min(240,Math.max(100,height+12)):preferredHeight)+'px';
+  if(viewport.style.height!==viewportHeight)viewport.style.height=viewportHeight;
   if(canvas.width!==Math.round(width*dpr)||canvas.height!==Math.round(height*dpr)){canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);canvas.style.height=height+'px'}
   const ctx=canvas.getContext('2d')!;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);
   const left=85,right=width-15,area=right-left,span=viewEnd-viewStart,x=(time:number)=>left+(time-viewStart)/span*area;
@@ -80,7 +81,8 @@ export function createTimelineView(canvas:HTMLCanvasElement,overview:HTMLCanvasE
    ctx.fillStyle=palette.cursor;ctx.beginPath();ctx.moveTo(position-4,27);ctx.lineTo(position+4,27);ctx.lineTo(position,33);ctx.fill();
   }
   drawOverview(frame,palette);
-  const hours=span/3600;document.getElementById('zoom-label')!.textContent=hours>=1?`${Math.round(hours*10)/10} Std.`:`${Math.round(span/60)} Min.`;
+  const hours=span/3600,label=hours>=1?`${Math.round(hours*10)/10} Std.`:`${Math.round(span/60)} Min.`,zoomLabel=document.getElementById('zoom-label')!;
+  if(zoomLabel.textContent!==label)zoomLabel.textContent=label;
  }
  return {draw,invalidate:()=>{timelineKey='';overviewKey=''}};
 }

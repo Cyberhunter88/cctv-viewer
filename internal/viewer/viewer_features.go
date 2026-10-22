@@ -2,6 +2,7 @@ package viewer
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"math"
@@ -41,22 +42,34 @@ func (a *App) registerViewerRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/playback-sessions/{id}", a.protect(false, a.playbackSession))
 }
 func (a *App) scanHistory(w http.ResponseWriter, r *http.Request) {
-	rows,err:=a.db.QueryContext(r.Context(),`SELECT camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings FROM scan_history ORDER BY finished DESC,id DESC LIMIT 50`)
-	if err!=nil { fail(w,500,"Scanverlauf nicht lesbar"); return }
+	rows, err := a.db.QueryContext(r.Context(), `SELECT camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings FROM scan_history ORDER BY finished DESC,id DESC LIMIT 50`)
+	if err != nil {
+		fail(w, 500, "Scanverlauf nicht lesbar")
+		return
+	}
 	defer rows.Close()
-	out:=[]map[string]any{}
+	out := []map[string]any{}
 	for rows.Next() {
-		var id,name,date,state,warnings string
+		var id, name, date, state, warnings string
 		var manual bool
 		var finished int64
-		var inspected,added,changed,skipped int
-		if err:=rows.Scan(&id,&name,&date,&manual,&finished,&state,&inspected,&added,&changed,&skipped,&warnings);err!=nil { fail(w,500,"Scanverlauf nicht lesbar");return }
+		var inspected, added, changed, skipped int
+		if err := rows.Scan(&id, &name, &date, &manual, &finished, &state, &inspected, &added, &changed, &skipped, &warnings); err != nil {
+			fail(w, 500, "Scanverlauf nicht lesbar")
+			return
+		}
 		var parsed []string
-		if err:=json.Unmarshal([]byte(warnings),&parsed);err!=nil { fail(w,500,"Scanverlauf nicht lesbar");return }
-		out=append(out,map[string]any{"cameraId":id,"cameraName":name,"date":date,"manual":manual,"finished":finished,"state":state,"inspected":inspected,"added":added,"changed":changed,"skipped":skipped,"warnings":parsed})
+		if err := json.Unmarshal([]byte(warnings), &parsed); err != nil {
+			fail(w, 500, "Scanverlauf nicht lesbar")
+			return
+		}
+		out = append(out, map[string]any{"cameraId": id, "cameraName": name, "date": date, "manual": manual, "finished": finished, "state": state, "inspected": inspected, "added": added, "changed": changed, "skipped": skipped, "warnings": parsed})
 	}
-	if rows.Err()!=nil { fail(w,500,"Scanverlauf nicht lesbar");return }
-	jsonOut(w,200,out)
+	if rows.Err() != nil {
+		fail(w, 500, "Scanverlauf nicht lesbar")
+		return
+	}
+	jsonOut(w, 200, out)
 }
 func (a *App) requestScan(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -121,12 +134,39 @@ func (a *App) rebuildIndex(w http.ResponseWriter, r *http.Request) {
 	a.cacheMu.Unlock()
 	jsonOut(w, 200, map[string]bool{"ok": true})
 }
-func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
-	// Apply the same zoom clock correction as the day API before filtering or sorting.
-	relativePath := "lower(substr(r.path,length(c.folder)+2))"
-	effectiveStart := "(r.start+CASE WHEN c.view_mode='dual' AND c.zoom_marker!='' AND instr(" + relativePath + ",lower(c.zoom_marker))>0 AND (c.wide_marker='' OR instr(" + relativePath + ",lower(c.wide_marker))=0) THEN c.zoom_offset ELSE 0 END)"
 
+// Same clock correction as the day API, including wide-marker precedence.
+const correctedSearchStart = "(r.start+CASE WHEN c.view_mode='dual' AND c.zoom_marker!='' AND instr(lower(substr(r.path,length(c.folder)+2)),lower(c.zoom_marker))>0 AND (c.wide_marker='' OR instr(lower(substr(r.path,length(c.folder)+2)),lower(c.wide_marker))=0) THEN c.zoom_offset ELSE 0 END)"
+
+func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
+	effectiveStart := correctedSearchStart
+
+	// Keep camera corrections, count and result rows in the same read snapshot.
+	// A camera edit during a search must not invalidate the unadjusted fast path.
+	tx, err := a.db.BeginTx(r.Context(), &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		fail(w, 500, "Suche nicht verfügbar")
+		return
+	}
+	defer tx.Rollback()
 	q := r.URL.Query()
+	// Without a clock correction, sorting by the stored start time can use the
+	// existing start indexes. Keep the adjusted expression for mixed/dual views.
+	correctionQuery := `SELECT EXISTS(SELECT 1 FROM cameras WHERE view_mode='dual' AND zoom_marker!='' AND zoom_offset!=0`
+	correctionArgs := []any{}
+	if id := q.Get("camera"); id != "" {
+		correctionQuery += " AND id=?"
+		correctionArgs = append(correctionArgs, id)
+	}
+	correctionQuery += ")"
+	var correction bool
+	if err := tx.QueryRowContext(r.Context(), correctionQuery, correctionArgs...).Scan(&correction); err != nil {
+		fail(w, 500, "Suche nicht verfügbar")
+		return
+	}
+	if !correction {
+		effectiveStart = "r.start"
+	}
 	conditions := []string{"r.codec!='jpeg'"}
 	args := []any{}
 	if text := q.Get("q"); text != "" {
@@ -162,14 +202,27 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 	}
 	const limit = 100
 	order := q.Get("order")
-	if order == "" { order = "desc" }
-	if order != "desc" && order != "asc" { fail(w,400,"Sortierung ungültig");return }
+	if order == "" {
+		order = "desc"
+	}
+	if order != "desc" && order != "asc" {
+		fail(w, 400, "Sortierung ungültig")
+		return
+	}
 	direction, comparison := "DESC", "<"
-	if order == "asc" { direction, comparison = "ASC", ">" }
-	var cursor struct { Start float64 `json:"start"`; ID string `json:"id"` }
-	if raw:=q.Get("cursor");raw!="" {
-		decoded,e:=base64.RawURLEncoding.DecodeString(raw)
-		if e!=nil || json.Unmarshal(decoded,&cursor)!=nil || cursor.ID=="" || math.IsNaN(cursor.Start) || math.IsInf(cursor.Start,0) { fail(w,400,"Suchcursor ungültig");return }
+	if order == "asc" {
+		direction, comparison = "ASC", ">"
+	}
+	var cursor struct {
+		Start float64 `json:"start"`
+		ID    string  `json:"id"`
+	}
+	if raw := q.Get("cursor"); raw != "" {
+		decoded, e := base64.RawURLEncoding.DecodeString(raw)
+		if e != nil || json.Unmarshal(decoded, &cursor) != nil || cursor.ID == "" || math.IsNaN(cursor.Start) || math.IsInf(cursor.Start, 0) {
+			fail(w, 400, "Suchcursor ungültig")
+			return
+		}
 	}
 	offset := 0
 	if raw := q.Get("offset"); raw != "" {
@@ -180,22 +233,30 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 		}
 		offset = n
 	}
-	if cursor.ID!="" { offset=0 }
+	if cursor.ID != "" {
+		offset = 0
+	}
 	where := strings.Join(conditions, " AND ")
 	var total int
-	if q.Get("count")!="0" { if e := a.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+where, args...).Scan(&total); e != nil {
-		fail(w, 500, "Suche nicht verfügbar")
-		return
-	} }
-	queryArgs:=append([]any{},args...)
-	if cursor.ID!="" {
-		where+=" AND ("+effectiveStart+comparison+"? OR ("+effectiveStart+"=? AND r.id"+comparison+"?))"
-		queryArgs=append(queryArgs,cursor.Start,cursor.Start,cursor.ID)
-		if order=="desc" { where+=" AND r.start<=?+(SELECT COALESCE(MAX(ABS(zoom_offset)),0) FROM cameras)" } else { where+=" AND r.start>=?-(SELECT COALESCE(MAX(ABS(zoom_offset)),0) FROM cameras)" }
-		queryArgs=append(queryArgs,cursor.Start)
+	if q.Get("count") != "0" {
+		if e := tx.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+where, args...).Scan(&total); e != nil {
+			fail(w, 500, "Suche nicht verfügbar")
+			return
+		}
 	}
-	queryArgs=append(queryArgs,limit+1,offset)
-	rows, e := a.db.QueryContext(r.Context(), `SELECT r.id,r.camera_id,c.name,r.path,`+effectiveStart+`,r.duration FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+where+` ORDER BY `+effectiveStart+` `+direction+`,r.id `+direction+` LIMIT ? OFFSET ?`, queryArgs...)
+	queryArgs := append([]any{}, args...)
+	if cursor.ID != "" {
+		where += " AND (" + effectiveStart + comparison + "? OR (" + effectiveStart + "=? AND r.id" + comparison + "?))"
+		queryArgs = append(queryArgs, cursor.Start, cursor.Start, cursor.ID)
+		if order == "desc" {
+			where += " AND r.start<=?+(SELECT COALESCE(MAX(ABS(zoom_offset)),0) FROM cameras)"
+		} else {
+			where += " AND r.start>=?-(SELECT COALESCE(MAX(ABS(zoom_offset)),0) FROM cameras)"
+		}
+		queryArgs = append(queryArgs, cursor.Start)
+	}
+	queryArgs = append(queryArgs, limit+1, offset)
+	rows, e := tx.QueryContext(r.Context(), `SELECT r.id,r.camera_id,c.name,r.path,`+effectiveStart+`,r.duration FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE `+where+` ORDER BY `+effectiveStart+` `+direction+`,r.id `+direction+` LIMIT ? OFFSET ?`, queryArgs...)
 	if e != nil {
 		fail(w, 500, "Suche nicht verfügbar")
 		return
@@ -215,17 +276,23 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Suche fehlgeschlagen")
 		return
 	}
-	hasMore:=len(out)>limit
-	if hasMore { out=out[:limit] }
-	nextCursor:=""
-	if hasMore && len(out)>0 { last:=out[len(out)-1];encoded,_:=json.Marshal(map[string]any{"start":last["start"],"id":last["id"]});nextCursor=base64.RawURLEncoding.EncodeToString(encoded) }
+	hasMore := len(out) > limit
+	if hasMore {
+		out = out[:limit]
+	}
+	nextCursor := ""
+	if hasMore && len(out) > 0 {
+		last := out[len(out)-1]
+		encoded, _ := json.Marshal(map[string]any{"start": last["start"], "id": last["id"]})
+		nextCursor = base64.RawURLEncoding.EncodeToString(encoded)
+	}
 	jsonOut(w, 200, map[string]any{
-		"results": out,
-		"total":   total,
-		"offset":  offset,
-		"limit":   limit,
-		"hasMore": hasMore,
-		"nextCursor":nextCursor,
+		"results":    out,
+		"total":      total,
+		"offset":     offset,
+		"limit":      limit,
+		"hasMore":    hasMore,
+		"nextCursor": nextCursor,
 	})
 }
 func (a *App) playbackStatus(w http.ResponseWriter, r *http.Request) {

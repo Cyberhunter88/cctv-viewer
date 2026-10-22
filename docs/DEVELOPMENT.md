@@ -56,3 +56,24 @@ git config --local core.hooksPath .githooks
 The hook requires `node` and `git` on `PATH`. On CachyOS, ensure `.githooks/pre-push` is executable (`chmod +x .githooks/pre-push`). On Windows, Git for Windows runs it through its bundled shell. Verify with `git config --local --get core.hooksPath` and `node scripts/check-secrets.mjs --working-tree`. Git hooks are local configuration, so install on each clone. The hook reads Git's proposed ref updates and scans outgoing commits before the push is sent. A failed scan blocks the push; review the masked finding and remove the sensitive content. Never use `--no-verify` or redirect `core.hooksPath` to bypass it.
 
 Run `node scripts/check-secrets.mjs --history` for a read-only audit of all locally available commits. The scanner reports path, commit, line, rule, risk, and masked value. Review findings manually; automated pattern checks cannot prove that a value is live. The older shared PowerShell scanner is outside this repository and is not required by this cross-platform hook.
+
+
+## Archivsuche messen
+
+`npm test` entdeckt alle `*.test.ts` unter `web/src` automatisch, auch in Unterordnern.
+
+Die Suchbenchmarks erzeugen ausschließlich synthetische SQLite-Einträge. Aufbau und
+Cursor-Erzeugung liegen außerhalb der gemessenen Abfragen. Drei Archivgrößen,
+beide Sortierungen, Text-/Kamera-/Zeitfilter, Cursor-/Offset-Seiten und ein negativer
+Zoom-Zeitversatz werden getrennt gemessen. Die größte Variante benötigt zusätzlichen
+Platz und Laufzeit im temporären Verzeichnis.
+
+```bash
+go test ./internal/viewer -run '^$' -bench '^BenchmarkSearchRecordings$' -benchtime=3x -count=1
+go test ./internal/viewer -run '^TestSearchQueryPlans$' -v
+```
+
+Die Ausgabe von `TestSearchQueryPlans` zeigt die SQLite-Abfragepläne für gespeicherte
+und korrigierte Aufnahmezeiten. Laufzeiten verschiedener Rechner oder paralleler
+Last sind nicht direkt vergleichbar. Lokale Messergebnisse und Browser-Traces unter
+`.local-reports/` ablegen und nicht einchecken.

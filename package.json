@@ -1,11 +1,11 @@
 {
   "name": "cctv-viewer",
   "private": true,
-  "version": "0.9.6",
+  "version": "0.9.7",
   "scripts": {
     "build": "esbuild web/src/app.ts --bundle --minify --target=es2022 --outfile=web/dist/app.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test web/src/timeline.test.ts web/src/management.test.ts web/src/view-state.test.ts web/src/preferences.test.ts",
+    "test": "node scripts/test_frontend.mjs",
     "test:browser": "playwright test"
   },
   "devDependencies": {
