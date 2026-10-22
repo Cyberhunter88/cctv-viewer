@@ -4,6 +4,7 @@ WORKDIR /src
 COPY package.json package-lock.json tsconfig.json ./
 RUN npm ci
 COPY web/ web/
+COPY scripts/test_frontend.mjs scripts/test_frontend.mjs
 RUN npm run typecheck && npm test && npm run build
 
 FROM --platform=$BUILDPLATFORM golang:1.27.2-bookworm AS backend
