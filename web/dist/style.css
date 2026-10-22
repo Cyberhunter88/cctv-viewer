@@ -1792,7 +1792,7 @@ button:focus-visible,summary:focus-visible { outline:2px solid var(--accent); ou
 #app .selection-heading > div { flex-wrap:wrap; }
 #app .selection-heading .text-button { min-height:44px; padding:8px; }
 #app .camera-filters { gap:8px; }
-#app .camera-filters .filter { min-height:44px; max-width:100%; padding:10px 14px; border-radius:24px; border-color:transparent; background:var(--input); font-size:12px; overflow-wrap:anywhere; text-align:left; }
+#app .camera-filters .filter { min-height:44px; min-width:44px; transition:background .15s,color .15s,border-color .15s; max-width:100%; padding:10px 14px; border-radius:24px; border-color:transparent; background:var(--input); font-size:12px; overflow-wrap:anywhere; text-align:left; }
 #app .camera-filters .filter.selected { border-color:transparent; background:var(--selected); color:var(--accent); }
 #app .camera-filters .filter:hover { border-color:var(--accent-line); }
 #app .camera-page-controls { gap:6px; }

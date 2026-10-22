@@ -100,3 +100,11 @@ Bei geschlossenem Zoom verwendet die Zeitleiste ausschließlich die Weitwinkelan
 | Lokale Konten | Suchbare Benutzerverwaltung, Rollen, Sperren, Passwortsetzen und Löschen | Go: UserManagement; Browser: navigation |
 | Sitzungen | Eigene Sitzungen einzeln oder gesammelt beenden; Admins können fremde Sitzungen beenden | Go: SessionManagement; Browser: navigation |
 | Minimale Umgebung | Externe Grundeinstellungen in .env.example; optionale Ausgangswerte separat dokumentiert | docs/CONFIGURATION.md |
+
+## Laufzeit und Wartbarkeit
+
+- Scanstatus wird ohne überlappende Abfragen aktualisiert. Verborgene Tabs pausieren die Abfragen; beim Zurückkehren wird sofort aktualisiert. Verbindungsfehler verlängern den Abstand bis maximal 30 Sekunden.
+- Neue Suchen und das Verlassen der Suchseite brechen überholte Suchanfragen ab. Bereits geladene Treffer bleiben beim Seitenwechsel erhalten; abgebrochenes Nachladen kann erneut gestartet werden.
+- Wiedergabeuhr und Kacheln sind eigenständige Frontendmodule. Während der Wiedergabe werden Kacheln höchstens alle 50 ms synchronisiert und Zeitleiste/Positionssteuerung alle 100 ms aktualisiert; direkte Bedienung bleibt unmittelbar. Bei Pause läuft keine dauerhafte Animationsschleife.
+- Die Suche verwendet bei Kameras ohne wirksamen Zoom-Zeitversatz die vorhandenen Zeitindizes für die Sortierung. Trefferzählung, Zeitkorrektur und Cursor-/Offset-Seiten bleiben erhalten; das Datenbankschema bleibt unverändert.
+- Frontend-Unit-Tests werden einschließlich Unterordnern automatisch gefunden. Synthetische Suchbenchmarks umfassen 10.000, 100.000 und eine Million Aufnahmen; sie ersetzen keine Messung auf einem realen NAS.

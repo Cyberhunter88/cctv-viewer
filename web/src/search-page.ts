@@ -1,4 +1,5 @@
 import {navigate,registerPage} from './navigation';
+import {createLatestRequest} from './latest-request';
 import {berlinEpoch} from './management';
 import {berlinDate,clock} from './timeline';
 
@@ -6,7 +7,7 @@ export interface SearchResult {id:string;cameraId:string;cameraName:string;filen
 export interface SearchPage {results:SearchResult[];total:number;offset:number;limit:number;hasMore:boolean;nextCursor?:string}
 interface SearchOptions {
  cameras:()=>{id:string;name:string}[];
- request:(url:string)=>Promise<SearchPage>;
+ request:(url:string,signal:AbortSignal)=>Promise<SearchPage>;
  open:(result:SearchResult)=>Promise<void>;
  notify:(message:string)=>void;
 }
@@ -14,25 +15,32 @@ interface SearchOptions {
 export function initSearchPage(options:SearchOptions){
  const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const search=$('search-dialog'),form=$<HTMLFormElement>('search-form'),more=$<HTMLButtonElement>('search-more');
+ const requests=createLatestRequest();
+ let hasMore=false,retryInitial=false;
  let generation=0,params:URLSearchParams|undefined,offset=0,cursor='',total=0,lastDay='';
  const sortLabel=document.createElement('label');sortLabel.textContent='Sortierung';
  const sort=document.createElement('select');sort.name='order';sort.add(new Option('Neueste zuerst','desc'));sort.add(new Option('Älteste zuerst','asc'));sortLabel.append(sort);
  form.querySelector('#search-submit')?.before(sortLabel);
- registerPage('search',{element:search,title:'Suche',enter:()=>{
+ function cancelSearch(){generation++;requests.cancel();more.disabled=false;$<HTMLButtonElement>('search-submit').disabled=false}
+ registerPage('search',{element:search,title:'Suche',leave:()=>{cancelSearch();return true},enter:()=>{
   const select=$<HTMLSelectElement>('search-camera'),previous=select.value;
   select.replaceChildren(new Option('Alle Kameras',''));
   for(const camera of options.cameras())select.add(new Option(camera.name,camera.id));
   select.value=previous;
+  if(retryInitial)void load();
  }});
  $('search-close').addEventListener('click',()=>navigate('recordings'));
  async function load(append=false){
   if(!params)return;
-  const own=generation,query=new URLSearchParams(params);
+  if(!append)retryInitial=true;
+  const request=requests.begin();
+  const own=++generation,query=new URLSearchParams(params);
   query.set('offset',String(offset));if(cursor){query.set('cursor',cursor);query.set('count','0')}more.disabled=true;
-  if(!append){$('search-error').textContent='';$<HTMLButtonElement>('search-submit').disabled=true}
+  $('search-error').textContent='';
   try{
-   const data=await options.request('/api/search?'+query);
-   if(own!==generation)return;
+   const data=await options.request('/api/search?'+query,request.signal);
+   if(own!==generation||!request.current())return;
+   retryInitial=false;
    const root=$('search-results');if(!append){root.replaceChildren();total=data.total;lastDay=''}
    for(const result of data.results){
     const day=berlinDate(new Date(result.start*1000));
@@ -48,13 +56,13 @@ export function initSearchPage(options:SearchOptions){
    $('search-count').hidden=total===0;
    $('search-count').textContent=total?`${offset} von ${total} Treffern angezeigt`:'';
    if(!total)root.textContent='Keine Treffer im bisherigen Index. Weitere Tage öffnen oder Kameras scannen.';
-   more.hidden=!data.hasMore;
+   hasMore=data.hasMore;more.hidden=!hasMore;
    more.textContent=`Weitere ${Math.min(data.limit,total-offset)} laden`;
-  }catch(e){if(own===generation)$('search-error').textContent=(e as Error).message}
-  finally{if(own===generation){more.disabled=false;$<HTMLButtonElement>('search-submit').disabled=false}}
+  }catch(e){if(own===generation&&request.current()&&(e as Error).name!=='AbortError'){retryInitial=false;$('search-error').textContent=(e as Error).message}}
+  finally{if(own===generation&&request.current()){more.disabled=false;$<HTMLButtonElement>('search-submit').disabled=false}}
  }
  form.onsubmit=e=>{
-  e.preventDefault();generation++;offset=0;cursor='';total=0;lastDay='';
+  e.preventDefault();cancelSearch();retryInitial=false;params=undefined;offset=0;cursor='';total=0;lastDay='';hasMore=false;
   try{
    const data=new FormData(form);params=new URLSearchParams();
    for(const [key,value] of data){if(!value)continue;params.set(key,(key==='from'||key==='to')?String(berlinEpoch(String(value).length===16?String(value)+':00':String(value))):String(value))}
@@ -62,5 +70,7 @@ export function initSearchPage(options:SearchOptions){
    void load();
   }catch(error){$('search-error').textContent=(error as Error).message}
  };
- more.addEventListener('click',()=>void load(true));
+ more.addEventListener('click',()=>{if(hasMore&&!more.disabled)void load(true)});
+ window.addEventListener('pagehide',cancelSearch);
+ window.addEventListener('pageshow',event=>{if(event.persisted&&!search.hidden&&retryInitial)void load()});
 }
