@@ -40,7 +40,7 @@ jobs:
     name: Browser prüfen (${{ matrix.browser }})
     needs: code-checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -72,8 +72,7 @@ jobs:
             playwright-${{ matrix.browser }}-
       - name: Browser- und Systemabhängigkeiten installieren
         run: |
-          npx playwright install-deps ${{ matrix.browser }}
-          sudo apt-get install -y ffmpeg
+          bash scripts/install_browser_ci_tools.sh ${{ matrix.browser }}
           npx playwright install ${{ matrix.browser }}
       - run: npm run test:browser
         env:
