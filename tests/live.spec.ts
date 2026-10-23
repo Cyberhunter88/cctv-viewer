@@ -1,4 +1,4 @@
-import {test,expect,openPage,type Page} from './fixtures';
+import {test,expect,openPage,cameraMutation,type Page} from './fixtures';
 async function login(page:Page){await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible()}
 
 test('live navigation and empty selection persist independently from recordings',async({page})=>{
@@ -24,7 +24,13 @@ test('live camera administration protects unsaved edits and does not disclose pa
 test('real live stream plays through HTTPS fallback, supports zoom and releases on leave',async({page})=>{
  test.skip(!process.env.CTV_TEST_GO2RTC,'Pinned go2rtc required');
  await page.addInitScript(()=>Object.defineProperty(window,'RTCPeerConnection',{value:class{constructor(){throw new Error('Synthetic blocked WebRTC transport')}}}));
- await login(page);await openPage(page,'live');
+ await login(page);
+ const cameras=await(await page.request.get('/api/cameras')).json(),session=await(await page.request.get('/api/session')).json();
+ const headers={'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin};
+ const saved=await cameraMutation(page,()=>page.request.post('/api/cameras',{headers,data:{...cameras[0],viewMode:'dual',wideMarker:'_00_',zoomMarker:'_01_'}}));
+ expect(saved.ok(),await saved.text()).toBe(true);
+ try{
+ await page.reload();await openPage(page,'live');
  const video=page.locator('#live-grid video').first();await expect.poll(()=>video.evaluate(v=>(v as HTMLVideoElement).readyState>=2?(v as HTMLVideoElement).currentTime:0),{timeout:25000}).toBeGreaterThan(.5);
  await expect(page.locator('#live-grid .live-tile-status').first()).toHaveText('Live · HTTPS');
  await expect(video).toHaveJSProperty('muted',true);
@@ -36,6 +42,11 @@ test('real live stream plays through HTTPS fallback, supports zoom and releases 
  await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'))});await expect(page.locator('#live-grid video')).toHaveCount(0);
  await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'))});await expect.poll(()=>page.locator('#live-grid video').first().evaluate(v=>(v as HTMLVideoElement).readyState>=2?(v as HTMLVideoElement).currentTime:0),{timeout:25000}).toBeGreaterThan(.5);
  await openPage(page,'recordings');await expect.poll(()=>page.locator('#live-grid video').evaluateAll(videos=>videos.every(v=>(v as HTMLVideoElement).paused&&!v.getAttribute('src')&&!(v as HTMLVideoElement).srcObject))).toBe(true);
+ }finally{
+  const restored=await cameraMutation(page,()=>page.request.post('/api/cameras',{headers,data:cameras[0]}));
+  expect(restored.ok(),await restored.text()).toBe(true);
+  expect((await restored.json()).viewMode).toBe(cameras[0].viewMode);
+ }
 });
 
 test('live controls fit mobile light and dark layouts',async({page})=>{

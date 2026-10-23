@@ -4,6 +4,12 @@ Referenz: [cctv-timeline-viewer-core, Commit 9c3128c756430529dc5c34c52d6bb4e8e5c
 Abgleich von README, Kamera-/Such-/System-APIs, Indexierung, Hotspot und Oberfläche.
 Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht übernommen.
 
+## Ergänzungen ab 0.11.1
+
+| Funktion | Umsetzung | Nachweis |
+|---|---|---|
+| Eine Ansicht ohne Zoom-Livequellen | Zoom-Bedienelemente und Freigabeadressen erscheinen nur bei „Weitwinkel + Zoom“; gespeicherte Zoomquellen ruhen bei „Eine Ansicht“ | Browser: settings-011; Go: LiveSingleViewZoom |
+
 ## Ergänzungen ab 0.11.0
 
 | Funktion | Umsetzung | Nachweis |

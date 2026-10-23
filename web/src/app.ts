@@ -95,7 +95,12 @@ function saveView():Promise<void>{
  void pending.catch(()=>{});return pending;
 }
 const livePage=initLivePage({api,cameras:()=>cameras,preferences:()=>state,save:saveView,admin:()=>session?.role==='admin',notify});
-const liveAdmin=initLiveAdmin({api,cameras:()=>cameras,notify,changed:()=>{livePage.refresh();void loadCameraLiveStatus()}});
+function cameraViewMode(id:string){
+ const selected=(cameraForm.elements.namedItem('id') as HTMLInputElement).value;
+ if(selected===id)return (cameraForm.elements.namedItem('viewMode') as HTMLSelectElement).value;
+ return cameras.find(camera=>camera.id===id)?.viewMode||'single';
+}
+const liveAdmin=initLiveAdmin({api,cameras:()=>cameras,viewMode:cameraViewMode,notify,changed:()=>{livePage.refresh();void loadCameraLiveStatus()}});
 on('preferences-retry',async()=>{try{await preferenceWriter?.flush()}catch{}});
 
 function notify(message:string){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,6000)}

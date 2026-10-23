@@ -216,6 +216,13 @@ func liveStreamName(id, view, quality string) string {
 func (s *liveService) ensureSource(ctx context.Context, id, view, quality string, rtc bool) (string, error) {
 	s.sourceMu.Lock()
 	defer s.sourceMu.Unlock()
+	camera, e := s.app.db.Camera(id)
+	if e != nil {
+		return "", e
+	}
+	if view == "zoom" && camera.ViewMode != "dual" {
+		return "", errors.New("Zoom ist für diese Kamera deaktiviert")
+	}
 	c, e := s.app.db.liveCamera(id)
 	if e != nil {
 		return "", e

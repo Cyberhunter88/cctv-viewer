@@ -2,7 +2,7 @@ import {registerPage,navigate} from './navigation';
 import {LivePlayer} from './live-player';
 import {liveSelection,type LivePreferences} from './live-state';
 import {gridSize,moveCamera} from './view-state';
-interface Camera{id:string;name:string}
+interface Camera{id:string;name:string;viewMode?:string}
 interface Capability{enabled:boolean;high:boolean;zoom:boolean;zoomHigh:boolean}
 interface LiveInfo{ready:boolean;message:string;cameras:Record<string,Capability>}
 type Context={api:<T>(url:string,options?:RequestInit)=>Promise<T>;cameras:()=>Camera[];preferences:()=>LivePreferences;save:()=>Promise<void>;admin:()=>boolean;notify:(message:string)=>void};
@@ -33,15 +33,16 @@ export function initLivePage(c:Context){
   const layout=$<HTMLSelectElement>('live-layout');layout.value=prefs.liveLayout||'auto';
   const chosen=order.filter(id=>selected.has(id)),grid=$('live-grid'),[columns,rows]=gridSize(layout.value,2,2,chosen.length,grid.clientWidth||innerWidth);
   const capacity=columns*rows;page=Math.max(0,Math.min(page,Math.ceil(chosen.length/capacity)-1));grid.style.gridTemplateColumns=`repeat(${columns},minmax(0,1fr))`;
-  const visible=chosen.slice(page*capacity,(page+1)*capacity),keys=new Set(visible.flatMap(id=>openZoom.has(id)&&info.cameras[id]?.zoom?[id+':wide',id+':zoom']:[id+':wide']));
+  const visible=chosen.slice(page*capacity,(page+1)*capacity),zoomAvailable=(id:string)=>cameras.some(camera=>camera.id===id&&camera.viewMode==='dual')&&!!info.cameras[id]?.zoom;
+  const keys=new Set(visible.flatMap(id=>openZoom.has(id)&&zoomAvailable(id)?[id+':wide',id+':zoom']:[id+':wide']));
   for(const [key,node] of nodes)if(!keys.has(key)){players.get(key)?.dispose();players.delete(key);node.remove();nodes.delete(key)}
   for(const [id,group] of groups)if(!visible.includes(id)){group.remove();groups.delete(id)}
   $('live-empty').textContent=!cameras.length?'Noch keine Kameras eingerichtet.':!selected.size?'Keine Kameras ausgewählt. Wähle oben mindestens eine Kamera aus.':'';
   $('live-empty').hidden=!$('live-empty').textContent;
   for(const [index,id] of visible.entries()){
-   const camera=cameras.find(camera=>camera.id===id)!,capability=info.cameras[id],group=groups.get(id)||document.createElement('div');groups.set(id,group);group.className='camera-group'+(openZoom.has(id)?' dual zoom-open':'');if(grid.children[index]!==group)grid.insertBefore(group,grid.children[index]||null);
+   const camera=cameras.find(camera=>camera.id===id)!,capability=info.cameras[id],group=groups.get(id)||document.createElement('div');groups.set(id,group);group.className='camera-group'+(openZoom.has(id)&&zoomAvailable(id)?' dual zoom-open':'');if(grid.children[index]!==group)grid.insertBefore(group,grid.children[index]||null);
    const existingZoom=document.getElementById('live-zoom-'+id);if(existingZoom){existingZoom.textContent=openZoom.has(id)?'Zoom schließen':'Zoom anzeigen';existingZoom.setAttribute('aria-expanded',String(openZoom.has(id)))}
-   for(const view of openZoom.has(id)&&capability?.zoom?['wide','zoom']:['wide']){
+   for(const view of openZoom.has(id)&&zoomAvailable(id)?['wide','zoom']:['wide']){
     const key=id+':'+view;if(nodes.has(key)){const video=nodes.get(key)!.querySelector('video');if(video&&!document.hidden)void video.play().catch(()=>{});continue}
     const tile=document.createElement('article');tile.className='camera-tile live-tile';tile.setAttribute('aria-label',camera.name+(view==='zoom'?' · Zoom':''));
     const heading=document.createElement('strong');heading.textContent=camera.name+(view==='zoom'?' · Zoom':'');
@@ -54,7 +55,7 @@ export function initLivePage(c:Context){
     controls.append(quality);
     const sound=button('Ton einschalten',()=>{if(!video.muted){video.muted=true;sound.textContent='Ton einschalten';return}for(const v of grid.querySelectorAll('video'))v.muted=true;for(const b of grid.querySelectorAll('[data-live-audio]'))b.textContent='Ton einschalten';audio=video;audio.muted=false;sound.textContent='Ton ausschalten';void video.play().catch(()=>{video.muted=true;sound.textContent='Ton einschalten'})});sound.dataset.liveAudio='';
     button('Vergrößern',()=>{if(document.fullscreenElement)void document.exitFullscreen();else if(tile.requestFullscreen)void tile.requestFullscreen().catch(()=>tile.classList.toggle('expanded'));else tile.classList.toggle('expanded')});
-    if(view==='wide'&&capability?.zoom){const zoom=button(openZoom.has(id)?'Zoom schließen':'Zoom anzeigen',()=>{if(openZoom.has(id))openZoom.delete(id);else openZoom.add(id);render();document.getElementById('live-zoom-'+id)?.focus()});zoom.id='live-zoom-'+id;zoom.setAttribute('aria-expanded',String(openZoom.has(id)))}
+    if(view==='wide'&&zoomAvailable(id)){const zoom=button(openZoom.has(id)?'Zoom schließen':'Zoom anzeigen',()=>{if(openZoom.has(id))openZoom.delete(id);else openZoom.add(id);render();document.getElementById('live-zoom-'+id)?.focus()});zoom.id='live-zoom-'+id;zoom.setAttribute('aria-expanded',String(openZoom.has(id)))}
     nodes.set(key,tile);
     const start=()=>{players.get(key)?.dispose();if(!info.ready||!capability?.enabled||document.hidden){status.textContent=!capability?.enabled?'Livequelle nicht eingerichtet':info.message||'Livebild angehalten';return}players.set(key,new LivePlayer(video,id,view,quality.value,message=>{status.textContent=message},()=>{quality.value='fast';c.notify('Hohe Qualität wird nicht unterstützt. Schneller Stream wird verwendet.');start()}))};
     quality.onchange=start;button('Erneut verbinden',start);tile.append(heading,video,status,controls);group.append(tile);start();

@@ -1,7 +1,16 @@
-import {test as base,expect,type Page} from '@playwright/test';
+import {test as base,expect,type Page,type APIResponse} from '@playwright/test';
 import {defaultView} from '../web/src/view-state';
 export {expect};
 export type {Page} from '@playwright/test';
+
+export async function cameraMutation(page:Page,send:()=>Promise<APIResponse>){
+ for(let attempt=0;attempt<40;attempt++){
+  const response=await send();
+  if(response.status()!==409)return response;
+  await page.waitForTimeout(250);
+ }
+ throw new Error('Kameraänderung blieb durch eine laufende Indexierung blockiert');
+}
 
 // Successful page saves finish asynchronously after the account API reply.
 export async function savePreferences(page:Page){

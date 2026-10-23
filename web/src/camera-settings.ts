@@ -34,7 +34,6 @@ export function initCameraSettings(form:HTMLFormElement,dialog:HTMLElement,live:
  }
  function selected(){opened=true;if(previousID!==id()){previousID=id();void live.load(id());active='general'}show(active)}
  form.addEventListener('cameraeditorchange',selected);
- live.setBack(()=>{navigate('admin/cameras');show('general')});
  document.addEventListener('cameraliveopen',event=>{
   const target=(event as CustomEvent<string|undefined>).detail||id()||first();
   if(target!==id()){if(!canChange())return;if(!selectCamera(target))return}
