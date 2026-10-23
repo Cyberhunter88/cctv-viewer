@@ -9,7 +9,8 @@ Bearbeitung der `.env` für weitere Benutzer erforderlich.
 | Einstellungen → Darstellung | Farbschema und Oberflächendichte des eigenen Kontos |
 | Einstellungen → Wiedergabe | Kamerabilder, Raster, Vorladen, Zeitleiste, Tastenkürzel und Diagnose |
 | Einstellungen → Mein Konto / Meine Sitzungen | Eigenes lokales Passwort ändern; eigene aktive Sitzungen einzeln oder gemeinsam beenden |
-| Verwaltung → Kameras | Aufnahmeordner, Ansichten, Dateizuordnung, Zeitzonen und Indexierung |
+| Verwaltung → Kameras | Reiter Allgemein, Aufnahmen und Live; Aufnahmeordner, Dateizuordnung, Livequellen und Vorladen |
+| Verwaltung → Streamfreigabe | Globale RTSP-Freigabe und Home-Assistant-Zugangsdaten |
 | Verwaltung → Benutzer | Lokale Konten anlegen, suchen, bearbeiten, sperren, entsperren und löschen; Passwörter setzen |
 | Verwaltung → Sitzungen | Aktive lokale und SSO-Sitzungen aller Konten anzeigen und einzeln beenden |
 | Verwaltung → Anmeldung / OIDC | Lokale Anmeldung, Issuer, Client-ID, Client-Secret, Gruppen-Claim sowie Gruppen-/Subject-Freigaben |
@@ -85,3 +86,46 @@ Für Home Assistant die erste Adresse im Portmapping `127.0.0.1:8554:8554/tcp`
 direkt auf die Heimnetz-IP ändern. Der
 Listener wird erst durch die globale Freigabe in der Weboberfläche aktiviert.
 [Einrichtung](LIVE.md).
+
+## Verschlüsselte Zugangsdaten (ab 0.11.0)
+
+Der Viewer verschlüsselt wieder lesbare Geheimnisse mit AES-256-GCM:
+Kamerakonfiguration und Zugangsdaten, Home-Assistant-Freigabekonfiguration,
+gespeicherte Server-/OIDC-Einstellungen sowie CSRF-Tokens und kurzlebige
+OIDC-Anmeldegeheimnisse. Die vollständigen Konfigurations-JSON-Werte sind dabei
+verschlüsselt, nicht nur einzelne Passwortfelder. Lokale Benutzerpasswörter
+bleiben mit Argon2id gehasht. Aufnahmeindex, Kameranamen und persönliche
+Darstellungspräferenzen sind keine vollständig verschlüsselte Datenbank.
+
+### Automatische Übernahme vorhandener Daten
+
+Beim ersten Start werden vorhandene Klartextwerte in einer Datenbanktransaktion
+übernommen. Die bisher gespeicherten Zugangsdaten bleiben gültig; erneute Eingabe
+ist nicht erforderlich. Bereits verschlüsselte Werte werden auf Entschlüsselbarkeit
+geprüft. Ein Fehler bricht den Start ab, ohne eine teilweise Übernahme zu
+bestätigen. Freie Datenbankseiten und das bisherige WAL werden nach der
+Umstellung bereinigt. Eine unterbrochene Bereinigung wird beim nächsten Start
+automatisch fortgesetzt. Während der Migration nur einen Viewer-Prozess auf
+das Datenverzeichnis zugreifen lassen. Unabhängige ältere Sicherungen bleiben unverändert und
+können weiterhin Klartext enthalten.
+
+### Schlüssel und Wiederherstellung
+
+Der Viewer erzeugt automatisch eine zufällige 32-Byte-Datei **secrets.key** im
+konfigurierten Datenverzeichnis, außerhalb der Datenbank und mit Dateirechten
+0600 auf POSIX-Systemen. Unter Windows das Datenverzeichnis mit passenden
+Zugriffsrechten schützen. Beim üblichen Containerbetrieb liegt sie damit im persistenten
+Datenvolume. Auch das Datenverzeichnis muss geschützt bleiben: Wer Datenbank
+und Schlüssel gemeinsam lesen kann, kann die Geheimnisse entschlüsseln.
+
+Für Backups und einen Serverwechsel **viewer.db und secrets.key gemeinsam**
+sichern beziehungsweise wiederherstellen. Für eine konsistente Dateisicherung
+den Viewer vorher anhalten; bei Sicherung im Betrieb ein SQLite-kompatibles
+Backupverfahren nutzen. Die Schlüsseldatei nicht bearbeiten oder neu erzeugen.
+
+Fehlt der Schlüssel einer bereits verschlüsselten Datenbank oder ist er falsch,
+startet der Viewer mit einem verständlichen Fehler. Er erzeugt keinen Ersatz
+und setzt Zugangsdaten nicht zurück. Die ursprüngliche Schlüsseldatei muss aus
+der passenden Sicherung wiederhergestellt werden. Für einen Wechsel zurück auf
+eine ältere Programmversion ist eine passende Sicherung von vor der Migration
+erforderlich; die verschlüsselten Konfigurationen sind dort nicht lesbar.

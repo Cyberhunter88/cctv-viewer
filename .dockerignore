@@ -31,3 +31,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Persistent encryption key must never enter a build context.
+**/secrets.key
+
+secrets-migration.pending

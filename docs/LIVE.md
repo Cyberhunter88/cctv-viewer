@@ -2,23 +2,24 @@
 
 ## Kamera einrichten
 
-Unter **Verwaltung → Kameras → Livequellen und Freigabe** eine vorhandene Kamera
-wählen. Live aktivieren, Kamerabenutzer und Passwort sowie die RTSP-Adresse des
+Unter **Verwaltung → Kameras** eine vorhandene Kamera wählen und den Reiter
+**Live** öffnen. Neue Kameras zuerst speichern. Live aktivieren, Kamerabenutzer und Passwort sowie die RTSP-Adresse des
 H.264-Nebenstreams eintragen. RTSP muss in der Reolink-Kamera eingeschaltet sein.
 Die Adresse enthält keine Zugangsdaten, beispielsweise
 `rtsp://kamera.example.org:554/h264Preview_01_sub`. Der genaue Pfad hängt vom
 Modell ab. Hauptstream und separates Zoomobjektiv sind optional.
 
 **Verbindung testen** zeigt Erreichbarkeit und Codecs, ohne die Eingabe zu
-speichern. **Livequelle speichern** übernimmt die Konfiguration. Ein leeres
+speichern. **Liveeinstellungen speichern** übernimmt die Konfiguration. Ein leeres
 Passwortfeld behält das gespeicherte Passwort bei; Entfernen ist ausdrücklich
-wählbar. Kamera-Zugangsdaten liegen im geschützten Datenverzeichnis und müssen
-bei Datensicherungen wie andere Geheimnisse behandelt werden.
+wählbar. Kamera-Zugangsdaten werden in der Datenbank verschlüsselt gespeichert.
+Die Schlüsseldatei muss bei Sicherung und Wiederherstellung mitgeführt werden;
+siehe [Datenverschlüsselung](CONFIGURATION.md#verschlüsselte-zugangsdaten-ab-0110).
 
 Der Menüpunkt **Liveansicht** besitzt eigene Kameraauswahl und Raster, unabhängig
 von Aufnahmen. Alle/Keine und Kameraschaltflächen speichern automatisch für das
-angemeldete Konto. Ton beginnt stumm; ein Kamerabild kann hörbar sein. Zoom wird
-erst beim Öffnen verbunden. Kameras ohne Livequelle zeigen einen Hinweis.
+angemeldete Konto. Ton beginnt stumm; ein Kamerabild kann hörbar sein. Das Zoom-Bild wird erst beim Öffnen übertragen; ob seine Kameraquelle bereits
+bereitsteht, bestimmt ihre Vorladeeinstellung. Kameras ohne Livequelle zeigen einen Hinweis.
 
 ## Kurze Verzögerung
 
@@ -122,3 +123,53 @@ nötig. Die separat erzeugten Zugangsdaten `homeassistant` gelten ausschließlic
 für **Viewer → Home Assistant**. Eine funktionierende HA-Verbindung bestätigt
 keine Anmeldung des Viewers. Für „Schnell“ möglichst den H.264-Nebenstream
 verwenden; H.265-Hauptstreams benötigen einen passenden Browser.
+
+## Quellen über HTTPS-FLV (ab 0.11.0)
+
+Jede Quelle kann alternativ eine direkte HTTPS-FLV-Adresse verwenden, etwa:
+
+```text
+https://kamera.example.org/flv?port=1935&app=bcs&stream=channel0_sub.bcs
+```
+
+Bei Reolink den H.264-Stream verwenden. Eine vollständige Adresse mit
+`user` und `password` kann eingefügt werden: Die Oberfläche übernimmt diese
+Werte in die separaten Zugangsdatenfelder und entfernt sie aus der Adresse.
+Abweichende Zugangsdaten werden nur nach Rückfrage übernommen; ein leerer
+Passwortparameter löscht kein gespeichertes Passwort. Zugangsdaten gelten für
+alle Quellen derselben Kamera. HTTPS-HLS, MJPEG und Kamera-Webseiten sind
+nicht Bestandteil dieser Unterstützung.
+
+Der Viewer prüft das HTTPS-Zertifikat einschließlich Hostname oder IP-Adresse.
+Für eine Kamera mit selbstsigniertem Zertifikat kann unter **Erweitert** die
+Prüfung gezielt für diese Quelle deaktiviert werden. Verbindungstest und
+Wiedergabe verwenden dieselbe Einstellung. HTTPS-Weiterleitungen werden nicht
+verfolgt. Ein interner Relay überträgt die FLV-Daten ohne Dateispeicherung an
+go2rtc; der Browser bekommt die Kameraadresse und ihre Zugangsdaten nicht.
+
+## Verbindung bereithalten (ab 0.11.0)
+
+Jede Quelle hat eine unabhängige Auswahl:
+
+- **Bei Bedarf:** keine zusätzliche Verbindung ohne Nutzung.
+- **60 Sekunden Nachlauf:** nach Ende der letzten Viewer- oder
+  Home-Assistant-Nutzung noch 60 Sekunden verbunden halten.
+- **Dauerhaft bereit:** auch ohne Zuschauer nach Serverstart verbinden.
+
+Neue und bisherige Konfigurationen verwenden standardmäßig den Nachlauf.
+Nach einem Neustart werden Nachlaufquellen erst bei tatsächlicher Nutzung
+verbunden. Die Einstellung gilt auch für hohe Qualität und Zoom unabhängig
+voneinander. Dauerhaftes Bereithalten benötigt laufend Bandbreite und
+Kameraverbindungen. Eine zusätzliche WebRTC-Audioumwandlung startet erst bei
+Wiedergabe. Es entstehen keine Liveaufnahmen oder Rückspulmöglichkeit.
+
+Die Oberfläche zeigt den Verbindungszustand jeder Quelle. Nach Fehlern folgen
+erneute Versuche mit wachsendem Abstand bis 30 Sekunden. Ein bereiter
+Kamerastream kann schneller starten; Browseraufbau und das nächste Schlüsselbild
+bestimmen weiterhin den tatsächlichen Bildbeginn.
+
+## Streamfreigabe verwalten
+
+Globale Freigabe und Zugangsdaten stehen unter **Verwaltung → Streamfreigabe**.
+Dort lassen sich Adressen je Kamera kopieren. Ob eine Kamera freigegeben ist,
+wird weiterhin in ihrem Reiter **Live** eingestellt.

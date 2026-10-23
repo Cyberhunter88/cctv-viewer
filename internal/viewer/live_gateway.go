@@ -33,6 +33,10 @@ func (s *Store) liveShare() (liveShareSettings, error) {
 	if e != nil {
 		return liveShareSettings{}, e
 	}
+	payload, e = s.openSecret(payload, secretScope("live_share", "1", "payload"))
+	if e != nil {
+		return liveShareSettings{}, e
+	}
 	var stored struct {
 		Enabled  bool   `json:"enabled"`
 		Username string `json:"username"`
@@ -63,7 +67,12 @@ func (a *App) liveShare(w http.ResponseWriter, r *http.Request) {
 			settings.Password = generated
 		}
 		payload, _ := json.Marshal(map[string]any{"enabled": settings.Enabled, "username": settings.Username, "secret": settings.Password})
-		if _, e = a.db.Exec(`INSERT INTO live_share(id,payload) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload`, string(payload)); e != nil {
+		sealed, sealErr := a.db.sealSecret(string(payload), secretScope("live_share", "1", "payload"))
+		if sealErr != nil {
+			fail(w, 500, "Freigabe nicht gespeichert")
+			return
+		}
+		if _, e = a.db.Exec(`INSERT INTO live_share(id,payload) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload`, sealed); e != nil {
 			fail(w, 500, "Freigabe nicht gespeichert")
 			return
 		}
@@ -95,6 +104,7 @@ type liveGateway struct {
 	mu       sync.Mutex
 	routes   map[string]*gatewayRoute
 	sessions map[*gortsplib.ServerSession]string
+	releases map[*gortsplib.ServerSession]func()
 	cancel   context.CancelFunc
 	done     chan struct{}
 }
@@ -128,6 +138,10 @@ func (g *liveGateway) close() {
 	<-g.done
 	g.server.Close()
 	g.mu.Lock()
+	for session, release := range g.releases {
+		release()
+		delete(g.releases, session)
+	}
 	routes := g.routes
 	g.routes = map[string]*gatewayRoute{}
 	g.mu.Unlock()
@@ -251,6 +265,13 @@ func (g *liveGateway) OnSetup(ctx *gortsplib.ServerHandlerOnSetupCtx) (*base.Res
 		return &base.Response{StatusCode: base.StatusNotFound}, nil, nil
 	}
 	g.mu.Lock()
+	if g.releases == nil {
+		g.releases = map[*gortsplib.ServerSession]func(){}
+	}
+	if g.releases[ctx.Session] == nil {
+		id, view, quality, _ := parseLivePath(ctx.Path)
+		g.releases[ctx.Session] = g.live.useSource(id, view, quality)
+	}
 	route.readers[ctx.Session] = true
 	g.sessions[ctx.Session] = ctx.Path
 	g.mu.Unlock()
@@ -267,6 +288,10 @@ func (g *liveGateway) OnSessionClose(ctx *gortsplib.ServerHandlerOnSessionCloseC
 	defer g.mu.Unlock()
 	path := g.sessions[ctx.Session]
 	delete(g.sessions, ctx.Session)
+	if release := g.releases[ctx.Session]; release != nil {
+		release()
+		delete(g.releases, ctx.Session)
+	}
 	if route := g.routes[path]; route != nil {
 		delete(route.readers, ctx.Session)
 		route.used = time.Now()

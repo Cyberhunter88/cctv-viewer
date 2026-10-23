@@ -99,6 +99,10 @@ func (s *Store) CreateAdminRecovery(name, password string, recoverLogin bool) er
 			return e
 		}
 		if payload != "" {
+			payload, e = s.settingsPayload(payload)
+			if e != nil {
+				return e
+			}
 			if e = json.Unmarshal([]byte(payload), &values); e != nil {
 				return e
 			}
@@ -109,7 +113,11 @@ func (s *Store) CreateAdminRecovery(name, password string, recoverLogin bool) er
 		if e != nil {
 			return e
 		}
-		if _, e = tx.Exec(`INSERT INTO settings(id,version,payload) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,payload=excluded.payload`, version+1, string(b)); e != nil {
+		sealed, e := s.sealSettings(string(b))
+		if e != nil {
+			return e
+		}
+		if _, e = tx.Exec(`INSERT INTO settings(id,version,payload) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,payload=excluded.payload`, version+1, sealed); e != nil {
 			return e
 		}
 		if _, e = tx.Exec(`DELETE FROM sessions;DELETE FROM oidc_flows;`); e != nil {
@@ -125,7 +133,11 @@ func (a *App) cookie(w http.ResponseWriter, name, value string, maxAge int) {
 func (a *App) newSession(w http.ResponseWriter, s Session) error {
 	raw := token()
 	s.CSRF = token()
-	_, e := a.db.Exec(`INSERT INTO sessions VALUES(?,?,?,?,?,?,?)`, digest(raw), s.Subject, s.Name, s.Role, s.Kind, s.CSRF, time.Now().Add(a.config().SessionTTL).Unix())
+	csrf, e := a.db.sealSecret(s.CSRF, secretScope("sessions", digest(raw), "csrf"))
+	if e != nil {
+		return e
+	}
+	_, e = a.db.Exec(`INSERT INTO sessions VALUES(?,?,?,?,?,?,?)`, digest(raw), s.Subject, s.Name, s.Role, s.Kind, csrf, time.Now().Add(a.config().SessionTTL).Unix())
 	if e == nil {
 		a.cookie(w, "ctv_session", raw, int(a.config().SessionTTL.Seconds()))
 	}
@@ -140,6 +152,13 @@ func (a *App) session(r *http.Request) (Session, error) {
 		return s, e
 	}
 	e = a.db.QueryRowContext(r.Context(), `SELECT subject,name,role,kind,csrf FROM sessions WHERE hash=? AND expires>?`, digest(c.Value), time.Now().Unix()).Scan(&s.Subject, &s.Name, &s.Role, &s.Kind, &s.CSRF)
+	if e != nil {
+		return s, e
+	}
+	s.CSRF, e = a.db.openSecret(s.CSRF, secretScope("sessions", digest(c.Value), "csrf"))
+	if e != nil {
+		return Session{}, e
+	}
 	if s.Kind == "oidc" && (a.verifier == nil || !strings.HasPrefix(s.Subject, a.config().OIDCIssuer+"\x00")) {
 		return Session{}, errors.New("OIDC-Anmeldung deaktiviert")
 	}
@@ -336,7 +355,17 @@ func (a *App) oidcStart(w http.ResponseWriter, r *http.Request) {
 	}
 	state, nonce, verifier := token(), token(), oauth2.GenerateVerifier()
 	a.db.Cleanup(r.Context())
-	_, e := a.db.ExecContext(r.Context(), `INSERT INTO oidc_flows VALUES(?,?,?,?)`, digest(state), nonce, verifier, time.Now().Add(5*time.Minute).Unix())
+	sealedNonce, e := a.db.sealSecret(nonce, secretScope("oidc_flows", digest(state), "nonce"))
+	if e != nil {
+		fail(w, 500, "Anmeldung fehlgeschlagen")
+		return
+	}
+	sealedVerifier, e := a.db.sealSecret(verifier, secretScope("oidc_flows", digest(state), "verifier"))
+	if e != nil {
+		fail(w, 500, "Anmeldung fehlgeschlagen")
+		return
+	}
+	_, e = a.db.ExecContext(r.Context(), `INSERT INTO oidc_flows VALUES(?,?,?,?)`, digest(state), sealedNonce, sealedVerifier, time.Now().Add(5*time.Minute).Unix())
 	if e != nil {
 		fail(w, 500, "Anmeldung fehlgeschlagen")
 		return
@@ -393,6 +422,16 @@ func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	e = a.db.QueryRowContext(r.Context(), `DELETE FROM oidc_flows WHERE hash=? AND expires>? RETURNING nonce,verifier`, digest(state), time.Now().Unix()).Scan(&nonce, &verifier)
 	if e != nil {
 		fail(w, 400, "Anmeldung abgelaufen oder bereits verwendet")
+		return
+	}
+	nonce, e = a.db.openSecret(nonce, secretScope("oidc_flows", digest(state), "nonce"))
+	if e != nil {
+		fail(w, 400, "Anmeldung ungültig")
+		return
+	}
+	verifier, e = a.db.openSecret(verifier, secretScope("oidc_flows", digest(state), "verifier"))
+	if e != nil {
+		fail(w, 400, "Anmeldung ungültig")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -476,7 +515,11 @@ func (a *App) oidcCookie() string {
 func (a *App) newLocalSession(w http.ResponseWriter, name, role, hash string) error {
 	raw, csrf := token(), token()
 	ttl := a.config().SessionTTL
-	result, e := a.db.Exec(`INSERT INTO sessions(hash,subject,name,role,kind,csrf,expires) SELECT ?,username,username,role,'local',?,? FROM admins WHERE username=? AND hash=? AND role=? AND disabled=0`, digest(raw), csrf, time.Now().Add(ttl).Unix(), name, hash, role)
+	sealed, e := a.db.sealSecret(csrf, secretScope("sessions", digest(raw), "csrf"))
+	if e != nil {
+		return e
+	}
+	result, e := a.db.Exec(`INSERT INTO sessions(hash,subject,name,role,kind,csrf,expires) SELECT ?,username,username,role,'local',?,? FROM admins WHERE username=? AND hash=? AND role=? AND disabled=0`, digest(raw), sealed, time.Now().Add(ttl).Unix(), name, hash, role)
 	if e != nil {
 		return e
 	}

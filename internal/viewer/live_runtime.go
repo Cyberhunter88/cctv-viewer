@@ -34,6 +34,12 @@ func (s probeSlot) Release() { <-s }
 
 type liveService struct {
 	sourceMu           sync.Mutex
+	ctx                context.Context
+	warm               map[string]*liveWarm
+	warmWake           chan struct{}
+	warmDone           chan struct{}
+	warmWorkers        sync.WaitGroup
+	relays             map[string]func()
 	app                *App
 	mu                 sync.Mutex
 	api, rtsp, message string
@@ -54,6 +60,11 @@ type liveConnection struct {
 func newLiveService(a *App) *liveService {
 	ctx, cancel := context.WithCancel(a.ctx)
 	s := &liveService{app: a, secret: token(), cancel: cancel, done: make(chan struct{}), clients: map[string]liveConnection{}, sources: map[string]bool{}, probes: make(probeSlot, 1), message: "Live-Dienst wird gestartet …"}
+	s.ctx = ctx
+	s.warmWake = make(chan struct{}, 1)
+	s.warmDone = make(chan struct{})
+	s.relays = map[string]func(){}
+	go s.runWarm(ctx)
 	go s.run(ctx)
 	return s
 }
@@ -62,7 +73,7 @@ func (s *liveService) status() (bool, string) {
 	defer s.mu.Unlock()
 	return s.ready, s.message
 }
-func (s *liveService) close() { s.cancel(); <-s.done; s.invalidate("") }
+func (s *liveService) close() { s.cancel(); <-s.done; <-s.warmDone; s.invalidate("") }
 func freeLocalAddress() (string, error) {
 	ln, e := net.Listen("tcp", "127.0.0.1:0")
 	if e != nil {
@@ -89,7 +100,6 @@ func (s *liveService) run(ctx context.Context) {
 		s.mu.Lock()
 		s.ready = false
 		s.message = "Live-Dienst nicht verfügbar. Neustart wird versucht …"
-		s.sources = map[string]bool{}
 		s.mu.Unlock()
 		s.invalidate("")
 		select {
@@ -110,7 +120,7 @@ func (s *liveService) runProcess(ctx context.Context, binary string) error {
 	}
 	// Only control and local restream listeners are exposed by the child. No defaults
 	// for discovery, RTMP or public management listeners are inherited.
-	config := map[string]any{"modules": []string{"api", "ws", "rtsp", "webrtc", "mp4", "exec", "ffmpeg"}, "api": map[string]any{"listen": api, "username": "viewer", "password": s.secret, "local_auth": true}, "rtsp": map[string]any{"listen": rtsp}, "webrtc": map[string]any{"listen": "", "ice_servers": []any{}}, "log": map[string]any{"level": "error"}}
+	config := map[string]any{"modules": []string{"api", "ws", "http", "rtsp", "webrtc", "mp4", "exec", "ffmpeg"}, "api": map[string]any{"listen": api, "username": "viewer", "password": s.secret, "local_auth": true}, "rtsp": map[string]any{"listen": rtsp}, "webrtc": map[string]any{"listen": "", "ice_servers": []any{}}, "log": map[string]any{"level": "error"}}
 	b, _ := json.Marshal(config)
 	file, e := os.CreateTemp(filepath.Join(s.app.cfg.DataDir, "cache"), "live-runtime-*.json")
 	if e != nil {
@@ -165,6 +175,7 @@ func (s *liveService) runProcess(ctx context.Context, binary string) error {
 	s.message = ""
 	s.mu.Unlock()
 	s.refreshGateway()
+	s.wakeWarm()
 	select {
 	case e = <-processDone:
 		return e
@@ -223,11 +234,25 @@ func (s *liveService) ensureSource(ctx context.Context, id, view, quality string
 	if !known {
 		// All command/source fragments are generated here; administrator input is a
 		// validated RTSP URL without '#' and never an ffmpeg/exec source expression.
-		endpoint := "/api/streams?name=" + url.QueryEscape(name) + "&src=" + url.QueryEscape(raw+"#backchannel=0#transport=tcp")
+		source := raw + "#backchannel=0#transport=tcp"
+		var closeRelay func()
+		if strings.HasPrefix(raw, "https://") {
+			source, closeRelay, e = liveHTTPSRelay(s.ctx, raw, c.SkipTLSVerify[liveKey(view, quality)])
+			if e != nil {
+				return "", e
+			}
+		}
+		endpoint := "/api/streams?name=" + url.QueryEscape(name) + "&src=" + url.QueryEscape(source)
 		if e = s.call(ctx, http.MethodPut, endpoint, nil, nil); e != nil {
+			if closeRelay != nil {
+				closeRelay()
+			}
 			return "", e
 		}
 		s.mu.Lock()
+		if closeRelay != nil {
+			s.relays[name] = closeRelay
+		}
 		s.sources[name] = true
 		s.mu.Unlock()
 	}
@@ -257,6 +282,14 @@ func (s *liveService) ensureSource(ctx context.Context, id, view, quality string
 func (s *liveService) invalidate(id string) {
 	s.sourceMu.Lock()
 	s.mu.Lock()
+	for name, e := range s.warm {
+		if id == "" || e.camera == id {
+			if e.cancel != nil {
+				e.cancel()
+			}
+			delete(s.warm, name)
+		}
+	}
 	for _, c := range s.clients {
 		if id == "" || c.camera == id {
 			c.cancel()
@@ -269,6 +302,10 @@ func (s *liveService) invalidate(id string) {
 		if id == "" || strings.HasPrefix(name, "live_"+digest(id)[:24]+"_") {
 			names = append(names, name)
 			delete(s.sources, name)
+			if closeRelay := s.relays[name]; closeRelay != nil {
+				closeRelay()
+				delete(s.relays, name)
+			}
 		}
 	}
 	s.mu.Unlock()
@@ -281,6 +318,7 @@ func (s *liveService) invalidate(id string) {
 	}
 	if s.app.ctx.Err() == nil {
 		s.refreshGateway()
+		s.wakeWarm()
 	}
 }
 func (a *App) liveWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -322,6 +360,8 @@ func (a *App) liveWebSocket(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "Livequelle nicht verfügbar")
 		return
 	}
+	releaseSource := s.useSource(id, view, quality)
+	defer releaseSource()
 	s.mu.Lock()
 	api := s.api
 	s.mu.Unlock()

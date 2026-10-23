@@ -1,3 +1,5 @@
+import {initCameraSettings} from './camera-settings';
+import {initSettingsLayout} from './settings-layout';
 import {initLivePage} from './live-page';
 import {initLiveAdmin} from './live-admin';
 import {registerPage,navigate,startNavigation,currentPage} from './navigation';
@@ -93,7 +95,7 @@ function saveView():Promise<void>{
  void pending.catch(()=>{});return pending;
 }
 const livePage=initLivePage({api,cameras:()=>cameras,preferences:()=>state,save:saveView,admin:()=>session?.role==='admin',notify});
-const liveAdmin=initLiveAdmin({api,cameras:()=>cameras,notify,changed:()=>livePage.refresh()});
+const liveAdmin=initLiveAdmin({api,cameras:()=>cameras,notify,changed:()=>{livePage.refresh();void loadCameraLiveStatus()}});
 on('preferences-retry',async()=>{try{await preferenceWriter?.flush()}catch{}});
 
 function notify(message:string){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,6000)}
@@ -243,21 +245,33 @@ async function loadScanHistory(){
  if(!rows.length)root.textContent='Noch keine abgeschlossene Indexierung.';
 }
 let cameraSaving=false;
+let cameraLiveCapabilities:Record<string,{enabled:boolean}>={};
+async function loadCameraLiveStatus(){
+ try{const info=await api<{cameras:Record<string,{enabled:boolean}>}>('/api/live');cameraLiveCapabilities=info.cameras;renderCameraList()}catch{/* Recording configuration remains usable without live status. */}
+}
 const {cameraInput,discardCamera,markCameraSaved,resetCamera,showCameraEditor,editCamera,leaveCameraEditor}=initCameraEditor(cameraForm,dialog,renderCameraList,()=>cameraSaving);
+const cameraSettings=initCameraSettings(cameraForm,dialog,liveAdmin,()=>cameras[0]?.id||'',id=>{
+ const camera=cameras.find(camera=>camera.id===id);if(!camera||cameraSaving||!discardCamera())return false;editCamera(camera);showCameraEditor();return true;
+},()=>!cameraSaving&&discardCamera(),resetCamera);
+cameraForm.addEventListener('cameraeditorclosed',()=>cameraSettings.clear());
+const cameraSearch=document.createElement('input');cameraSearch.type='search';cameraSearch.placeholder='Kameras suchen';cameraSearch.setAttribute('aria-label','Kameras suchen');$('camera-list').before(cameraSearch);cameraSearch.addEventListener('input',renderCameraList);
+
 function renderCameraList(){
  const list=$('camera-list');list.replaceChildren();$('camera-list-count').textContent=String(cameras.length);
  if(!cameras.length){const empty=element('p','camera-empty','Noch keine Kameras eingerichtet. Füge deine erste Aufnahmequelle hinzu.');list.append(empty)}
  const editing=(cameraForm.elements.namedItem('id') as HTMLInputElement).value;
  for(let i=0;i<order.length;i++){
-  const c=cameras.find(c=>c.id===order[i]);if(!c)continue;
+  const c=cameras.find(c=>c.id===order[i]);if(!c||cameraSearch.value&&!c.name.toLocaleLowerCase('de').includes(cameraSearch.value.toLocaleLowerCase('de')))continue;
   const entry=element('article','camera-entry'+(editing===c.id?' is-selected':''));
   const select=element('button','camera-edit'),name=element('strong','camera-name',c.name);
   select.type='button';select.setAttribute('aria-label',c.name);select.setAttribute('aria-pressed',String(editing===c.id));
   const status=element('span','camera-status'+(c.sourceStatus==='offline'?' is-offline':''),`${c.sourceStatus==='offline'?'Quelle offline':'Quelle erreichbar'} · ${c.indexedVideos||0} ${c.indexedVideos===1?'Video':'Videos'}`);
+  if(cameraLiveCapabilities[c.id])status.textContent+=' · '+(cameraLiveCapabilities[c.id].enabled?'Live aktiv':'Live aus');
   select.append(name,status,element('span','camera-edit-label','Bearbeiten →'));
-  select.onclick=()=>{if(cameraSaving||!discardCamera())return;editCamera(c);showCameraEditor()};
+  select.onclick=()=>{if(cameraSaving||!discardCamera()||!cameraSettings.canChange())return;editCamera(c);showCameraEditor()};
   const actions=element('div','camera-entry-actions');
-  const addAction=(text:string,label:string,action:()=>void|Promise<void>,className='')=>{const b=element('button',className,text);b.type='button';b.title=label;b.setAttribute('aria-label',label+' · '+c.name);b.disabled=cameraSaving;b.onclick=()=>void Promise.resolve(action()).catch(e=>notify(e.message));actions.append(b);return b};
+  const more=element('details','camera-more');const summary=element('summary','','Aktionen');more.append(summary);const moreActions=element('div','camera-more-actions');more.append(moreActions);actions.append(more);
+  const addAction=(text:string,label:string,action:()=>void|Promise<void>,className='')=>{const b=element('button',className,text);b.type='button';b.title=label;b.setAttribute('aria-label',label+' · '+c.name);b.disabled=cameraSaving;b.onclick=()=>void Promise.resolve(action()).catch(e=>notify(e.message));if(['scan-camera','cleanup-camera','delete'].includes(className))moreActions.append(b);else actions.insertBefore(b,more);return b};
   addAction('Live','Livequelle einrichten',()=>liveAdmin.open(c.id),'text-button');
   const up=addAction('↑','Nach oben verschieben',()=>reorder(i-1),'move-button');up.disabled=cameraSaving||i===0;
   const down=addAction('↓','Nach unten verschieben',()=>reorder(i+1),'move-button');down.disabled=cameraSaving||i===order.length-1;
@@ -273,8 +287,8 @@ function renderCameraList(){
   },'cleanup-camera');
   addAction('Entfernen','Kamera entfernen',async()=>{
    if(!confirm(`Kamera „${c.name}“ aus dem Viewer entfernen? Die Originalaufnahmen bleiben erhalten.`))return;
-   if(editing===c.id&&!discardCamera())return;
-   await api('/api/cameras/'+c.id,{method:'DELETE'});if(editing===c.id){resetCamera();dialog.classList.remove('camera-editing')}await refreshCameras();await loadDay();
+   if(editing===c.id&&(!discardCamera()||!cameraSettings.canChange()))return;
+   await api('/api/cameras/'+c.id,{method:'DELETE'});if(editing===c.id){resetCamera();cameraSettings.clear();dialog.classList.remove('camera-editing')}await refreshCameras();await loadDay();
   },'delete');
   entry.draggable=!cameraSaving;
   entry.ondragstart=e=>e.dataTransfer?.setData('text/plain',c.id);
@@ -298,15 +312,15 @@ cameraForm.addEventListener('submit',async e=>{
  finally{controls.forEach((c,i)=>c.disabled=disabled[i]);cameraSaving=false;submit.disabled=false;renderCameraList()}
 });
 on('preview',async()=>{try{const result=await api<{examples:{file:string;time?:string;error?:string;view?:string}[];limited:boolean;detection?:ViewDetection;wideMarker:string;zoomMarker:string}>('/api/cameras/preview',{method:'POST',body:JSON.stringify(cameraInput())});$('preview-result').hidden=false;const status=result.detection?`${result.detection.message}\nKennungen: Weitwinkel ${result.wideMarker}, Zoom ${result.zoomMarker}\n\n`:'';$('preview-result').textContent=status+(result.examples.length?result.examples.map(v=>`${v.file}${v.view?" · "+({wide:"Weitwinkel",zoom:"Zoom",unknown:"Kennung unklar"}[v.view]||v.view):""}\n→ ${v.error||v.time}`).join('\n\n'):'Keine passenden Videodateien gefunden.');if(result.limited)$('preview-result').textContent+='\nSuche auf 10.000 Einträge begrenzt.'}catch(e){$('camera-error').textContent=(e as Error).message}});
-async function browseFolder(folder=''){const data=await api<{path:string;folders:string[];samples:string[];limited:boolean}>('/api/cameras/folders?path='+encodeURIComponent(folder));const root=$('folder-browser');root.hidden=false;root.replaceChildren();root.append(element('strong','',data.path==='.'?'Aufnahmeverzeichnis':data.path));if(data.path!=='.'){const back=element('button','text-button','↑ Übergeordneter Ordner');back.type='button';back.onclick=()=>void browseFolder(data.path.split('/').slice(0,-1).join('/')).catch(e=>notify(e.message));root.append(back);const choose=element('button','button secondary','Diesen Ordner verwenden');choose.type='button';choose.onclick=()=>{(cameraForm.elements.namedItem('folder') as HTMLInputElement).value=data.path;const name=data.path.split('/').pop()||'';(cameraForm.elements.namedItem('name') as HTMLInputElement).value=name;root.hidden=true};root.append(choose)}for(const folder of data.folders){const b=element('button','text-button',folder.split('/').pop());b.type='button';b.onclick=()=>void browseFolder(folder).catch(e=>notify(e.message));root.append(b)}if(data.limited)root.append(element('small','','Suche begrenzt; bitte einen Unterordner wählen.'))}
+async function browseFolder(folder=''){const data=await api<{path:string;folders:string[];samples:string[];limited:boolean}>('/api/cameras/folders?path='+encodeURIComponent(folder));const root=$('folder-browser');root.hidden=false;root.replaceChildren();root.append(element('strong','',data.path==='.'?'Aufnahmeverzeichnis':data.path));if(data.path!=='.'){const back=element('button','text-button','↑ Übergeordneter Ordner');back.type='button';back.onclick=()=>void browseFolder(data.path.split('/').slice(0,-1).join('/')).catch(e=>notify(e.message));root.append(back);const choose=element('button','button secondary','Diesen Ordner verwenden');choose.type='button';choose.onclick=()=>{const folderField=cameraForm.elements.namedItem('folder') as HTMLInputElement,nameField=cameraForm.elements.namedItem('name') as HTMLInputElement,previous=folderField.value.split('/').pop();folderField.value=data.path;if(!nameField.value||nameField.value===previous)nameField.value=data.path.split('/').pop()||'';cameraForm.dispatchEvent(new Event('input',{bubbles:true}));root.hidden=true};root.append(choose)}for(const folder of data.folders){const b=element('button','text-button',folder.split('/').pop());b.type='button';b.onclick=()=>void browseFolder(folder).catch(e=>notify(e.message));root.append(b)}if(data.limited)root.append(element('small','','Suche begrenzt; bitte einen Unterordner wählen.'))}
 on('browse-folder',()=>browseFolder());
-const liveSetup=document.createElement('button');liveSetup.type='button';liveSetup.className='button secondary';liveSetup.textContent='Livequellen und Freigabe';liveSetup.onclick=()=>liveAdmin.open();$('camera-list').before(liveSetup);
-on('new-camera',()=>{if(cameraSaving||!discardCamera())return;resetCamera();showCameraEditor()});
-on('camera-back',leaveCameraEditor);on('camera-cancel',leaveCameraEditor);
+
+on('new-camera',()=>{if(cameraSaving||!discardCamera()||!cameraSettings.canChange())return;resetCamera();cameraSettings.clear();showCameraEditor()});
+on('camera-back',()=>{if(cameraSettings.canChange())leaveCameraEditor()});on('camera-cancel',()=>{if(cameraSettings.canChange())leaveCameraEditor()});
 function closeCamera(){navigate('recordings')}
 on('close-dialog',closeCamera);
 registerPage('recordings',{element:$('recordings'),title:'Aufnahmen',enter:()=>scheduleResize()});
-registerPage('admin/cameras',{element:dialog,title:'Kameras',admin:true,enter:loadScanHistory,leave:next=>{if(cameraSaving)return false;if(next==='admin/cameras/batch')return true;if(!discardCamera())return false;resetCamera();dialog.classList.remove('camera-editing');return true}});
+registerPage('admin/cameras',{element:dialog,title:'Kameras',admin:true,enter:()=>{void loadScanHistory();void loadCameraLiveStatus();cameraSettings.show('general')},leave:next=>{if(cameraSaving)return false;if(next==='admin/cameras/live')return true;if(next==='admin/cameras/batch')return true;if(!discardCamera()||!cameraSettings.leave())return false;resetCamera();dialog.classList.remove('camera-editing');return true}});
 on('add-first',()=>{navigate('admin/cameras');resetCamera();showCameraEditor()});
 on('mobile-nav-toggle',()=>{const expanded=document.documentElement.classList.toggle('mobile-nav-open');$('mobile-nav-toggle').setAttribute('aria-expanded',String(expanded))});
 document.addEventListener('pageerror',e=>notify((e as CustomEvent<string>).detail));
@@ -333,7 +347,7 @@ async function boot(){
  }
  if(!response.ok)throw new Error(`Sitzung konnte nicht geladen werden (${response.status})`);
  session=await response.json();$('password-button').hidden=false;$('password-button').textContent='Mein Konto';accountMenu.open=false;
- if(!managementInitialized){initManagement({api,getSession:()=>session,getCameras:()=>cameras,getCursor:()=>cursor,notify});prepareDialogs();managementInitialized=true}
+ if(!managementInitialized){initManagement({api,getSession:()=>session,getCameras:()=>cameras,getCursor:()=>cursor,notify});prepareDialogs();initSettingsLayout();managementInitialized=true}
  $('user-name').textContent=session.name;$('avatar').textContent=session.name.slice(0,2).toUpperCase();document.querySelector('#account-menu summary')!.setAttribute('aria-label','Konto: '+session.name);document.querySelector('#account-menu summary')!.setAttribute('title',session.name);$('settings-button').hidden=session.role!=='admin';$('rescan').hidden=session.role!=='admin';dateInput.value=berlinDate(new Date());await refreshCameras();
  let stored:unknown;try{stored=JSON.parse(localStorage.getItem('cctv-view:'+session.preferenceKey)||'null')}catch{}
  let remote=await api<unknown>('/api/preferences');
@@ -473,3 +487,5 @@ on('batch-save',async()=>{if(batchSaving)return;batchSaving=true;const button=$<
 window.addEventListener('themechange',()=>{timelineView.invalidate();draw()});
 
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&!(e.target instanceof Element&&e.target.closest('dialog'))&&!document.querySelector('dialog[open]')&&currentPage()!=='recordings'){e.preventDefault();navigate('recordings')}});
+
+initSettingsLayout();
