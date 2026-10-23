@@ -109,3 +109,16 @@ und startet ihn nach einem Absturz erneut. Fehlt go2rtc oder fällt eine Kamera
 aus, bleiben Aufnahmen verfügbar. Streamfehler und Listenerzustand stehen in der
 Oberfläche. Nach Abwahl, Navigation oder ausgeblendetem Browsertab werden
 Viewer-Verbindungen geschlossen; nach Rückkehr werden aktuelle Bilder geladen.
+
+### Verbindungstest fehlgeschlagen
+
+Der Verbindungstest unterscheidet Kamera-Anmeldung (RTSP 401), fehlende Rechte
+(403), ungültigen Stream-Pfad (404), abgelehnte TCP-Verbindung, DNS-/Routingfehler,
+Transportfehler und Zeitüberschreitungen. FFprobe-Rohmeldungen werden nicht an den
+Browser weitergegeben, weil sie Kamera-Zugangsdaten enthalten können.
+
+Für die Verbindung **Kamera → Viewer** sind die Zugangsdaten der Reolink-Kamera
+nötig. Die separat erzeugten Zugangsdaten `homeassistant` gelten ausschließlich
+für **Viewer → Home Assistant**. Eine funktionierende HA-Verbindung bestätigt
+keine Anmeldung des Viewers. Für „Schnell“ möglichst den H.264-Nebenstream
+verwenden; H.265-Hauptstreams benötigen einen passenden Browser.

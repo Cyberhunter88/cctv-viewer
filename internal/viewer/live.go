@@ -233,9 +233,11 @@ func (a *App) testLive(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-rtsp_transport", "tcp", "-protocol_whitelist", "rtsp,rtsps,tcp,tls,rtp,udp,crypto", "-show_entries", "stream=codec_type,codec_name,width,height", "-of", "json", source)
 		out, e := cmd.Output()
+		contextError := ctx.Err()
 		cancel()
 		if e != nil {
-			result[key] = map[string]any{"ok": false, "message": "Nicht erreichbar oder Anmeldung/Stream nicht unterstützt"}
+			code, message := liveProbeFailure(contextError, e)
+			result[key] = map[string]any{"ok": false, "code": code, "message": message}
 			continue
 		}
 		var codecs any
