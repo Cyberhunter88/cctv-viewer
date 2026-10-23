@@ -1,0 +1,111 @@
+# Liveansicht und Home Assistant (ab 0.10.0)
+
+## Kamera einrichten
+
+Unter **Verwaltung → Kameras → Livequellen und Freigabe** eine vorhandene Kamera
+wählen. Live aktivieren, Kamerabenutzer und Passwort sowie die RTSP-Adresse des
+H.264-Nebenstreams eintragen. RTSP muss in der Reolink-Kamera eingeschaltet sein.
+Die Adresse enthält keine Zugangsdaten, beispielsweise
+`rtsp://kamera.example.org:554/h264Preview_01_sub`. Der genaue Pfad hängt vom
+Modell ab. Hauptstream und separates Zoomobjektiv sind optional.
+
+**Verbindung testen** zeigt Erreichbarkeit und Codecs, ohne die Eingabe zu
+speichern. **Livequelle speichern** übernimmt die Konfiguration. Ein leeres
+Passwortfeld behält das gespeicherte Passwort bei; Entfernen ist ausdrücklich
+wählbar. Kamera-Zugangsdaten liegen im geschützten Datenverzeichnis und müssen
+bei Datensicherungen wie andere Geheimnisse behandelt werden.
+
+Der Menüpunkt **Liveansicht** besitzt eigene Kameraauswahl und Raster, unabhängig
+von Aufnahmen. Alle/Keine und Kameraschaltflächen speichern automatisch für das
+angemeldete Konto. Ton beginnt stumm; ein Kamerabild kann hörbar sein. Zoom wird
+erst beim Öffnen verbunden. Kameras ohne Livequelle zeigen einen Hinweis.
+
+## Kurze Verzögerung
+
+Der Viewer bevorzugt WebRTC, wenn dessen direkter Medienweg erreichbar ist.
+Andernfalls wechselt er nach zwei Sekunden zu MSE über WebSocket und die
+vorhandene HTTPS-Adresse. In Docker ohne zusätzliche Medienports ist MSE der
+übliche Weg. Es ist kein öffentlicher RTSP-Port und kein TURN-Dienst nötig.
+WebRTC-Signalisierung und HTTPS-Stream laufen durch die Viewer-Anmeldung.
+
+**Schnell** verwendet den Nebenstream ohne Videotranscodierung. Hohe Qualität
+ist manuell wählbar; nicht unterstützte Codecs führen zurück zum schnellen
+Stream. Insbesondere H.265 ist browserabhängig. Für zuverlässige Wiedergabe
+H.264 verwenden. Browser ohne MediaSource/ManagedMediaSource benötigen einen
+funktionierenden WebRTC-Medienweg oder einen neueren Browser. Es wird nicht auf
+langsamere HLS-Wiedergabe ausgewichen.
+
+Zielwerte unter stabilen Bedingungen sind unter einer Sekunde bei direktem
+WebRTC und ungefähr ein bis zwei Sekunden bei MSE. Kamera, GOP/Keyframe-Intervall,
+Netz und Browser beeinflussen Startzeit und tatsächliche Verzögerung. Das ist
+keine Latenzgarantie. Wenn die Kamera es unterstützt, ein Keyframe-/I-Frame-Intervall
+von ungefähr einer Sekunde einstellen: Lange Intervalle verzögern insbesondere
+den ersten Bildaufbau und das Wiederverbinden. Zur Messung eine Uhr gemeinsam mit dem Livebild aufnehmen;
+Transport, Codec und Serverlast festhalten.
+
+Reverse-Proxys müssen WebSocket-Upgrades erlauben. Beispiel für einen bestehenden
+NGINX-HTTPS-Virtualhost (Ziel an die eigene Installation anpassen):
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;
+    proxy_buffering off;
+}
+```
+
+## Optional: Home Assistant
+
+1. In **Livequellen und Freigabe** die gewünschten Kameras jeweils für Home
+   Assistant freigeben und die Kameraeinstellung speichern.
+2. Die globale **RTSP-Freigabe im Heimnetz** aktivieren und speichern. Das erzeugte
+   Passwort wird einmal angezeigt. Benutzername ist `homeassistant`.
+3. Den Listener für die eigene Installation erreichbar machen. Native Installation:
+   `CTV_LIVE_RTSP_ADDRESS=<Heimnetz-IP>:8554`. Docker: In `compose.yaml` beim RTSP-Portmapping
+   `127.0.0.1:8554:8554/tcp` die erste Adresse durch die Heimnetz-IP des
+   Dockerhosts ersetzen und
+   `docker compose up -d` ausführen. Alles läuft mit derselben `compose.yaml`
+   in einem Container. Standardmäßig bindet Port 8554 nur an den Dockerhost.
+4. In Home Assistant **Einstellungen → Geräte & Dienste → Integration hinzufügen →
+   Generic Camera** wählen. Die angezeigte Streamadresse mit der erreichbaren
+   Viewer-Adresse ergänzen. Benutzername/Passwort separat eintragen und
+   **RTSP-Transport TCP** auswählen. Ein separates Standbild ist nicht erforderlich,
+   wenn Home Assistants Stream-Integration aktiv ist.
+
+Beispieladresse ohne Zugangsdaten:
+`rtsp://viewer.example.org:8554/live/<kamera-id>/wide/fast`.
+Die Kamera-ID hält Adressen bei Umbenennungen stabil. Weitere Profile sind
+`wide/high`, `zoom/fast` und `zoom/high`, sofern eingerichtet.
+
+Die Freigabe ist ausschließlich lesend und unabhängig von Browseranmeldungen
+und der persönlichen Liveauswahl. Kamera und Qualitätsprofil werden zwischen
+Betrachtern geteilt. Home Assistant kann den Stream weiter verwenden, wenn im
+Viewer keine Kamera geöffnet ist. Erst der letzte Betrachter beendet die Quelle.
+Das Zurücksetzen des Freigabepassworts beendet bestehende Freigabeverbindungen.
+RTSP ist unverschlüsselt und für das Heimnetz/VPN bestimmt; Port 8554 nicht ins
+Internet weiterleiten. Die go2rtc-Verwaltungsoberfläche wird nicht veröffentlicht.
+
+Dokumentation: [Home Assistant Generic Camera](https://www.home-assistant.io/integrations/generic/).
+Die Verwendung der generischen Streamquelle umfasst keine Reolink-Ereignisse,
+PTZ-Steuerung, automatische Erkennung oder Gegensprechen.
+
+## Installation und Fehlerdiagnose
+
+Das Dockerimage enthält go2rtc 1.9.14 einschließlich MIT-Lizenzhinweis unter
+`/usr/share/licenses/go2rtc/LICENSE`. Native Installationen benötigen dessen
+passende Binärdatei im PATH oder `CTV_GO2RTC_PATH`. Für Linux kann
+`sh scripts/build_go2rtc.sh /gewünschter/pfad/go2rtc` die feste Upstream-Version
+über Go-Modulprüfsummen bauen. Dabei werden nur zwei eigenständige C-Generatoren
+weggelassen, deren fertige Go-Definitionen Upstream bereits mitliefert.
+
+Der Viewer startet und beendet den Kindprozess selbst, hält dessen API lokal
+und startet ihn nach einem Absturz erneut. Fehlt go2rtc oder fällt eine Kamera
+aus, bleiben Aufnahmen verfügbar. Streamfehler und Listenerzustand stehen in der
+Oberfläche. Nach Abwahl, Navigation oder ausgeblendetem Browsertab werden
+Viewer-Verbindungen geschlossen; nach Rückkehr werden aktuelle Bilder geladen.

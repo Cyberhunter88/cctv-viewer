@@ -33,6 +33,9 @@ port=$(docker port "$name" 8080/tcp | head -1 | cut -d: -f2)
 for _ in $(seq 1 40); do if curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null; then break; fi; sleep 1; done
 curl -fsS -b "$tmp/cookies" "http://127.0.0.1:$port/api/session" | grep -q '"role":"admin"'
 docker exec "$name" /usr/local/bin/cctv healthcheck
+docker exec "$name" /usr/local/bin/go2rtc -version | grep -q "1.9.14"
+for _ in $(seq 1 20); do if curl -fsS -b "$tmp/cookies" "http://127.0.0.1:$port/api/live" | grep -q '"ready":true'; then break; fi; sleep 1; done
+curl -fsS -b "$tmp/cookies" "http://127.0.0.1:$port/api/live" | grep -q '"ready":true'
 # Read-only originals and non-root runtime are mandatory.
 test "$(docker inspect --format '{{.Config.User}}' "$name")" = '10001:10001'
 test "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/recordings"}}{{.RW}}{{end}}{{end}}' "$name")" = false

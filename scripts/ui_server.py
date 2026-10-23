@@ -1,5 +1,7 @@
 """Disposable server with synthetic camera recordings for browser regression tests."""
 import os
+import json
+import socket
 import datetime
 import shutil
 import pathlib
@@ -103,11 +105,48 @@ with tempfile.TemporaryDirectory(prefix='cctv-ui-') as directory:
                     file=folder/('CAM_20261014083000_'+view+'.mp4')
                     shutil.copyfile(template,file)
                     os.utime(file,(time.time()-120,time.time()-120))
+    live_binary = os.environ.get('CTV_TEST_GO2RTC') or shutil.which('go2rtc')
+    live_source = None
+    if live_binary:
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            live_port = sock.getsockname()[1]
+        live_fixture = root/'live-camera.mp4'
+        subprocess.run(['ffmpeg','-nostdin','-v','error','-f','lavfi','-i',
+                        'testsrc2=size=160x90:rate=10','-f','lavfi','-i',
+                        'sine=frequency=880:sample_rate=48000','-t','30',
+                        '-c:v','libx264','-threads','1','-g','10','-bf','0',
+                        '-tune','zerolatency','-c:a','aac','-y',str(live_fixture)],check=True)
+        live_config = root/'live-source.json'
+        live_config.write_text(json.dumps({
+            'modules': ['rtsp', 'exec', 'ffmpeg'],
+            'rtsp': {'listen': '127.0.0.1:'+str(live_port)},
+            'ffmpeg': {'file': '-re -stream_loop -1 -i {input}'},
+            'streams': {'camera': 'ffmpeg:'+str(live_fixture)+'#video=copy#audio=copy'},
+            'log': {'level': 'error'},
+        }))
+        live_source = subprocess.Popen([live_binary, '-config', str(live_config)])
+        env['CTV_GO2RTC_PATH'] = live_binary
+        for name in ['Testkamera-A', 'Testkamera-B']:
+            payload = {'enabled': True, 'sources': {
+                'fast': 'rtsp://127.0.0.1:'+str(live_port)+'/camera',
+                'high': 'rtsp://127.0.0.1:'+str(live_port)+'/camera',
+                'zoomFast': 'rtsp://127.0.0.1:'+str(live_port)+'/camera',
+            }}
+            connection.execute('INSERT INTO camera_live(camera_id,payload) VALUES(?,?)', (name,json.dumps(payload)))
     connection.commit()
     connection.close()
     server = subprocess.Popen(['bin/cctv'],env=env)
     def stop(*_):
         server.terminate()
+        if live_source:
+            live_source.terminate()
     signal.signal(signal.SIGTERM,stop)
     signal.signal(signal.SIGINT,stop)
-    raise SystemExit(server.wait())
+    try:
+        result = server.wait()
+    finally:
+        if live_source:
+            live_source.terminate()
+            live_source.wait(timeout=10)
+    raise SystemExit(result)

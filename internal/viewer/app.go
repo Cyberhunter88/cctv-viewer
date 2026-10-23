@@ -20,6 +20,7 @@ import (
 )
 
 type App struct {
+	live            *liveService
 	cfg             Config
 	cfgMu           sync.RWMutex
 	authMu          sync.RWMutex
@@ -81,7 +82,7 @@ func New(ctx context.Context, cfg Config, assets fs.FS) (*App, error) {
 	// Old HLS jobs cannot survive process restart.
 	entries, _ := os.ReadDir(path.Join(cfg.DataDir, "cache"))
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "hls-") || strings.HasPrefix(entry.Name(), "export-") {
+		if strings.HasPrefix(entry.Name(), "hls-") || strings.HasPrefix(entry.Name(), "export-") || strings.HasPrefix(entry.Name(), "live-runtime-") {
 			os.RemoveAll(path.Join(cfg.DataDir, "cache", entry.Name()))
 		}
 	}
@@ -96,10 +97,14 @@ func New(ctx context.Context, cfg Config, assets fs.FS) (*App, error) {
 	}
 	a.work.Add(1)
 	go a.background()
+	a.live = newLiveService(a)
 	return a, nil
 }
 func (a *App) Close() {
 	a.cancel()
+	if a.live != nil {
+		a.live.close()
+	}
 	a.mediaMu.Lock()
 	for _, s := range a.streams {
 		s.cancel()
@@ -185,7 +190,7 @@ func (a *App) Handler() http.Handler {
 		}
 		type cameraStats struct {
 			lastScan int64
-			videos int
+			videos   int
 		}
 		stats := make(map[string]cameraStats, len(cams))
 		for rows.Next() {
@@ -225,6 +230,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/cameras/preview", a.protect(true, a.preview))
 	mux.HandleFunc("DELETE /api/cameras/{id}", a.protect(true, a.deleteCamera))
 	a.registerManagement(mux)
+	a.registerLive(mux)
 	mux.HandleFunc("GET /api/cameras/folders", a.protect(true, a.cameraFolders))
 	a.registerViewerRoutes(mux)
 	mux.HandleFunc("GET /api/day", a.protect(false, a.day))
@@ -334,6 +340,7 @@ func (a *App) deleteCamera(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Löschen fehlgeschlagen")
 		return
 	}
+	a.live.invalidate(r.PathValue("id"))
 	jsonOut(w, 200, map[string]bool{"ok": true})
 }
 func (a *App) preview(w http.ResponseWriter, r *http.Request) {

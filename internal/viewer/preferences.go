@@ -19,6 +19,7 @@ func validPreferences(values map[string]json.RawMessage) bool {
 		"quality": {"native", "balanced", "fast"}, "speed": {"0.25", "0.5", "1", "2", "4", "8", "16"},
 		"preload": {"metadata", "auto"}, "aspect": {"4/3", "16/9", "auto", "fill"},
 		"density": {"comfortable", "compact"}, "theme": {"system", "light", "dark"},
+		"liveLayout": {"auto", "1x1", "2x2", "3x3", "4x4"},
 	}
 	for key, raw := range values {
 		if string(raw) == "null" {
@@ -35,7 +36,7 @@ func validPreferences(values map[string]json.RawMessage) bool {
 			continue
 		}
 		switch key {
-		case "cameras", "order":
+		case "cameras", "order", "liveCameras", "liveOrder":
 			var ids []string
 			if json.Unmarshal(raw, &ids) != nil || ids == nil || len(ids) > 1024 {
 				return false

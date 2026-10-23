@@ -27,8 +27,8 @@ Die `.env.example` enthält nur die Grundeinstellungen für Docker Compose:
 | Werte | Zweck |
 | --- | --- |
 | `CTV_BASE_URL` | Öffentliche URL für Cookies, Origin-Prüfung und OIDC-Callback |
-| `CTV_RECORDINGS_PATH`, `CTV_DATA_PATH` | Host-Mounts für schreibgeschützte Aufnahmen und persistente Daten |
-| `CTV_BIND_ADDRESS`, `CTV_HTTP_PORT` | Vom Host veröffentlichte Adresse und Port |
+| `compose.yaml`: `volumes` | Aufnahmeordner und Datenordner direkt eintragen; Vorgaben `./recordings` und `./data` |
+| `compose.yaml`: `ports` | Host-Adressen und Ports direkt eintragen; standardmäßig nur `127.0.0.1` |
 | `CTV_UID`, `CTV_GID` | Container-Benutzer und Dateizugriff |
 | `CTV_VERSION` | Ausgewähltes Container-Image |
 | `CTV_TRUSTED_PROXIES` | Vertrauenswürdige Proxy-Adressen für Client-IP-Ermittlung |
@@ -73,3 +73,15 @@ Für den Wechsel von Umgebungswerten zur GUI:
 
 Der letzte aktive lokale Administrator bleibt geschützt. Die CLI-Wiederherstellung
 steht weiterhin zur Verfügung; siehe [README](../README.md#mit-docker-compose-starten).
+
+## Liveansicht und externe Streamleser
+
+**Verwaltung → Kameras → Livequellen und Freigabe** enthält RTSP-Quellen,
+Verbindungstest und die optionale Home-Assistant-Freigabe. `CTV_GO2RTC_PATH` wählt
+die lokale go2rtc-Binärdatei (Standard: `go2rtc` im PATH),
+`CTV_LIVE_RTSP_ADDRESS` den optionalen Listener (Standard `127.0.0.1:8554`).
+Die einzelne `compose.yaml` bindet RTSP-Port 8554 standardmäßig nur an den Host.
+Für Home Assistant die erste Adresse im Portmapping `127.0.0.1:8554:8554/tcp`
+direkt auf die Heimnetz-IP ändern. Der
+Listener wird erst durch die globale Freigabe in der Weboberfläche aktiviert.
+[Einrichtung](LIVE.md).

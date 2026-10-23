@@ -1,3 +1,5 @@
+import {initLivePage} from './live-page';
+import {initLiveAdmin} from './live-admin';
 import {registerPage,navigate,startNavigation,currentPage} from './navigation';
 import {PreferenceWriter} from './preferences';
 import {prepareDialogs} from './dialogs';
@@ -90,12 +92,14 @@ function saveView():Promise<void>{
  // Automatic changes report failures through the persistent status and retry UI.
  void pending.catch(()=>{});return pending;
 }
+const livePage=initLivePage({api,cameras:()=>cameras,preferences:()=>state,save:saveView,admin:()=>session?.role==='admin',notify});
+const liveAdmin=initLiveAdmin({api,cameras:()=>cameras,notify,changed:()=>livePage.refresh()});
 on('preferences-retry',async()=>{try{await preferenceWriter?.flush()}catch{}});
 
 function notify(message:string){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,6000)}
 async function api<T>(url:string,options:RequestInit={}):Promise<T>{
  const headers=new Headers(options.headers);if(options.body)headers.set('Content-Type','application/json');if(session)headers.set('X-CSRF-Token',session.csrf);
- const response=await fetch(url,{...options,headers});if(response.status===401){pause();location.reload();throw new Error('Anmeldung abgelaufen')}
+ const response=await fetch(url,{...options,headers});if(response.status===401){livePage.stop();pause();location.reload();throw new Error('Anmeldung abgelaufen')}
  const text=await response.text();let body:any={};try{body=text?JSON.parse(text):{}}catch{body={error:text||`Serverfehler (${response.status})`}}
  if(!response.ok)throw Object.assign(new Error((body.error||`Anfrage fehlgeschlagen (${response.status})`)+(body.gaps?'\n'+body.gaps.map((g:number[])=>clock(g[0])+' – '+clock(g[1])).join('\n'):'')),{indexing:body.indexing===true,status:response.status});return body as T;
 }
@@ -205,7 +209,7 @@ async function loadDay(reset=true,signal?:AbortSignal){
   $('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;update();void thumbnails();refreshRange();
  }finally{if(reset&&generation===loadGeneration)dayLoadPending=false}
 }
-async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');for(const id of openZoom)if(!cameras.some(c=>c.id===id&&c.viewMode==='dual'))openZoom.delete(id);order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList()}
+async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');for(const id of openZoom)if(!cameras.some(c=>c.id===id&&c.viewMode==='dual'))openZoom.delete(id);order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList();livePage.refresh()}
 function draw(){timelineView.draw({from,to,cursor,viewStart,viewEnd,cameras:visible(),records:displayedRecords,height:state.timelineHeight})}
 function zoom(factor:number,anchor=cursor){const span=clamp((viewEnd-viewStart)*factor,300,to-from);viewStart=clamp(anchor-span/2,from,to-span);viewEnd=viewStart+span;draw();refreshRange()}
 // Resize callbacks only schedule work: changing an observed layout inside the
@@ -254,6 +258,7 @@ function renderCameraList(){
   select.onclick=()=>{if(cameraSaving||!discardCamera())return;editCamera(c);showCameraEditor()};
   const actions=element('div','camera-entry-actions');
   const addAction=(text:string,label:string,action:()=>void|Promise<void>,className='')=>{const b=element('button',className,text);b.type='button';b.title=label;b.setAttribute('aria-label',label+' · '+c.name);b.disabled=cameraSaving;b.onclick=()=>void Promise.resolve(action()).catch(e=>notify(e.message));actions.append(b);return b};
+  addAction('Live','Livequelle einrichten',()=>liveAdmin.open(c.id),'text-button');
   const up=addAction('↑','Nach oben verschieben',()=>reorder(i-1),'move-button');up.disabled=cameraSaving||i===0;
   const down=addAction('↓','Nach unten verschieben',()=>reorder(i+1),'move-button');down.disabled=cameraSaving||i===order.length-1;
   const cameraId=c.id;
@@ -295,6 +300,7 @@ cameraForm.addEventListener('submit',async e=>{
 on('preview',async()=>{try{const result=await api<{examples:{file:string;time?:string;error?:string;view?:string}[];limited:boolean;detection?:ViewDetection;wideMarker:string;zoomMarker:string}>('/api/cameras/preview',{method:'POST',body:JSON.stringify(cameraInput())});$('preview-result').hidden=false;const status=result.detection?`${result.detection.message}\nKennungen: Weitwinkel ${result.wideMarker}, Zoom ${result.zoomMarker}\n\n`:'';$('preview-result').textContent=status+(result.examples.length?result.examples.map(v=>`${v.file}${v.view?" · "+({wide:"Weitwinkel",zoom:"Zoom",unknown:"Kennung unklar"}[v.view]||v.view):""}\n→ ${v.error||v.time}`).join('\n\n'):'Keine passenden Videodateien gefunden.');if(result.limited)$('preview-result').textContent+='\nSuche auf 10.000 Einträge begrenzt.'}catch(e){$('camera-error').textContent=(e as Error).message}});
 async function browseFolder(folder=''){const data=await api<{path:string;folders:string[];samples:string[];limited:boolean}>('/api/cameras/folders?path='+encodeURIComponent(folder));const root=$('folder-browser');root.hidden=false;root.replaceChildren();root.append(element('strong','',data.path==='.'?'Aufnahmeverzeichnis':data.path));if(data.path!=='.'){const back=element('button','text-button','↑ Übergeordneter Ordner');back.type='button';back.onclick=()=>void browseFolder(data.path.split('/').slice(0,-1).join('/')).catch(e=>notify(e.message));root.append(back);const choose=element('button','button secondary','Diesen Ordner verwenden');choose.type='button';choose.onclick=()=>{(cameraForm.elements.namedItem('folder') as HTMLInputElement).value=data.path;const name=data.path.split('/').pop()||'';(cameraForm.elements.namedItem('name') as HTMLInputElement).value=name;root.hidden=true};root.append(choose)}for(const folder of data.folders){const b=element('button','text-button',folder.split('/').pop());b.type='button';b.onclick=()=>void browseFolder(folder).catch(e=>notify(e.message));root.append(b)}if(data.limited)root.append(element('small','','Suche begrenzt; bitte einen Unterordner wählen.'))}
 on('browse-folder',()=>browseFolder());
+const liveSetup=document.createElement('button');liveSetup.type='button';liveSetup.className='button secondary';liveSetup.textContent='Livequellen und Freigabe';liveSetup.onclick=()=>liveAdmin.open();$('camera-list').before(liveSetup);
 on('new-camera',()=>{if(cameraSaving||!discardCamera())return;resetCamera();showCameraEditor()});
 on('camera-back',leaveCameraEditor);on('camera-cancel',leaveCameraEditor);
 function closeCamera(){navigate('recordings')}
