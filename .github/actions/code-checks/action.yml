@@ -29,15 +29,7 @@ runs:
         cache: npm
     - name: Fehlende Prüfwerkzeuge installieren
       shell: bash
-      run: |
-        missing=()
-        for tool in ffmpeg shellcheck; do
-          if ! command -v "$tool" >/dev/null 2>&1; then missing+=("$tool"); fi
-        done
-        if [ "${#missing[@]}" -gt 0 ]; then
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends "${missing[@]}"
-        fi
+      run: bash scripts/install_ci_tools.sh
     - id: tool-cache
       name: Actionlint-Archiv wiederverwenden
       uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
@@ -56,8 +48,8 @@ runs:
         echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check -
         tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
         "$RUNNER_TEMP/actionlint"
-        shellcheck scripts/promote_image.sh scripts/smoke.sh scripts/build_go2rtc.sh
-        bash -n scripts/promote_image.sh scripts/smoke.sh
+        shellcheck scripts/promote_image.sh scripts/smoke.sh scripts/build_go2rtc.sh scripts/install_ci_tools.sh
+        bash -n scripts/promote_image.sh scripts/smoke.sh scripts/install_ci_tools.sh
         sh -n scripts/build_go2rtc.sh
         python3 -m compileall -q scripts
     - id: frontend
