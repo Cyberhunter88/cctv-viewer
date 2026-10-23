@@ -316,15 +316,23 @@ func (a *App) saveCamera(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "Bitte laufende Indexierung abwarten")
 		return
 	}
+	viewChanged := false
 	if c.ID == "" {
 		c.ID = token()[:16]
-	} else if _, e := a.db.Camera(c.ID); e != nil {
-		fail(w, 404, "Kamera nicht gefunden")
-		return
+	} else {
+		old, e := a.db.Camera(c.ID)
+		if e != nil {
+			fail(w, 404, "Kamera nicht gefunden")
+			return
+		}
+		viewChanged = old.ViewMode != c.ViewMode
 	}
 	if e := a.db.SaveCamera(c); e != nil {
 		fail(w, 500, "Kamera konnte nicht gespeichert werden")
 		return
+	}
+	if viewChanged {
+		a.live.invalidate(c.ID)
 	}
 	a.index.last = map[string]time.Time{}
 	jsonOut(w, 200, c)

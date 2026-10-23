@@ -73,7 +73,9 @@ func (s *liveService) runWarm(ctx context.Context) {
 			continue
 		}
 		configs := map[string]liveCamera{}
+		zoomEnabled := map[string]bool{}
 		for _, camera := range cameras {
+			zoomEnabled[camera.ID] = camera.ViewMode == "dual"
 			if c, e := s.app.db.liveCamera(camera.ID); e == nil {
 				configs[camera.ID] = c
 			}
@@ -88,6 +90,9 @@ func (s *liveService) runWarm(ctx context.Context) {
 			}
 			for _, key := range []string{"fast", "high", "zoomFast", "zoomHigh"} {
 				view, quality := liveParts(key)
+				if view == "zoom" && !zoomEnabled[id] {
+					continue
+				}
 				if _, e := c.source(view, quality); e != nil || c.preloadMode(key) != "always" {
 					continue
 				}
@@ -102,7 +107,7 @@ func (s *liveService) runWarm(ctx context.Context) {
 			c, exists := configs[e.camera]
 			view, quality := liveParts(e.key)
 			_, sourceError := c.source(view, quality)
-			wanted := exists && c.Enabled && sourceError == nil && s.ready && warmWanted(c.preloadMode(e.key), e.users, e.last, now)
+			wanted := exists && c.Enabled && (view != "zoom" || zoomEnabled[e.camera]) && sourceError == nil && s.ready && warmWanted(c.preloadMode(e.key), e.users, e.last, now)
 			if wanted && e.cancel == nil {
 				workerCtx, cancel := context.WithCancel(ctx)
 				e.cancel = cancel
@@ -114,7 +119,7 @@ func (s *liveService) runWarm(ctx context.Context) {
 				e.cancel = nil
 				e.state = "disconnected"
 			}
-			if !exists || !wanted && e.users == 0 && (c.preloadMode(e.key) == "off" || !e.last.IsZero() && now.Sub(e.last) >= 60*time.Second) {
+			if !exists || (view == "zoom" && !zoomEnabled[e.camera]) || (!wanted && e.users == 0 && (c.preloadMode(e.key) == "off" || !e.last.IsZero() && now.Sub(e.last) >= 60*time.Second)) {
 				delete(s.warm, name)
 			}
 		}

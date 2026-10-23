@@ -18,7 +18,8 @@ with tempfile.TemporaryDirectory(prefix='cctv-ui-') as directory:
                CTV_ADDRESS=test_address, CTV_TRUSTED_PROXIES='127.0.0.1/32', CTV_DATA_DIR=str(root/'data'),
                CTV_RECORDINGS_DIR=str(root/'recordings'), CTV_OIDC_ISSUER='',
                CTV_ADMIN_PASSWORD='synthetic browser test password')
-    subprocess.run(['bin/cctv','admin','--username','browser'],env=env,check=True)
+    server_binary = os.environ.get('CTV_TEST_SERVER_BIN', 'bin/cctv')
+    subprocess.run([server_binary,'admin','--username','browser'],env=env,check=True)
     connection = sqlite3.connect(root/'data/viewer.db')
     for name, start in [('Testkamera-A','08-30-00'), ('Testkamera-B','08-30-05')]:
         folder = root/'recordings'/name/'2026/10/14'
@@ -136,7 +137,7 @@ with tempfile.TemporaryDirectory(prefix='cctv-ui-') as directory:
             connection.execute('INSERT INTO camera_live(camera_id,payload) VALUES(?,?)', (name,json.dumps(payload)))
     connection.commit()
     connection.close()
-    server = subprocess.Popen(['bin/cctv'],env=env)
+    server = subprocess.Popen([server_binary],env=env)
     def stop(*_):
         server.terminate()
         if live_source:

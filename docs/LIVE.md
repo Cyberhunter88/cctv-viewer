@@ -7,7 +7,7 @@ Unter **Verwaltung → Kameras** eine vorhandene Kamera wählen und den Reiter
 H.264-Nebenstreams eintragen. RTSP muss in der Reolink-Kamera eingeschaltet sein.
 Die Adresse enthält keine Zugangsdaten, beispielsweise
 `rtsp://kamera.example.org:554/h264Preview_01_sub`. Der genaue Pfad hängt vom
-Modell ab. Hauptstream und separates Zoomobjektiv sind optional.
+Modell ab. Hauptstream und separates Zoomobjektiv sind optional. Bei „Eine Ansicht“ sind Zoom-Einstellungen und Zoom-Bedienelemente ausgeblendet. Vorhandene Zoom-Adressen bleiben gespeichert, ihre Streams ruhen bis zum Wechsel auf „Weitwinkel + Zoom“.
 
 **Verbindung testen** zeigt Erreichbarkeit und Codecs, ohne die Eingabe zu
 speichern. **Liveeinstellungen speichern** übernimmt die Konfiguration. Ein leeres

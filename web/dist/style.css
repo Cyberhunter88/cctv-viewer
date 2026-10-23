@@ -2071,7 +2071,6 @@ dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
 .source-state { align-self:center; color:var(--muted); font-size:12px; }
 .live-source-card .form-row { margin-top:16px; }
 .live-source-card details { margin-top:16px; }
-.live-editor #live-admin-back { display:none; }
 .share-url-row { display:flex; align-items:center; gap:12px; margin-top:12px; }
 .share-url-row code { overflow-wrap:anywhere; flex:1; min-width:0; user-select:all; }
 #live-share-password { display:block; overflow-wrap:anywhere; margin-top:12px; user-select:all; }

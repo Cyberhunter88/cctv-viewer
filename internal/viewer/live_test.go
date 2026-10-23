@@ -25,6 +25,69 @@ func liveTestCamera(t *testing.T, a *App, id string) {
 		t.Fatal(e)
 	}
 }
+func TestLiveSingleViewZoom(t *testing.T) {
+	a := testApp(t)
+	cookie, session := login(t, a)
+	if err := os.Mkdir(filepath.Join(a.cfg.RecordingsDir, "camera"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	liveTestCamera(t, a, "camera")
+	config := liveCamera{Enabled: true, Sources: liveSources{Fast: "rtsp://192.0.2.20/wide", ZoomFast: "rtsp://192.0.2.20/zoom"}, Preload: map[string]string{"zoomFast": "always"}}
+	if err := a.db.saveLiveCamera("camera", config); err != nil {
+		t.Fatal(err)
+	}
+	check := func(zoom bool) {
+		t.Helper()
+		var info struct {
+			Cameras map[string]liveCapability `json:"cameras"`
+		}
+		response := request(a, "GET", "/api/live", nil, cookie, "")
+		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &info) != nil || info.Cameras["camera"].Zoom != zoom {
+			t.Fatal("incorrect zoom capability", response.Code, response.Body.String())
+		}
+		a.live.wakeWarm()
+		deadline := time.Now().Add(3 * time.Second)
+		for {
+			a.live.mu.Lock()
+			_, warming := a.live.warm[liveStreamName("camera", "zoom", "fast")]
+			a.live.mu.Unlock()
+			if warming == zoom {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("incorrect zoom preload state", warming, zoom)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	check(false)
+	probe := request(a, "POST", "/api/cameras/camera/live/test", map[string]any{"enabled": false, "sources": map[string]string{"zoomFast": config.Sources.ZoomFast}}, cookie, session.CSRF)
+	if probe.Code != 200 || strings.TrimSpace(probe.Body.String()) != "{}" {
+		t.Fatal("single-view test probed a hidden zoom source", probe.Code, probe.Body.String())
+	}
+	if _, err := a.live.ensureSource(context.Background(), "camera", "zoom", "fast", false); err == nil || !strings.Contains(err.Error(), "deaktiviert") {
+		t.Fatal("single-view zoom source was accepted", err)
+	}
+	for _, mode := range []struct {
+		view string
+		zoom bool
+	}{{"dual", true}, {"single", false}} {
+		camera, err := a.db.Camera("camera")
+		if err != nil {
+			t.Fatal(err)
+		}
+		camera.ViewMode, camera.WideMarker, camera.ZoomMarker = mode.view, "_00_", "_01_"
+		response := request(a, "POST", "/api/cameras", camera, cookie, session.CSRF)
+		if response.Code != 200 {
+			t.Fatal(response.Code, response.Body.String())
+		}
+		check(mode.zoom)
+		stored, err := a.db.liveCamera("camera")
+		if err != nil || stored.Sources.ZoomFast != config.Sources.ZoomFast || stored.Preload["zoomFast"] != "always" {
+			t.Fatal("saved zoom configuration was lost", err)
+		}
+	}
+}
 func TestLiveConfigurationSecretsAndValidation(t *testing.T) {
 	a := testApp(t)
 	cookie, session := login(t, a)

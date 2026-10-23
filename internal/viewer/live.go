@@ -168,7 +168,12 @@ func (a *App) liveInfo(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, "Livekonfiguration nicht lesbar")
 			return
 		}
-		capabilities[cam.ID] = c.capability()
+		capability := c.capability()
+		if cam.ViewMode != "dual" {
+			capability.Zoom = false
+			capability.ZoomHigh = false
+		}
+		capabilities[cam.ID] = capability
 	}
 	ready, message := a.live.status()
 	w.Header().Set("Cache-Control", "no-store")
@@ -230,7 +235,8 @@ func (a *App) cameraLive(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) testLive(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := a.db.Camera(id); err != nil {
+	camera, err := a.db.Camera(id)
+	if err != nil {
 		fail(w, 404, "Kamera nicht gefunden")
 		return
 	}
@@ -251,7 +257,7 @@ func (a *App) testLive(w http.ResponseWriter, r *http.Request) {
 	defer a.live.probes.Release()
 	result := map[string]any{}
 	for key, raw := range map[string]string{"wide/fast": c.Sources.Fast, "wide/high": c.Sources.High, "zoom/fast": c.Sources.ZoomFast, "zoom/high": c.Sources.ZoomHigh} {
-		if raw == "" {
+		if raw == "" || (strings.HasPrefix(key, "zoom/") && camera.ViewMode != "dual") {
 			continue
 		}
 		parts := strings.Split(key, "/")

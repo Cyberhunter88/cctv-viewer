@@ -24,7 +24,11 @@ test('live camera administration protects unsaved edits and does not disclose pa
 test('real live stream plays through HTTPS fallback, supports zoom and releases on leave',async({page})=>{
  test.skip(!process.env.CTV_TEST_GO2RTC,'Pinned go2rtc required');
  await page.addInitScript(()=>Object.defineProperty(window,'RTCPeerConnection',{value:class{constructor(){throw new Error('Synthetic blocked WebRTC transport')}}}));
- await login(page);await openPage(page,'live');
+ await login(page);
+ const cameras=await(await page.request.get('/api/cameras')).json(),session=await(await page.request.get('/api/session')).json();
+ const saved=await page.request.post('/api/cameras',{headers:{'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin},data:{...cameras[0],viewMode:'dual',wideMarker:'_00_',zoomMarker:'_01_'}});
+ expect(saved.ok(),await saved.text()).toBe(true);
+ await page.reload();await openPage(page,'live');
  const video=page.locator('#live-grid video').first();await expect.poll(()=>video.evaluate(v=>(v as HTMLVideoElement).readyState>=2?(v as HTMLVideoElement).currentTime:0),{timeout:25000}).toBeGreaterThan(.5);
  await expect(page.locator('#live-grid .live-tile-status').first()).toHaveText('Live · HTTPS');
  await expect(video).toHaveJSProperty('muted',true);

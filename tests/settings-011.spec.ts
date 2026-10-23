@@ -38,6 +38,36 @@ test('per-source HTTPS and preload settings save with secret-free source URLs',a
  expect(saved?.skipTLSVerify.fast).toBe(true);expect(saved?.sources.fast).not.toContain('password');expect(saved?.password).toBe('synthetic replacement');
 });
 
+test('single-view cameras hide zoom controls while preserving saved streams',async({page})=>{
+ await login(page);
+ const cameras=await(await page.request.get('/api/cameras')).json();const camera=cameras[0];
+ const session=await(await page.request.get('/api/session')).json();
+ const zoom='rtsp://camera.example.org/zoom';
+ const saved=await page.request.put(`/api/cameras/${encodeURIComponent(camera.id)}/live`,{headers:{'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin},data:{enabled:false,username:'',shared:true,sources:{fast:'rtsp://camera.example.org/wide',high:'',zoomFast:zoom,zoomHigh:''},preload:{fast:'off',high:'off',zoomFast:'always',zoomHigh:'off'},skipTLSVerify:{}}});
+ expect(saved.ok(),await saved.text()).toBe(true);
+ await openPage(page,'admin/cameras');await page.locator('#camera-list .camera-edit').first().click();
+ await expect(page.locator('#view-mode')).toHaveValue('single');await page.locator('#camera-tab-live').click();
+ await expect(page.locator('[data-source=zoomFast]')).toBeHidden();await expect(page.locator('[data-source=zoomHigh]')).toBeHidden();
+ await page.locator('#camera-tab-general').click();await page.locator('#view-mode').selectOption('dual');await page.locator('#camera-tab-live').click();
+ await expect(page.locator('[data-source=zoomFast]')).toBeVisible();await expect(page.locator('#live-zoomFast')).toHaveValue(zoom);
+ await page.locator('#camera-tab-general').click();await page.locator('#view-mode').selectOption('single');await page.locator('#camera-tab-live').click();
+ await expect(page.locator('[data-source=zoomFast]')).toBeHidden();await expect(page.locator('#live-zoomFast')).toHaveValue(zoom);
+ await page.locator('#camera-tab-general').click();await page.locator('#camera-form button[type=submit]').click();
+ await expect(page.locator('#camera-error')).toBeEmpty();
+ await openPage(page,'admin/live-share');await page.locator('#live-admin-camera').selectOption(camera.id);
+ await expect(page.locator('#live-share-urls')).not.toContainText('/zoom/');
+ await openPage(page,'live');await expect(page.locator('#live-grid').getByRole('button',{name:'Zoom anzeigen'})).toHaveCount(0);
+ const restored=await(await page.request.get(`/api/cameras/${encodeURIComponent(camera.id)}/live`)).json();
+ expect(restored.sources.zoomFast).toBe(zoom);expect(restored.preload.zoomFast).toBe('always');
+ await openPage(page,'admin/cameras');await page.locator('#camera-list .camera-edit').first().click();
+ await page.locator('#view-mode').selectOption('dual');await page.locator('#camera-form button[type=submit]').click();
+ await expect(page.locator('#camera-error')).toBeEmpty();
+ await page.locator('#camera-tab-live').click();await expect(page.locator('[data-source=zoomFast]')).toBeVisible();
+ await openPage(page,'admin/live-share');await page.locator('#live-admin-camera').selectOption(camera.id);
+ await expect(page.locator('#live-share-urls')).toContainText('/zoom/fast');
+ await openPage(page,'live');await expect(page.locator('#live-grid').getByRole('button',{name:'Zoom anzeigen'}).first()).toBeVisible();
+});
+
 test('all settings pages and camera source controls fit mobile and desktop themes',async({page},info)=>{
  await login(page);
  for(const width of [360,768,1440])for(const theme of ['light','dark']){
