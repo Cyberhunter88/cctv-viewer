@@ -1,12 +1,11 @@
-import {test,expect,type Page} from './fixtures';
+import {test,expect,cameraMutation,type Page} from './fixtures';
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.31'}});
 async function setup(page:Page,dual=false){
  await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();
  const session=await(await page.request.get('/api/session')).json(),headers={'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin},ids:string[]=[];
  try{
  for(const folder of dual?['AudioDual']:['Audio/Testkamera-A','Audio/Testkamera-B']){
-  await expect.poll(async()=>(await(await page.request.get('/api/scan')).json()).running).toBe(false);
-  const r=await page.request.post('/api/cameras',{headers,data:{name:folder,folder,format:dual?'automatic':'custom',pattern:'{YYYY}/{MM}/{DD}/{hh}-{mm}-{ss}.mp4',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:dual?'dual':'single',supportsZoom:dual,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:0}});expect(r.ok(),await r.text()).toBe(true);ids.push((await r.json()).id);
+  const r=await cameraMutation(page,()=>page.request.post('/api/cameras',{headers,data:{name:folder,folder,format:dual?'automatic':'custom',pattern:'{YYYY}/{MM}/{DD}/{hh}-{mm}-{ss}.mp4',indexingMode:'full',timezone:'Europe/Berlin',offset:0,viewMode:dual?'dual':'single',supportsZoom:dual,wideMarker:'_wide',zoomMarker:'_zoom',zoomOffset:0}}));expect(r.ok(),await r.text()).toBe(true);ids.push((await r.json()).id);
  }
  const known=await(await page.request.get('/api/cameras')).json();
  const preferences=await page.request.patch('/api/preferences',{headers,data:{cameras:ids,order:[...ids,...known.map((c:{id:string})=>c.id).filter((id:string)=>!ids.includes(id))],layout:'2x1',quality:'native'}});expect(preferences.ok(),await preferences.text()).toBe(true);
@@ -15,8 +14,8 @@ async function setup(page:Page,dual=false){
  await page.reload();await page.locator('#date').fill('2026-10-14');
  if(dual){await expect(page.locator('video')).toHaveCount(1);await page.locator('.zoom-toggle').click()}
  await expect(page.locator('video')).toHaveCount(2);
- return async()=>{await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));for(const id of ids)expect((await page.request.delete('/api/cameras/'+id,{headers})).ok()).toBe(true)};
- }catch(error){for(const id of ids)await page.request.delete('/api/cameras/'+id,{headers});throw error}
+ return async()=>{await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));for(const id of ids)expect((await cameraMutation(page,()=>page.request.delete('/api/cameras/'+id,{headers}))).ok()).toBe(true)};
+ }catch(error){for(const id of ids)await cameraMutation(page,()=>page.request.delete('/api/cameras/'+id,{headers}));throw error}
 }
 async function audible(page:Page,index:number|undefined){
  await expect.poll(()=>page.locator('video').evaluateAll(v=>v.map(x=>x.muted))).toEqual(index===undefined?[true,true]:index===0?[false,true]:[true,false]);

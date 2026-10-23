@@ -1,4 +1,4 @@
-import {test,expect,openPage,type Page} from './fixtures';
+import {test,expect,openPage,cameraMutation,type Page} from './fixtures';
 async function login(page:Page){await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible()}
 
 test('camera tabs retain independent drafts and import HTTPS credentials safely',async({page})=>{
@@ -43,7 +43,7 @@ test('single-view cameras hide zoom controls while preserving saved streams',asy
  const cameras=await(await page.request.get('/api/cameras')).json();
  const session=await(await page.request.get('/api/session')).json();
  const headers={'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin};
- const created=await page.request.post('/api/cameras',{headers,data:{...cameras[0],id:'',name:'Zoom-Testkamera'}});
+ const created=await cameraMutation(page,()=>page.request.post('/api/cameras',{headers,data:{...cameras[0],id:'',name:'Zoom-Testkamera'}}));
  expect(created.ok(),await created.text()).toBe(true);
  const camera=await created.json();
  const liveURL=`/api/cameras/${encodeURIComponent(camera.id)}/live`;
@@ -77,7 +77,7 @@ test('single-view cameras hide zoom controls while preserving saved streams',asy
  await expect(page.locator('#live-share-urls')).toContainText('/zoom/fast');
  page.once('dialog',dialog=>dialog.accept());await openPage(page,'live');await expect(page.locator('#live-grid').getByRole('button',{name:'Zoom anzeigen'}).first()).toBeVisible();
  }finally{
-  const removed=await page.request.delete(`/api/cameras/${encodeURIComponent(camera.id)}`,{headers});
+  const removed=await cameraMutation(page,()=>page.request.delete(`/api/cameras/${encodeURIComponent(camera.id)}`,{headers}));
   expect(removed.ok(),await removed.text()).toBe(true);
  }
 });
