@@ -4,6 +4,15 @@ Referenz: [cctv-timeline-viewer-core, Commit 9c3128c756430529dc5c34c52d6bb4e8e5c
 Abgleich von README, Kamera-/Such-/System-APIs, Indexierung, Hotspot und Oberfläche.
 Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht übernommen.
 
+## Ergänzungen ab 0.11.0
+
+| Funktion | Umsetzung | Nachweis |
+|---|---|---|
+| Einheitliche Einstellungen | Gemeinsame Formulare, mobile Listenansicht und Kameraeditor mit Allgemein/Aufnahmen/Live; separate Streamfreigabe | Browser: settings-ux, navigation, live |
+| Vorladen je Livequelle | Bei Bedarf, 60 Sekunden Nachlauf oder dauerhaft; Browser und Home Assistant teilen Quellen | Go: LiveWarmPolicy, LiveUsageReferenceCounting, LiveHTTPSFLVPreloadIntegration |
+| HTTPS-FLV | Reolink-URL-Import, geschützte Zugangsdaten, Zertifikatsprüfung mit Ausnahme je Quelle | Frontend: live-source; Go: LiveHTTPSRelayTLSAndCredentials, LiveHTTPSFLVPreloadIntegration |
+| Verschlüsselte Zugangsdaten | AES-256-GCM für Konfigurationen und Anmeldegeheimnisse, automatische Klartextmigration und separater persistenter Schlüssel | Go: SecretsLegacyMigrationAndReopen, SecretsMissingWrongKeyAndTampering, SecretsMigrationIsAtomic |
+
 ## Übernommene Viewer-Funktionen
 
 | Referenzfunktion | Umsetzung | Nachweis |

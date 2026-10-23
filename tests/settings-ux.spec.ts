@@ -65,8 +65,8 @@ test('six-camera editor preserves drafts and failed saves, and adapts to narrow 
   await expect(page.locator('#camera-list')).toBeVisible();await expect(page.locator('#camera-dialog')).toBeVisible();
   await page.screenshot({path:info.outputPath(`cameras-${theme}-${width}.png`)});
   await page.locator('#camera-list').getByRole('button',{name:'Synthetisch gespeichert',exact:true}).click();await expect(page.locator('#camera-form')).toBeVisible();
-  if(width<900){await expect(page.locator('.camera-overview')).toBeHidden();await expect(page.locator('#camera-back')).toBeInViewport()}
-  await page.locator('#camera-advanced summary').click();await page.locator('#view-mode').selectOption('dual');await expect(page.locator('#dual-fields')).toBeVisible();await page.locator('#view-mode').selectOption('single');
+  if(width<900){await expect(page.locator('.camera-overview')).toBeVisible();await expect(page.locator('#camera-back')).toBeInViewport()}
+  await page.locator('#view-mode').selectOption('dual');await page.locator('#camera-tab-recordings').click();await page.locator('#camera-advanced summary').click();await expect(page.locator('#dual-fields')).toBeVisible();await page.locator('#camera-tab-general').click();await page.locator('#view-mode').selectOption('single');
   await expect.poll(()=>page.locator('#camera-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
   await page.screenshot({path:info.outputPath(`editor-${theme}-${width}.png`)});
   await page.locator('#camera-cancel').click();
@@ -81,7 +81,7 @@ test('six-camera editor preserves drafts and failed saves, and adapts to narrow 
 test('empty camera list and direct logout are accessible without opening the account menu',async({page})=>{
  await login(page);await page.route('**/api/cameras',route=>route.fulfill({json:[]}));await page.reload();await expect(page.locator('#app')).toBeVisible();
  await openNavigation(page,'settings-button');await expect(page.locator('#camera-list')).toContainText('Noch keine Kameras');await page.setViewportSize({width:390,height:700});await page.locator('#new-camera').click();await expect(page.locator('#camera-form')).toBeVisible();
- await page.locator('#browse-folder').click();await expect(page.locator('#folder-browser')).toBeVisible();await page.locator('#camera-cancel').click();await expect(page.locator('#camera-list')).toBeVisible();await page.locator('#close-dialog').click();
+ await page.locator('#camera-tab-recordings').click();await page.locator('#browse-folder').click();await expect(page.locator('#folder-browser')).toBeVisible();await page.locator('#camera-cancel').click();await expect(page.locator('#camera-list')).toBeVisible();await page.locator('#close-dialog').click();
  for(const width of [390,768,1366]){await page.setViewportSize({width,height:800});await expect(page.locator('#account-menu')).not.toHaveAttribute('open','');await expect(page.getByRole('button',{name:'Abmelden',exact:true})).toBeVisible()}
  await page.locator('#rail-toggle').click();await expect(page.locator('#logout')).toBeVisible();await page.locator('#logout').click();await expect(page.locator('#login')).toBeVisible();
 });

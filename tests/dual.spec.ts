@@ -20,7 +20,7 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);
  await openNavigation(page,'settings-button');await page.locator('#new-camera').click();
  await page.locator('#view-mode').selectOption('dual');
- await expect(page.locator('#camera-form input[name=wideMarker]')).toHaveValue('_00_');await expect(page.locator('#camera-form input[name=zoomMarker]')).toHaveValue('_01_');
+ await page.locator('#camera-tab-recordings').click();await expect(page.locator('#camera-form input[name=wideMarker]')).toHaveValue('_00_');await expect(page.locator('#camera-form input[name=zoomMarker]')).toHaveValue('_01_');
  await page.locator('#camera-form input[name=wideMarker]').fill('_wide');await page.locator('#camera-form input[name=zoomMarker]').fill('_zoom');
  await page.locator('#camera-form input[name=zoomOffset]').fill('-5');
  await page.locator('#batch-open').click();

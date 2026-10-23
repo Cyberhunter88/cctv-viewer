@@ -376,6 +376,10 @@ func (a *App) loadSettings() error {
 		}
 		return nil
 	}
+	payload, e = a.db.settingsPayload(payload)
+	if e != nil {
+		return e
+	}
 	if e = json.Unmarshal([]byte(payload), &a.overrides); e != nil {
 		return e
 	}
@@ -467,6 +471,10 @@ func (a *App) activateSettings(c Config, v map[string]json.RawMessage, candidate
 	if e != nil {
 		return e
 	}
+	sealed, e := a.db.sealSettings(string(payload))
+	if e != nil {
+		return e
+	}
 	a.authMu.Lock()
 	defer a.authMu.Unlock()
 	tx, e := a.db.Begin()
@@ -474,7 +482,7 @@ func (a *App) activateSettings(c Config, v map[string]json.RawMessage, candidate
 		return e
 	}
 	defer tx.Rollback()
-	if _, e = tx.Exec(`INSERT INTO settings(id,version,payload) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,payload=excluded.payload`, a.settingsVersion+1, string(payload)); e != nil {
+	if _, e = tx.Exec(`INSERT INTO settings(id,version,payload) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,payload=excluded.payload`, a.settingsVersion+1, sealed); e != nil {
 		return e
 	}
 	changed := oidcChanged(a.config(), c)

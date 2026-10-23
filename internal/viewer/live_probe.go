@@ -12,7 +12,7 @@ import (
 func liveProbeFailure(ctxErr, err error) (code, message string) {
 	switch {
 	case errors.Is(ctxErr, context.DeadlineExceeded):
-		return "timeout", "Zeitüberschreitung nach 8 Sekunden. Die Kamera hat den RTSP-Verbindungstest nicht rechtzeitig abgeschlossen."
+		return "timeout", "Zeitüberschreitung nach 8 Sekunden. Die Kamera hat den Verbindungstest nicht rechtzeitig abgeschlossen."
 	case errors.Is(ctxErr, context.Canceled):
 		return "cancelled", "Verbindungstest abgebrochen."
 	case errors.Is(err, exec.ErrNotFound):
@@ -32,12 +32,16 @@ func liveProbeFailure(ctxErr, err error) (code, message string) {
 		return false
 	}
 	switch {
+	case contains("526"):
+		return "tls", "HTTPS-Zertifikat nicht vertrauenswürdig. Zertifikat oder die Ausnahme für diese Quelle prüfen."
+	case contains("422"):
+		return "stream-error", "Die HTTPS-Adresse liefert keinen FLV-Stream."
 	case contains("401 unauthorized", "server returned 401"):
-		return "authentication", "Kamera lehnt die Anmeldung ab (RTSP 401). Kamerabenutzer und Kamerapasswort prüfen."
+		return "authentication", "Kamera lehnt die Anmeldung ab (401). Kamerabenutzer und Kamerapasswort prüfen."
 	case contains("403 forbidden", "server returned 403"):
-		return "forbidden", "Kamera verweigert den Zugriff (RTSP 403). RTSP-Berechtigung des Kamerabenutzers prüfen."
+		return "forbidden", "Kamera verweigert den Zugriff (403). RTSP-Berechtigung des Kamerabenutzers prüfen."
 	case contains("404 not found", "server returned 404"):
-		return "not-found", "RTSP-Pfad nicht gefunden (RTSP 404). Streamadresse und Kanal prüfen."
+		return "not-found", "Streampfad nicht gefunden (404). Streamadresse und Kanal prüfen."
 	case contains("461 unsupported transport", "server returned 461"):
 		return "transport", "Kamera unterstützt die angeforderte RTSP/TCP-Verbindung nicht (RTSP 461)."
 	case contains("453 not enough bandwidth", "503 service unavailable", "server returned 453", "server returned 503"):

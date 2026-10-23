@@ -20,11 +20,13 @@ type liveSources struct {
 	ZoomHigh string `json:"zoomHigh"`
 }
 type liveCamera struct {
-	Enabled  bool        `json:"enabled"`
-	Username string      `json:"username"`
-	Password string      `json:"-"`
-	Sources  liveSources `json:"sources"`
-	Shared   bool        `json:"shared"`
+	Enabled       bool              `json:"enabled"`
+	Username      string            `json:"username"`
+	Password      string            `json:"-"`
+	Sources       liveSources       `json:"sources"`
+	Shared        bool              `json:"shared"`
+	Preload       map[string]string `json:"preload,omitempty"`
+	SkipTLSVerify map[string]bool   `json:"skipTLSVerify,omitempty"`
 }
 type storedLiveCamera struct {
 	liveCamera
@@ -54,6 +56,10 @@ func (s *Store) liveCamera(id string) (liveCamera, error) {
 	if err != nil {
 		return liveCamera{}, err
 	}
+	payload, err = s.openSecret(payload, secretScope("camera_live", id, "payload"))
+	if err != nil {
+		return liveCamera{}, err
+	}
 	var stored storedLiveCamera
 	err = json.Unmarshal([]byte(payload), &stored)
 	stored.Password = stored.Secret
@@ -64,15 +70,29 @@ func (s *Store) saveLiveCamera(id string, c liveCamera) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.Exec(`INSERT INTO camera_live(camera_id,payload) VALUES(?,?) ON CONFLICT(camera_id) DO UPDATE SET payload=excluded.payload`, id, string(b))
+	payload, err := s.sealSecret(string(b), secretScope("camera_live", id, "payload"))
+	if err != nil {
+		return err
+	}
+	_, err = s.Exec(`INSERT INTO camera_live(camera_id,payload) VALUES(?,?) ON CONFLICT(camera_id) DO UPDATE SET payload=excluded.payload`, id, payload)
 	return err
 }
 func validateLive(c liveCamera) error {
 	if len(c.Username) > 256 || len(c.Password) > 1024 {
 		return errors.New("Zugangsdaten zu lang")
 	}
+	for key, mode := range c.Preload {
+		if !liveSourceKey(key) || (mode != "off" && mode != "idle" && mode != "always") {
+			return errors.New("Ungültige Vorladeeinstellung")
+		}
+	}
+	for key := range c.SkipTLSVerify {
+		if !liveSourceKey(key) {
+			return errors.New("Ungültige TLS-Einstellung")
+		}
+	}
 	if c.Enabled && c.Sources.Fast == "" {
-		return errors.New("Ein schneller RTSP-Stream ist erforderlich")
+		return errors.New("Eine schnelle Livequelle ist erforderlich")
 	}
 	if c.Sources.ZoomHigh != "" && c.Sources.ZoomFast == "" {
 		return errors.New("Für Zoom zuerst den schnellen Stream eintragen")
@@ -82,8 +102,11 @@ func validateLive(c liveCamera) error {
 			continue
 		}
 		u, err := url.Parse(raw)
-		if err != nil || len(raw) > 2048 || strings.ContainsAny(raw, "\r\n\x00#") || u.User != nil || u.Hostname() == "" || (u.Scheme != "rtsp" && u.Scheme != "rtsps") || strings.ContainsAny(u.Host, " \t") {
-			return errors.New("RTSP-Adresse ohne Zugangsdaten oder Fragment erforderlich")
+		if err != nil || len(raw) > 2048 || strings.ContainsAny(raw, "\r\n\x00#") || u.User != nil || u.Hostname() == "" || (u.Scheme != "rtsp" && u.Scheme != "rtsps" && u.Scheme != "https") || strings.ContainsAny(u.Host, " \t") {
+			return errors.New("RTSP- oder HTTPS-FLV-Adresse ohne Zugangsdaten oder Fragment erforderlich")
+		}
+		if u.Scheme == "https" && (u.Query().Has("user") || u.Query().Has("password")) {
+			return errors.New("Zugangsdaten über die separaten Felder eintragen")
 		}
 	}
 	return nil
@@ -110,7 +133,14 @@ func (c liveCamera) source(view, quality string) (string, error) {
 		return "", err
 	}
 	if c.Username != "" || c.Password != "" {
-		u.User = url.UserPassword(c.Username, c.Password)
+		if u.Scheme == "https" {
+			q := u.Query()
+			q.Set("user", c.Username)
+			q.Set("password", c.Password)
+			u.RawQuery = q.Encode()
+		} else {
+			u.User = url.UserPassword(c.Username, c.Password)
+		}
 	}
 	return u.String(), nil
 }
@@ -121,6 +151,7 @@ func (a *App) registerLive(m *http.ServeMux) {
 	m.HandleFunc("PUT /api/cameras/{id}/live", a.protect(true, a.cameraLive))
 	m.HandleFunc("DELETE /api/cameras/{id}/live", a.protect(true, a.cameraLive))
 	m.HandleFunc("POST /api/cameras/{id}/live/test", a.protect(true, a.testLive))
+	m.HandleFunc("GET /api/cameras/{id}/live/status", a.protect(true, a.liveSourceStatus))
 	m.HandleFunc("GET /api/admin/live-share", a.protect(true, a.liveShare))
 	m.HandleFunc("PUT /api/admin/live-share", a.protect(true, a.liveShare))
 }
@@ -195,7 +226,7 @@ func (a *App) cameraLive(w http.ResponseWriter, r *http.Request) {
 		a.live.invalidate(id)
 		c = liveCamera{}
 	}
-	jsonOut(w, 200, map[string]any{"enabled": c.Enabled, "username": c.Username, "hasPassword": c.Password != "", "sources": c.Sources, "shared": c.Shared})
+	jsonOut(w, 200, map[string]any{"enabled": c.Enabled, "username": c.Username, "hasPassword": c.Password != "", "sources": c.Sources, "shared": c.Shared, "preload": c.Preload, "skipTLSVerify": c.SkipTLSVerify})
 }
 func (a *App) testLive(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -231,8 +262,24 @@ func (a *App) testLive(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-		cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-rtsp_transport", "tcp", "-protocol_whitelist", "rtsp,rtsps,tcp,tls,rtp,udp,crypto", "-show_entries", "stream=codec_type,codec_name,width,height", "-of", "json", source)
+		args := []string{"-v", "error", "-protocol_whitelist", "rtsp,rtsps,http,https,tcp,tls,rtp,udp,crypto"}
+		var closeRelay func()
+		if strings.HasPrefix(source, "https://") {
+			source, closeRelay, e = liveHTTPSRelay(ctx, source, c.SkipTLSVerify[liveKey(parts[0], parts[1])])
+			if e != nil {
+				cancel()
+				result[key] = map[string]any{"ok": false, "message": "HTTPS-Quelle nicht verfügbar"}
+				continue
+			}
+		} else {
+			args = append(args, "-rtsp_transport", "tcp")
+		}
+		args = append(args, "-show_entries", "stream=codec_type,codec_name,width,height", "-of", "json", source)
+		cmd := exec.CommandContext(ctx, "ffprobe", args...)
 		out, e := cmd.Output()
+		if closeRelay != nil {
+			closeRelay()
+		}
 		contextError := ctx.Err()
 		cancel()
 		if e != nil {

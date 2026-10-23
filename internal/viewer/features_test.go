@@ -284,7 +284,11 @@ func TestSettingsDoNotMutateEnvironmentLists(t *testing.T) {
 }
 func TestCLIRecovery(t *testing.T) {
 	a := testApp(t)
-	a.db.Exec(`INSERT INTO settings VALUES(1,5,'{"localLogin":false,"oidcIssuer":"https://unreachable.example","cacheMB":64}')`)
+	payload, err := a.db.sealSettings(`{"localLogin":false,"oidcIssuer":"https://unreachable.example","cacheMB":64}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.db.Exec("INSERT INTO settings VALUES(1,5,?)", payload)
 	a.db.Exec(`INSERT INTO sessions VALUES('old','old','old','admin','oidc','csrf',9999999999)`)
 	if e := a.db.CreateAdminRecovery("rescue", "long rescue password", true); e != nil {
 		t.Fatal(e)

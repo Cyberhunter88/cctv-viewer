@@ -2,6 +2,7 @@ package viewer
 
 import (
 	"context"
+	"crypto/cipher"
 	"database/sql"
 	"errors"
 	"math"
@@ -12,7 +13,10 @@ import (
 	"time"
 )
 
-type Store struct{ *sql.DB }
+type Store struct {
+	*sql.DB
+	secrets cipher.AEAD
+}
 type Camera struct {
 	ViewMode         string         `json:"viewMode"`
 	WideMarker       string         `json:"wideMarker"`
@@ -240,7 +244,12 @@ CREATE TABLE IF NOT EXISTS scan_schedule(camera_id TEXT PRIMARY KEY REFERENCES c
 		db.Close()
 		return nil, err
 	}
-	return &Store{db}, nil
+	s := &Store{DB: db}
+	if err = s.initializeSecrets(dir); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
 }
 func (s *Store) Cameras() ([]Camera, error) {
 	rows, e := s.Query(`SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset,supports_zoom FROM cameras ORDER BY name`)
