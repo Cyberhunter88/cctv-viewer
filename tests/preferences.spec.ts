@@ -101,7 +101,7 @@ test('native fullscreen uses the actual tile and preserves original playback',as
  await tile.locator('.tile-expand').click();await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
  await video.dblclick();await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
  await page.keyboard.press('Escape');await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
- await page.locator('.page-heading h1').click();await page.keyboard.press('f');await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
+ await page.locator('#recordings .page-heading h1').click();await page.keyboard.press('f');await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
  await page.evaluate(()=>document.exitFullscreen());
 });
 

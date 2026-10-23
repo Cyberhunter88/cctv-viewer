@@ -17,6 +17,7 @@ type StreamProfile struct {
 	Bitrate int `json:"bitrate"`
 }
 type Config struct {
+	Go2RTCPath, LiveRTSPAddress                          string
 	AutoScan                                             bool
 	AutoScanMinutes                                      int
 	HLSTempBytes                                         int64
@@ -62,6 +63,8 @@ func Secret(name string) (string, error) {
 func LoadConfig() (Config, error) {
 	c := Config{AutoScanMinutes: 60, HLSTempBytes: 256 << 20, Balanced: StreamProfile{50, 15, 1200}, Fast: StreamProfile{30, 8, 450}, Address: env("CTV_ADDRESS", ":8080"), DataDir: env("CTV_DATA_DIR", "/data"), RecordingsDir: env("CTV_RECORDINGS_DIR", "/recordings"), BaseURL: env("CTV_BASE_URL", "http://localhost:8080"), LocalAdmin: env("CTV_LOCAL_ADMIN", "true") == "true", OIDCIssuer: os.Getenv("CTV_OIDC_ISSUER"), OIDCClientID: os.Getenv("CTV_OIDC_CLIENT_ID"), OIDCGroupClaim: env("CTV_OIDC_GROUP_CLAIM", "groups"), AllowedUsers: list(os.Getenv("CTV_OIDC_ALLOWED_SUBJECTS")), AllowedGroups: list(os.Getenv("CTV_OIDC_ALLOWED_GROUPS")), AdminUsers: list(os.Getenv("CTV_OIDC_ADMIN_SUBJECTS")), AdminGroups: list(os.Getenv("CTV_OIDC_ADMIN_GROUPS")), SessionTTL: 8 * time.Hour, ScanInterval: 5 * time.Minute, DevHTTP: env("CTV_DEV_HTTP", "false") == "true"}
 	var err error
+	c.Go2RTCPath = env("CTV_GO2RTC_PATH", "go2rtc")
+	c.LiveRTSPAddress = env("CTV_LIVE_RTSP_ADDRESS", "127.0.0.1:8554")
 	c.OIDCSecret, err = Secret("CTV_OIDC_CLIENT_SECRET")
 	if err != nil {
 		return c, err

@@ -56,12 +56,18 @@ runs:
         echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check -
         tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
         "$RUNNER_TEMP/actionlint"
-        shellcheck scripts/promote_image.sh scripts/smoke.sh
+        shellcheck scripts/promote_image.sh scripts/smoke.sh scripts/build_go2rtc.sh
         bash -n scripts/promote_image.sh scripts/smoke.sh
+        sh -n scripts/build_go2rtc.sh
         python3 -m compileall -q scripts
     - id: frontend
       shell: bash
       run: npm ci && npm run typecheck && npm test && npm run build
+    - name: Gepinnten Live-Dienst für Integrationstests bauen
+      shell: bash
+      run: |
+        sh scripts/build_go2rtc.sh "$RUNNER_TEMP/cctv-live/go2rtc"
+        echo "CTV_TEST_GO2RTC=$RUNNER_TEMP/cctv-live/go2rtc" >> "$GITHUB_ENV"
     - id: vet
       shell: bash
       run: go vet ./...

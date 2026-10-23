@@ -19,6 +19,13 @@ behalten ihre jeweiligen Lizenzen. Insbesondere:
   Quellversionen, Prüfsummen, Patches und Bauanweisungen. Die vollständige
   Paketliste steht in der SBOM des jeweiligen Image-Digests.
 - tini: MIT.
+- go2rtc 1.9.14: MIT; wird als separates Programm mitgeliefert und verwaltet.
+  Quellen: https://github.com/AlexxIT/go2rtc/tree/v1.9.14 . Der reproduzierbare
+  Build steht in `scripts/build_go2rtc.sh`; die Lizenz liegt im Image unter
+  `/usr/share/licenses/go2rtc/LICENSE`. Zwei eigenständige C-Generatoren werden
+  vor dem Go-Build weggelassen; die generierten Go-Definitionen bleiben enthalten.
+- github.com/bluenviron/gortsplib/v4: MIT; lesender RTSP-Gateway.
+- github.com/coder/websocket: ISC; authentifizierte WebSocket-Übertragung.
 
 Der Container führt FFmpeg als separates Programm aus. FFmpeg wird nicht in die
 Go-Anwendung eingebunden.

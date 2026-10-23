@@ -108,3 +108,16 @@ Bei geschlossenem Zoom verwendet die Zeitleiste ausschließlich die Weitwinkelan
 - Wiedergabeuhr und Kacheln sind eigenständige Frontendmodule. Während der Wiedergabe werden Kacheln höchstens alle 50 ms synchronisiert und Zeitleiste/Positionssteuerung alle 100 ms aktualisiert; direkte Bedienung bleibt unmittelbar. Bei Pause läuft keine dauerhafte Animationsschleife.
 - Die Suche verwendet bei Kameras ohne wirksamen Zoom-Zeitversatz die vorhandenen Zeitindizes für die Sortierung. Trefferzählung, Zeitkorrektur und Cursor-/Offset-Seiten bleiben erhalten; das Datenbankschema bleibt unverändert.
 - Frontend-Unit-Tests werden einschließlich Unterordnern automatisch gefunden. Synthetische Suchbenchmarks umfassen 10.000, 100.000 und eine Million Aufnahmen; sie ersetzen keine Messung auf einem realen NAS.
+
+## Liveansicht (0.10.0)
+
+| Funktion | Verhalten |
+| --- | --- |
+| Livekameras | Eigener Menüpunkt über Aufnahmen, getrennte gespeicherte Kameraauswahl, Alle/Keine, Raster und Vollbild |
+| Übertragung | WebRTC mit HTTPS-WebSocket/MSE-Rückfall, H.264-Nebenstream als schnelle Standardqualität |
+| Doppelobjektiv und Ton | Separat zuschaltbarer Zoomstream; Ton zunächst stumm, ein Bild gleichzeitig hörbar |
+| Verwaltung | RTSP-Quellen, geschützte Zugangsdaten und Verbindungstest je vorhandener Kamera |
+| Home Assistant | Optionale authentifizierte RTSP-Freigabe im Heimnetz, feste Adressen, TCP, eigene Zugangsdaten |
+| Lebenszyklus | Gemeinsame Quellen für Betrachter, Freigabe unabhängig von persönlicher Auswahl, automatische Wiederverbindung |
+
+Installation und Kompatibilitätsgrenzen: [Liveansicht und Home Assistant](docs/LIVE.md).

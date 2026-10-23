@@ -78,7 +78,7 @@ func OpenStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if version > 4 {
+	if version > 5 {
 		db.Close()
 		return nil, errors.New("Datenbankschema neuer als diese Anwendung")
 	}
@@ -90,6 +90,21 @@ func OpenStore(dir string) (*Store, error) {
 				return nil, err
 			}
 			if err = os.Chmod(backup, 0600); err != nil {
+				db.Close()
+				return nil, err
+			}
+		} else if statErr != nil {
+			db.Close()
+			return nil, statErr
+		}
+	}
+	if !fresh && version < 5 {
+		backup := filepath.Join(dir, "viewer-before-v5.db")
+		if _, statErr := os.Stat(backup); os.IsNotExist(statErr) {
+			if _, err = db.Exec("VACUUM INTO ?", backup); err == nil {
+				err = os.Chmod(backup, 0600)
+			}
+			if err != nil {
 				db.Close()
 				return nil, err
 			}
@@ -217,7 +232,11 @@ CREATE TABLE IF NOT EXISTS scan_schedule(camera_id TEXT PRIMARY KEY REFERENCES c
 			}
 		}
 	}
-	if _, err = db.Exec(`PRAGMA user_version=4`); err != nil {
+
+	if _, err = db.Exec(`BEGIN;
+	 CREATE TABLE IF NOT EXISTS camera_live(camera_id TEXT PRIMARY KEY REFERENCES cameras(id) ON DELETE CASCADE,payload TEXT NOT NULL);
+	 CREATE TABLE IF NOT EXISTS live_share(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL);
+	 PRAGMA user_version=5; COMMIT;`); err != nil {
 		db.Close()
 		return nil, err
 	}

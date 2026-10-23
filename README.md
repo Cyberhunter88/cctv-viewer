@@ -16,8 +16,8 @@ Viewers und sind eigenständig in Go/TypeScript umgesetzt. Unser Layout bleibt e
 - OIDC/SSO, Rollen und lokale Administrator-Wiederherstellung
 - Aufnahmequellen nur lesend; SQLite, Vorschaubilder und temporäre Streams unter `/data`
 
-Kein NVR: Der Viewer verwendet vorhandene Videodateien. Home Assistant und
-Videoanalyse sind ausgeschlossen. Bilder, Clip-Export, Lesezeichen, Zeitlinks,
+Kein NVR: Der Viewer verwendet vorhandene Videodateien. Optional bietet die
+[Liveansicht](docs/LIVE.md) Reolink-Livebilder und eine Streamfreigabe für Home Assistant. Videoanalyse ist ausgeschlossen. Bilder, Clip-Export, Lesezeichen, Zeitlinks,
 digitaler Zoom und separate Vollbildbedienung wurden entfernt.
 
 Die vollständige Zuordnung zur Referenz steht in [FEATURE_MATRIX.md](FEATURE_MATRIX.md).
@@ -36,14 +36,15 @@ sudo chown 10001:10001 data
 sudo chmod 700 data
 ```
 
-In `.env` mindestens `CTV_BASE_URL=https://cctv.example.org` und
-`CTV_RECORDINGS_PATH=/mnt/kameras` eintragen. Für eine Vorabversion zusätzlich
+In `.env` mindestens `CTV_BASE_URL=https://cctv.example.org` eintragen.
+Aufnahmeordner, Datenordner und Host-Adressen direkt in `compose.yaml` anpassen:
+`./recordings:/recordings:ro`, `./data:/data` und die beiden Port-Bindings.
+Bei bestehenden Installationen die bisher verwendeten Host-Pfade übernehmen,
+damit Aufnahmen und gespeicherte Daten erhalten bleiben. Für eine Vorabversion zusätzlich
 `CTV_VERSION=0.1.0-beta.1` setzen, da Vorabversionen kein `latest` erhalten.
 Die `.env` liefert die Ausgangswerte. Über die Verwaltung gespeicherte
 Servereinstellungen haben dauerhaft Vorrang; über „Herkunft und Umgebungswerte“
-lassen sie sich einzeln zurücksetzen. Die Compose-Datei
-muss dafür nicht bearbeitet werden. `CTV_DATA_PATH`, `CTV_BIND_ADDRESS` und
-`CTV_HTTP_PORT` steuern Datenordner und Portbindung.
+lassen sie sich einzeln zurücksetzen. Für diese GUI-Einstellungen muss die Compose-Datei nicht bearbeitet werden.
 UID/GID lassen sich über `CTV_UID`/`CTV_GID` ändern; der Datenordner muss dann
 entsprechend gehören. Der Prozess benötigt Leserechte auf den Kameraordnern.
 
@@ -492,3 +493,9 @@ Warteschlange. Automatische Scans berücksichtigen auch rekursive Quellen und be
 Tagesordnern die beiden vorherigen lokalen Tage.
 
 Funktionsumfang und technische Prüfgrenzen: [Funktionsabgleich](FEATURE_MATRIX.md).
+
+## Liveansicht und Home Assistant
+
+Ab 0.10.0: Livekameras in der Kameraverwaltung einrichten und unter **Liveansicht**
+unabhängig von den Aufnahmen auswählen. Einrichtung, geringe Verzögerung und
+optionale Heimnetz-Streamfreigabe: [docs/LIVE.md](docs/LIVE.md).

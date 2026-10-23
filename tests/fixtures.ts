@@ -13,7 +13,10 @@ export async function savePreferences(page:Page){
 // Browser cases share a disposable server and synthetic account. Reset its
 // server preferences once per case; reloads and second devices remain real.
 export const test=base.extend<{preferenceIsolation:void}>({
- preferenceIsolation:[async({page},use)=>{
+ preferenceIsolation:[async({page,context},use,info)=>{
+  // Keep the real login limiter enabled without sharing its IP bucket across cases.
+  const hash=[...info.testId].reduce((n,c)=>(Math.imul(n,31)+c.charCodeAt(0))>>>0,0);
+  await context.setExtraHTTPHeaders({'X-Forwarded-For':`2001:db8:10::${(hash>>>16).toString(16)}:${(hash&65535).toString(16)}`});
   let initialized=false;
   await page.route('**/api/preferences',async route=>{
    if(initialized||route.request().method()!=='GET'){await route.continue();return}
@@ -21,7 +24,7 @@ export const test=base.extend<{preferenceIsolation:void}>({
    const session=await(await page.request.get('/api/session')).json();
    const cameras=await(await page.request.get('/api/cameras')).json();
    const ids=cameras.map((c:{id:string})=>c.id);
-   const response=await page.request.patch('/api/preferences',{headers:{'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin},data:{...defaultView(),cameras:ids,order:ids,hotspot:'',railCollapsed:null,theme:'system'}});
+   const response=await page.request.patch('/api/preferences',{headers:{'X-CSRF-Token':session.csrf,Origin:new URL(page.url()).origin},data:{...defaultView(),cameras:ids,order:ids,liveCameras:ids,liveOrder:ids,liveLayout:'auto',hotspot:'',railCollapsed:null,theme:'system'}});
    expect(response.ok(),await response.text()).toBe(true);
    await route.continue();
   });
