@@ -60,6 +60,12 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('cache-from: type=gha,scope=commit-${{ matrix.arch }}', build)
         self.assertIn('cache-to: type=gha,mode=max,scope=commit-${{ matrix.arch }}', build)
 
+    def test_shared_checks_use_the_bounded_tool_installer(self):
+        self.assertIn('run: bash scripts/install_ci_tools.sh', self.shared)
+        self.assertNotIn('sudo apt-get update', self.shared)
+        self.assertIn('shellcheck scripts/promote_image.sh scripts/smoke.sh scripts/build_go2rtc.sh scripts/install_ci_tools.sh', self.shared)
+        self.assertIn('bash -n scripts/promote_image.sh scripts/smoke.sh scripts/install_ci_tools.sh', self.shared)
+
     def test_race_tests_run_unconditionally_for_pr_and_main(self):
         code = self.shared
         self.assertRegex(code, r"name: Go-Race-Tests\n      shell: bash\n      run: go test -race \./\.\.\.")
