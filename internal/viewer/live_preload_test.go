@@ -43,6 +43,30 @@ func TestLiveWarmPolicy(t *testing.T) {
 		t.Fatal("unknown source accepted")
 	}
 }
+func TestLiveWarmSchedule(t *testing.T) {
+	last := time.Now()
+	if got := warmDeadline("idle", 0, last); !got.Equal(last.Add(60*time.Second)) {
+		t.Fatal("idle source has no expiration deadline", got)
+	}
+	for _, tc := range []struct{ mode string; users int; last time.Time }{
+		{"always", 0, last}, {"off", 0, last}, {"idle", 1, last}, {"idle", 0, time.Time{}},
+	} {
+		if got := warmDeadline(tc.mode, tc.users, tc.last); !got.IsZero() {
+			t.Fatal("unexpected wakeup", tc.mode, tc.users, got)
+		}
+	}
+}
+func TestLiveWarmReaderHandsOffToGateway(t *testing.T) {
+	now := time.Now()
+	for _, mode := range []string{"always", "idle"} {
+		if warmReaderWanted(mode, 1, 1, now, now) {
+			t.Fatal("gateway route kept a redundant warm reader", mode)
+		}
+		if !warmReaderWanted(mode, 0, 0, now, now) {
+			t.Fatal("warm reader did not resume after gateway disconnect", mode)
+		}
+	}
+}
 func TestLiveUsageReferenceCounting(t *testing.T) {
 	s := &liveService{warm: map[string]*liveWarm{}, warmWake: make(chan struct{}, 1)}
 	one := s.useSource("camera", "wide", "fast")
@@ -57,6 +81,24 @@ func TestLiveUsageReferenceCounting(t *testing.T) {
 	if entry.users != 0 || entry.last.IsZero() {
 		t.Fatal("last reader did not start idle period")
 	}
+}
+func TestLiveGatewayUsageReplacesWarmReader(t *testing.T) {
+	s := &liveService{warm: map[string]*liveWarm{}, warmWake: make(chan struct{}, 1)}
+	release := s.useGatewaySource("camera", "wide", "fast")
+	entry := s.warm[liveStreamName("camera", "wide", "fast")]
+	if entry.users != 1 || entry.gatewayUsers != 1 {
+		t.Fatal("gateway reader was not counted")
+	}
+	viewer := s.useSource("camera", "wide", "fast")
+	if entry.users != 2 || entry.gatewayUsers != 1 {
+		t.Fatal("browser reader was counted as gateway reader")
+	}
+	release()
+	release()
+	if entry.users != 1 || entry.gatewayUsers != 0 || entry.last.IsZero() {
+		t.Fatal("gateway release did not allow the warm reader to resume")
+	}
+	viewer()
 }
 func TestLiveHTTPSRelayTLSAndCredentials(t *testing.T) {
 	seen := make(chan url.Values, 4)

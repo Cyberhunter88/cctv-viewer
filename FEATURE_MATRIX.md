@@ -4,6 +4,13 @@ Referenz: [cctv-timeline-viewer-core, Commit 9c3128c756430529dc5c34c52d6bb4e8e5c
 Abgleich von README, Kamera-/Such-/System-APIs, Indexierung, Hotspot und Oberfläche.
 Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht übernommen.
 
+## Ergänzungen ab 0.11.2
+
+| Funktion | Umsetzung | Nachweis |
+|---|---|---|
+| Effizienteres Live-Vorladen | Vorladeverwaltung reagiert auf Änderungen und Nachlaufende ohne dauernde Datenbankabfragen; aktive HA-Routen ersetzen den zusätzlichen Vorladeleser | Go: LiveWarmPolicy, LiveWarmSchedule, LiveWarmReaderHandsOffToGateway |
+| Paralleler HA-Streamstart | Verschiedene RTSP-Routen werden parallel aufgebaut; Anfragen für dieselbe Route teilen den Aufbau | Go: LiveGatewayRouteConcurrency |
+
 ## Ergänzungen ab 0.11.1
 
 | Funktion | Umsetzung | Nachweis |
