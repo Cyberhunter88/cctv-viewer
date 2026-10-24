@@ -212,7 +212,7 @@ func scanCoversCamera(job scanJob, camera Camera, date string) bool {
 	if job.camera != "" && job.camera != camera.ID {
 		return false
 	}
-	if job.batch != "" && !strings.Contains(","+job.batch+",",", ","+camera.ID+",") {
+	if job.batch != "" && !strings.Contains(","+job.batch+",", ","+camera.ID+",") {
 		return false
 	}
 	return job.all || camera.IndexingMode == "full" || job.date == date
