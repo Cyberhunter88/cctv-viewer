@@ -209,7 +209,7 @@ async function loadDay(reset=true,signal?:AbortSignal){
  const generation=reset?++loadGeneration:loadGeneration,date=dateInput.value,completionAtStart=scanCompletion;
  if(reset){dayLoadPending=true;pause();tiles.forEach(t=>t.release())}
  try{
-  const data=await api<Day>('/api/day?date='+encodeURIComponent(date),{signal});
+  const data=await api<Day>('/api/day?date='+encodeURIComponent(date)+(reset?'':'&refresh=1'),{signal});
   if(signal?.aborted||generation!==loadGeneration||date!==dateInput.value)return;
   loadedScanCompletion=completionAtStart;records=data.recordings;playableRecords=playbackRecordings(records,cameras);from=data.from;to=data.to;setScan(data.scan);refreshDisplayedRecords();
   if(reset){const ids=new Set(visible().map(c=>c.id));cursor=firstRecordingStart(displayedRecords.filter(r=>ids.has(r.cameraId)),from);viewStart=from;viewEnd=to}
