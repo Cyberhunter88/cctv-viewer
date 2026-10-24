@@ -115,8 +115,20 @@ func TestDayRefreshDoesNotStartAnotherScan(t *testing.T) {
 	if reopen.Code != 200 {
 		t.Fatal(reopen.Code, reopen.Body.String())
 	}
+	if status := a.scanStatus(); status.Running || status.Completion != 1 {
+		t.Fatal("reopening the day started a duplicate scan", status)
+	}
+	nextDay := httptest.NewRecorder()
+	a.day(nextDay, httptest.NewRequest("GET", "/api/day?date=2026-10-15", nil))
+	if nextDay.Code != 200 || a.scanStatus().Running || a.scanStatus().Completion != 1 {
+		t.Fatal("changing the day repeated a recursive scan", nextDay.Code, a.scanStatus())
+	}
+	a.index.mu.Lock()
+	a.index.last[scanScopeKey(camera, "2026-10-14")] = time.Now().Add(-time.Minute)
+	a.index.mu.Unlock()
+	a.day(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/day?date=2026-10-15", nil))
 	if status := waitIndex(t, a); status.Completion != 2 {
-		t.Fatal("reopening the day did not check the source again", status)
+		t.Fatal("expired recursive source was not checked", status)
 	}
 }
 

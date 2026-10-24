@@ -218,6 +218,13 @@ func scanCoversCamera(job scanJob, camera Camera, date string) bool {
 	return job.all || camera.IndexingMode == "full" || job.date == date
 }
 
+func scanScopeKey(camera Camera, date string) string {
+	if camera.IndexingMode == "full" {
+		return "full/" + camera.ID
+	}
+	return date + "/" + camera.ID
+}
+
 func (a *App) startDayScan(date string, cameras []Camera) bool {
 	a.index.mu.Lock()
 	defer a.index.mu.Unlock()
@@ -230,7 +237,7 @@ func (a *App) startDayScan(date string, cameras []Camera) bool {
 				break
 			}
 		}
-		if !covered {
+		if !covered && time.Since(a.index.last[scanScopeKey(camera, date)]) >= time.Minute {
 			ids = append(ids, camera.ID)
 		}
 	}
@@ -515,6 +522,7 @@ func (a *App) scanJob(job scanJob) {
 					}
 				}
 			}
+			a.index.last[scanScopeKey(c, job.date)] = time.Now()
 			a.index.mu.Unlock()
 		}(c)
 	}
