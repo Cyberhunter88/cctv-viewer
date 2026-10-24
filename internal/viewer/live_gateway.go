@@ -96,6 +96,12 @@ type gatewayRoute struct {
 	failed  chan struct{}
 }
 
+type gatewayBuild struct {
+	done  chan struct{}
+	route *gatewayRoute
+	err   error
+}
+
 func (r *gatewayRoute) close() { r.client.Close(); r.stream.Close() }
 
 type liveGateway struct {
@@ -103,15 +109,17 @@ type liveGateway struct {
 	server   *gortsplib.Server
 	mu       sync.Mutex
 	routes   map[string]*gatewayRoute
+	builds   map[string]*gatewayBuild
 	sessions map[*gortsplib.ServerSession]string
 	releases map[*gortsplib.ServerSession]func()
 	cancel   context.CancelFunc
+	ctx      context.Context
 	done     chan struct{}
 }
 
 func startLiveGateway(s *liveService, address string) (*liveGateway, error) {
 	ctx, cancel := context.WithCancel(s.app.ctx)
-	g := &liveGateway{live: s, routes: map[string]*gatewayRoute{}, sessions: map[*gortsplib.ServerSession]string{}, cancel: cancel, done: make(chan struct{})}
+	g := &liveGateway{live: s, ctx: ctx, routes: map[string]*gatewayRoute{}, builds: map[string]*gatewayBuild{}, sessions: map[*gortsplib.ServerSession]string{}, cancel: cancel, done: make(chan struct{})}
 	// No UDP listeners: SETUP can only negotiate interleaved RTP over TCP.
 	g.server = &gortsplib.Server{Handler: g, RTSPAddress: address, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
 	if e := g.server.Start(); e != nil {
@@ -191,16 +199,54 @@ func (g *liveGateway) getRoute(path string) (*gatewayRoute, error) {
 	if e != nil || !c.Shared {
 		return nil, errors.New("not shared")
 	}
+	return g.route(path, func() (*gatewayRoute, error) { return g.buildRoute(id, view, quality) })
+}
+
+func (g *liveGateway) route(path string, create func() (*gatewayRoute, error)) (*gatewayRoute, error) {
 	g.mu.Lock()
-	defer g.mu.Unlock()
+	if g.ctx.Err() != nil {
+		g.mu.Unlock()
+		return nil, context.Canceled
+	}
 	if r := g.routes[path]; r != nil {
 		r.used = time.Now()
+		g.mu.Unlock()
 		return r, nil
 	}
-	if len(g.routes) >= 64 {
+	if build := g.builds[path]; build != nil {
+		g.mu.Unlock()
+		select {
+		case <-build.done:
+			return build.route, build.err
+		case <-g.ctx.Done():
+			return nil, g.ctx.Err()
+		}
+	}
+	if len(g.routes)+len(g.builds) >= 64 {
+		g.mu.Unlock()
 		return nil, errors.New("too many streams")
 	}
-	name, e := g.live.ensureSource(g.live.app.ctx, id, view, quality, false)
+	build := &gatewayBuild{done: make(chan struct{})}
+	g.builds[path] = build
+	g.mu.Unlock()
+	route, err := create()
+	g.mu.Lock()
+	if g.ctx.Err() != nil && route != nil {
+		route.close()
+		route, err = nil, g.ctx.Err()
+	}
+	if err == nil {
+		g.routes[path] = route
+	}
+	build.route, build.err = route, err
+	delete(g.builds, path)
+	close(build.done)
+	g.mu.Unlock()
+	return route, err
+}
+
+func (g *liveGateway) buildRoute(id, view, quality string) (*gatewayRoute, error) {
+	name, e := g.live.ensureSource(g.ctx, id, view, quality, false)
 	if e != nil {
 		return nil, e
 	}
@@ -239,7 +285,6 @@ func (g *liveGateway) getRoute(path string) (*gatewayRoute, error) {
 		return nil, e
 	}
 	success = true
-	g.routes[path] = r
 	go func() { _ = client.Wait(); close(r.failed) }()
 	return r, nil
 }
@@ -270,7 +315,7 @@ func (g *liveGateway) OnSetup(ctx *gortsplib.ServerHandlerOnSetupCtx) (*base.Res
 	}
 	if g.releases[ctx.Session] == nil {
 		id, view, quality, _ := parseLivePath(ctx.Path)
-		g.releases[ctx.Session] = g.live.useSource(id, view, quality)
+		g.releases[ctx.Session] = g.live.useGatewaySource(id, view, quality)
 	}
 	route.readers[ctx.Session] = true
 	g.sessions[ctx.Session] = ctx.Path

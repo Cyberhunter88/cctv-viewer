@@ -33,7 +33,8 @@ func (s probeSlot) TryAcquire() bool {
 func (s probeSlot) Release() { <-s }
 
 type liveService struct {
-	sourceMu           sync.Mutex
+	sourceMu           sync.RWMutex
+	sourceLocks        sync.Map
 	ctx                context.Context
 	warm               map[string]*liveWarm
 	warmWake           chan struct{}
@@ -214,8 +215,12 @@ func liveStreamName(id, view, quality string) string {
 	return "live_" + digest(id)[:24] + "_" + view + "_" + quality
 }
 func (s *liveService) ensureSource(ctx context.Context, id, view, quality string, rtc bool) (string, error) {
-	s.sourceMu.Lock()
-	defer s.sourceMu.Unlock()
+	s.sourceMu.RLock()
+	defer s.sourceMu.RUnlock()
+	name := liveStreamName(id, view, quality)
+	lock, _ := s.sourceLocks.LoadOrStore(name, &sync.Mutex{})
+	lock.(*sync.Mutex).Lock()
+	defer lock.(*sync.Mutex).Unlock()
 	camera, e := s.app.db.Camera(id)
 	if e != nil {
 		return "", e
@@ -231,7 +236,6 @@ func (s *liveService) ensureSource(ctx context.Context, id, view, quality string
 	if e != nil {
 		return "", e
 	}
-	name := liveStreamName(id, view, quality)
 	s.mu.Lock()
 	ready, known := s.ready, s.sources[name]
 	s.mu.Unlock()

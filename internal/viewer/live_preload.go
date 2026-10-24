@@ -12,16 +12,32 @@ import (
 
 type liveWarm struct {
 	camera, key string
-	users       int
-	last        time.Time
-	state       string
-	cancel      context.CancelFunc
+	users        int
+	gatewayUsers int
+	last         time.Time
+	state        string
+	cancel       context.CancelFunc
 }
 
 func warmWanted(mode string, users int, last, now time.Time) bool {
 	return mode == "always" || mode == "idle" && (users > 0 || !last.IsZero() && now.Sub(last) < 60*time.Second)
 }
+func warmReaderWanted(mode string, users, gatewayUsers int, last, now time.Time) bool {
+	return gatewayUsers == 0 && warmWanted(mode, users, last, now)
+}
+func warmDeadline(mode string, users int, last time.Time) time.Time {
+	if mode == "idle" && users == 0 && !last.IsZero() {
+		return last.Add(60 * time.Second)
+	}
+	return time.Time{}
+}
 func (s *liveService) useSource(id, view, quality string) func() {
+	return s.useSourceKind(id, view, quality, false)
+}
+func (s *liveService) useGatewaySource(id, view, quality string) func() {
+	return s.useSourceKind(id, view, quality, true)
+}
+func (s *liveService) useSourceKind(id, view, quality string, gateway bool) func() {
 	name := liveStreamName(id, view, quality)
 	s.mu.Lock()
 	if s.warm == nil {
@@ -33,12 +49,24 @@ func (s *liveService) useSource(id, view, quality string) func() {
 		s.warm[name] = entry
 	}
 	entry.users++
+	if gateway {
+		entry.gatewayUsers++
+	}
 	entry.last = time.Now()
 	s.mu.Unlock()
 	s.wakeWarm()
 	var once sync.Once
 	return func() {
-		once.Do(func() { s.mu.Lock(); entry.users--; entry.last = time.Now(); s.mu.Unlock(); s.wakeWarm() })
+		once.Do(func() {
+			s.mu.Lock()
+			entry.users--
+			if gateway {
+				entry.gatewayUsers--
+			}
+			entry.last = time.Now()
+			s.mu.Unlock()
+			s.wakeWarm()
+		})
 	}
 }
 func (s *liveService) wakeWarm() {
@@ -49,8 +77,6 @@ func (s *liveService) wakeWarm() {
 }
 func (s *liveService) runWarm(ctx context.Context) {
 	defer close(s.warmDone)
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
 	defer func() {
 		s.mu.Lock()
 		for _, e := range s.warm {
@@ -62,14 +88,17 @@ func (s *liveService) runWarm(ctx context.Context) {
 		s.warmWorkers.Wait()
 	}()
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return
-		case <-ticker.C:
-		case <-s.warmWake:
 		}
 		cameras, err := s.app.db.Cameras()
 		if err != nil {
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.warmWake:
+			case <-time.After(5 * time.Second):
+			}
 			continue
 		}
 		configs := map[string]liveCamera{}
@@ -103,11 +132,14 @@ func (s *liveService) runWarm(ctx context.Context) {
 			}
 		}
 		now := time.Now()
+		var next time.Time
 		for name, e := range s.warm {
 			c, exists := configs[e.camera]
 			view, quality := liveParts(e.key)
 			_, sourceError := c.source(view, quality)
-			wanted := exists && c.Enabled && (view != "zoom" || zoomEnabled[e.camera]) && sourceError == nil && s.ready && warmWanted(c.preloadMode(e.key), e.users, e.last, now)
+			// An HA route already reads from go2rtc and keeps the camera source
+			// connected. A second reader only duplicates RTP processing.
+			wanted := exists && c.Enabled && (view != "zoom" || zoomEnabled[e.camera]) && sourceError == nil && s.ready && warmReaderWanted(c.preloadMode(e.key), e.users, e.gatewayUsers, e.last, now)
 			if wanted && e.cancel == nil {
 				workerCtx, cancel := context.WithCancel(ctx)
 				e.cancel = cancel
@@ -121,9 +153,30 @@ func (s *liveService) runWarm(ctx context.Context) {
 			}
 			if !exists || (view == "zoom" && !zoomEnabled[e.camera]) || (!wanted && e.users == 0 && (c.preloadMode(e.key) == "off" || !e.last.IsZero() && now.Sub(e.last) >= 60*time.Second)) {
 				delete(s.warm, name)
+			} else if deadline := warmDeadline(c.preloadMode(e.key), e.users, e.last); !deadline.IsZero() {
+				if next.IsZero() || deadline.Before(next) {
+					next = deadline
+				}
 			}
 		}
 		s.mu.Unlock()
+		if next.IsZero() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.warmWake:
+			}
+		} else {
+			timer := time.NewTimer(time.Until(next))
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-s.warmWake:
+				timer.Stop()
+			case <-timer.C:
+			}
+		}
 	}
 }
 func (s *liveService) keepSource(ctx context.Context, e *liveWarm, view, quality string) {
