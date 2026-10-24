@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,6 +60,78 @@ func TestIndexQueueDedupeAndFairness(t *testing.T) {
 		}
 	}
 }
+
+func TestDayScanReusesActiveAndQueuedCameraWork(t *testing.T) {
+	a := testApp(t)
+	cameras := []Camera{
+		{ID: "recursive", Name: "Recursive", Folder: "recursive", Format: "automatic", IndexingMode: "full", Timezone: "UTC"},
+		{ID: "dated", Name: "Dated", Folder: "dated", Format: "automatic", IndexingMode: "partitioned", DirectoryPattern: "{YYYY}/{MM}/{DD}", Timezone: "UTC"},
+	}
+	a.index.mu.Lock()
+	a.index.status.Running = true
+	a.index.current = scanJob{date: "2026-10-14", camera: "recursive"}
+	a.index.queue = []scanJob{{date: "2026-10-15", camera: "dated"}}
+	a.index.mu.Unlock()
+	if a.startDayScan("2026-10-15", cameras) {
+		t.Fatal("queued work was duplicated")
+	}
+	if !a.startDayScan("2026-10-16", cameras) {
+		t.Fatal("new dated partition was not queued")
+	}
+	status := a.scanStatus()
+	if len(status.Queue) != 2 {
+		t.Fatal(status.Queue)
+	}
+	job := a.index.queue[1]
+	if job.batch != "dated" || job.camera != "" || job.date != "2026-10-16" {
+		t.Fatal(job)
+	}
+	if a.startDayScan("2026-10-16", cameras) {
+		t.Fatal("same partition was queued twice")
+	}
+}
+
+func TestDayRefreshDoesNotStartAnotherScan(t *testing.T) {
+	a := testApp(t)
+	camera := Camera{ID: "refresh", Name: "Refresh", Folder: "refresh", Format: "automatic", IndexingMode: "full", Timezone: "UTC"}
+	if err := a.db.SaveCamera(camera); err != nil {
+		t.Fatal(err)
+	}
+	refresh := httptest.NewRecorder()
+	a.day(refresh, httptest.NewRequest("GET", "/api/day?date=2026-10-14&refresh=1", nil))
+	if refresh.Code != 200 || a.scanStatus().Running || a.scanStatus().Completion != 0 {
+		t.Fatal(refresh.Code, a.scanStatus())
+	}
+	open := httptest.NewRecorder()
+	a.day(open, httptest.NewRequest("GET", "/api/day?date=2026-10-14", nil))
+	if open.Code != 200 {
+		t.Fatal(open.Code, open.Body.String())
+	}
+	if status := waitIndex(t, a); status.Completion != 1 {
+		t.Fatal(status)
+	}
+	reopen := httptest.NewRecorder()
+	a.day(reopen, httptest.NewRequest("GET", "/api/day?date=2026-10-14", nil))
+	if reopen.Code != 200 {
+		t.Fatal(reopen.Code, reopen.Body.String())
+	}
+	if status := a.scanStatus(); status.Running || status.Completion != 1 {
+		t.Fatal("reopening the day started a duplicate scan", status)
+	}
+	nextDay := httptest.NewRecorder()
+	a.day(nextDay, httptest.NewRequest("GET", "/api/day?date=2026-10-15", nil))
+	if nextDay.Code != 200 || a.scanStatus().Running || a.scanStatus().Completion != 1 {
+		t.Fatal("changing the day repeated a recursive scan", nextDay.Code, a.scanStatus())
+	}
+	a.index.mu.Lock()
+	a.index.last[scanScopeKey(camera, "2026-10-14")] = time.Now().Add(-time.Minute)
+	a.index.mu.Unlock()
+	a.day(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/day?date=2026-10-15", nil))
+	if status := waitIndex(t, a); status.Completion != 2 {
+		t.Fatal("expired recursive source was not checked", status)
+	}
+}
+
 func TestStableFilesAreRecheckedWithoutReprobingUnchangedVideos(t *testing.T) {
 	a := testApp(t)
 	c := fixture(t, a, "libx264")

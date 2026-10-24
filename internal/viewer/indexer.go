@@ -206,10 +206,55 @@ func (x *indexer) nextJob() scanJob {
 	x.queue = append(x.queue[:chosen], x.queue[chosen+1:]...)
 	return job
 }
-func (a *App) startScan(date string, force bool) bool { return a.queueScan(scanJob{date: date}, force) }
+// A recursive camera scan indexes every day, so a second date does not need a
+// duplicate walk while that camera is already being scanned or is queued.
+func scanCoversCamera(job scanJob, camera Camera, date string) bool {
+	if job.camera != "" && job.camera != camera.ID {
+		return false
+	}
+	if job.batch != "" && !strings.Contains(","+job.batch+",", ","+camera.ID+",") {
+		return false
+	}
+	return job.all || camera.IndexingMode == "full" || job.date == date
+}
+
+func scanScopeKey(camera Camera, date string) string {
+	if camera.IndexingMode == "full" {
+		return "full/" + camera.ID
+	}
+	return date + "/" + camera.ID
+}
+
+func (a *App) startDayScan(date string, cameras []Camera) bool {
+	a.index.mu.Lock()
+	defer a.index.mu.Unlock()
+	ids := make([]string, 0, len(cameras))
+	for _, camera := range cameras {
+		covered := a.index.status.Running && scanCoversCamera(a.index.current, camera, date)
+		for _, queued := range a.index.queue {
+			if scanCoversCamera(queued, camera, date) {
+				covered = true
+				break
+			}
+		}
+		if !covered && time.Since(a.index.last[scanScopeKey(camera, date)]) >= time.Minute {
+			ids = append(ids, camera.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return false
+	}
+	return a.queueScanLocked(scanJob{date: date, batch: strings.Join(ids, ",")}, true)
+}
+
 func (a *App) queueScan(job scanJob, force bool) bool {
 	a.index.mu.Lock()
 	defer a.index.mu.Unlock()
+	return a.queueScanLocked(job, force)
+}
+
+// Called with the index mutex held.
+func (a *App) queueScanLocked(job scanJob, force bool) bool {
 	if a.ctx.Err() != nil {
 		return false
 	}
@@ -477,6 +522,7 @@ func (a *App) scanJob(job scanJob) {
 					}
 				}
 			}
+			a.index.last[scanScopeKey(c, job.date)] = time.Now()
 			a.index.mu.Unlock()
 		}(c)
 	}
@@ -596,7 +642,10 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		name string
 		entry fs.DirEntry
 	}
-	type fileState struct{ size, mod int64 }
+	type fileState struct {
+		size, mod int64
+		settled int
+	}
 	batch := make([]mediaEntry, 0, 128)
 	process := func(name string, d fs.DirEntry, old fileState, exists bool) error {
 		inspected++
@@ -619,7 +668,7 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		}
 		size, mod := st.Size(), st.ModTime().UnixNano()
 		if exists && size == old.size && mod == old.mod {
-			if incremental && time.Since(st.ModTime()) >= 120*time.Second {
+			if incremental && old.settled == 0 && time.Since(st.ModTime()) >= 120*time.Second {
 				if _, e := a.db.ExecContext(a.ctx, `UPDATE recordings SET settled=1 WHERE camera_id=? AND path=? AND settled=0`, c.ID, name); e != nil {
 					skip("Index konnte nicht gespeichert werden")
 				}
@@ -680,7 +729,7 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		for _, item := range batch {
 			args = append(args, item.name)
 		}
-		rows, err := a.db.QueryContext(a.ctx, `SELECT path,size,mod FROM recordings WHERE camera_id=? AND path IN (`+placeholders+`)`, args...)
+		rows, err := a.db.QueryContext(a.ctx, `SELECT path,size,mod,settled FROM recordings WHERE camera_id=? AND path IN (`+placeholders+`)`, args...)
 		if err != nil {
 			return err
 		}
@@ -688,7 +737,7 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		for rows.Next() {
 			var name string
 			var state fileState
-			if err := rows.Scan(&name, &state.size, &state.mod); err != nil {
+			if err := rows.Scan(&name, &state.size, &state.mod, &state.settled); err != nil {
 				rows.Close()
 				return err
 			}

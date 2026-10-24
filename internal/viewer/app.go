@@ -473,6 +473,8 @@ func (a *App) day(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Index nicht lesbar")
 		return
 	}
-	a.startScan(date, false)
+	if r.URL.Query().Get("refresh") != "1" {
+		a.startDayScan(date, cams)
+	}
 	jsonOut(w, 200, map[string]any{"recordings": out, "from": from.Unix(), "to": to.Unix(), "scan": a.scanStatus()})
 }

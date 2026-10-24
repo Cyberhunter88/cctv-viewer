@@ -247,7 +247,7 @@ Kameraverwaltung; fehlgeschlagene manuelle Scans lassen sich dort erneut starten
 Automatische Tagesindexierung ist standardmäßig ausgeschaltet. Unter
 „Verwaltung → Betrieb“ aktivieren; Vorgabe 60 Minuten,
 zulässig 1–10080 Minuten. Sie läuft ohne geöffneten Browser, jeweils eine Kamera,
-ausschließlich für datumspartitionierte Quellen und den heutigen Tag in deren Zeitzone.
+für datumspartitionierte und rekursive Quellen und den heutigen Tag in deren Zeitzone.
 Vergangene Tage werden nicht automatisch nachgeholt. Erfolgreiche und fehlgeschlagene
 Versuche warten vor dem nächsten Lauf das eingestellte Intervall. Der nächste
 Laufzeitpunkt bleibt in SQLite erhalten; ein unterbrochener Auftrag wird erneut fällig.
