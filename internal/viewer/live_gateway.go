@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,9 +21,10 @@ import (
 )
 
 type liveShareSettings struct {
-	Enabled  bool   `json:"enabled"`
-	Username string `json:"username"`
-	Password string `json:"-"`
+	Enabled   bool   `json:"enabled"`
+	Username  string `json:"username"`
+	Password  string `json:"-"`
+	ServerURL string `json:"serverUrl"`
 }
 
 func (s *Store) liveShare() (liveShareSettings, error) {
@@ -38,12 +41,27 @@ func (s *Store) liveShare() (liveShareSettings, error) {
 		return liveShareSettings{}, e
 	}
 	var stored struct {
-		Enabled  bool   `json:"enabled"`
-		Username string `json:"username"`
-		Secret   string `json:"secret"`
+		Enabled   bool   `json:"enabled"`
+		Username  string `json:"username"`
+		Secret    string `json:"secret"`
+		ServerURL string `json:"serverUrl"`
 	}
 	e = json.Unmarshal([]byte(payload), &stored)
-	return liveShareSettings{stored.Enabled, stored.Username, stored.Secret}, e
+	return liveShareSettings{Enabled: stored.Enabled, Username: stored.Username, Password: stored.Secret, ServerURL: stored.ServerURL}, e
+}
+func validShareServerURL(raw string) bool {
+	if raw == "" {
+		return true
+	}
+	if len(raw) > 255 || strings.ContainsAny(raw, "\r\n\x00 \t?#") {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "rtsp" || u.User != nil || u.Hostname() == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		return false
+	}
+	port, err := strconv.Atoi(u.Port())
+	return err == nil && port >= 1 && port <= 65535
 }
 func (a *App) liveShare(w http.ResponseWriter, r *http.Request) {
 	settings, e := a.db.liveShare()
@@ -55,18 +73,27 @@ func (a *App) liveShare(w http.ResponseWriter, r *http.Request) {
 	var generated string
 	if r.Method == http.MethodPut {
 		var in struct {
-			Enabled       bool `json:"enabled"`
-			ResetPassword bool `json:"resetPassword"`
+			Enabled       bool    `json:"enabled"`
+			ResetPassword bool    `json:"resetPassword"`
+			ServerURL     *string `json:"serverUrl"`
 		}
 		if !decode(w, r, &in) {
 			return
 		}
+		if in.ServerURL != nil {
+			settings.ServerURL = strings.TrimSpace(*in.ServerURL)
+			if !validShareServerURL(settings.ServerURL) {
+				fail(w, 400, "RTSP-Serveradresse muss rtsp://Host:Port ohne Pfad oder Zugangsdaten sein")
+				return
+			}
+		}
+		reload := settings.Enabled != in.Enabled || in.ResetPassword || settings.Password == ""
 		settings.Enabled = in.Enabled
 		if in.ResetPassword || settings.Password == "" {
 			generated = token()
 			settings.Password = generated
 		}
-		payload, _ := json.Marshal(map[string]any{"enabled": settings.Enabled, "username": settings.Username, "secret": settings.Password})
+		payload, _ := json.Marshal(map[string]any{"enabled": settings.Enabled, "username": settings.Username, "secret": settings.Password, "serverUrl": settings.ServerURL})
 		sealed, sealErr := a.db.sealSecret(string(payload), secretScope("live_share", "1", "payload"))
 		if sealErr != nil {
 			fail(w, 500, "Freigabe nicht gespeichert")
@@ -76,7 +103,9 @@ func (a *App) liveShare(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, "Freigabe nicht gespeichert")
 			return
 		}
-		a.live.reloadGateway()
+		if reload {
+			a.live.reloadGateway()
+		}
 	}
 	address := a.config().LiveRTSPAddress
 	if address == "" {
@@ -85,7 +114,7 @@ func (a *App) liveShare(w http.ResponseWriter, r *http.Request) {
 	a.live.mu.Lock()
 	listening := a.live.gateway != nil
 	a.live.mu.Unlock()
-	jsonOut(w, 200, map[string]any{"enabled": settings.Enabled, "username": settings.Username, "password": generated, "hasPassword": settings.Password != "", "address": address, "listening": listening})
+	jsonOut(w, 200, map[string]any{"enabled": settings.Enabled, "username": settings.Username, "password": generated, "hasPassword": settings.Password != "", "address": address, "listening": listening, "serverUrl": settings.ServerURL})
 }
 
 type gatewayRoute struct {

@@ -3,6 +3,7 @@
 node_modules/
 web/dist/app.js
 web/dist/app.js.map
+/web/dist/chunks/
 .env
 .env.*
 !.env.example

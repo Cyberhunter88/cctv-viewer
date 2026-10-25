@@ -65,6 +65,8 @@ test('single-view cameras hide zoom controls while preserving saved streams',asy
  await openPage(page,'admin/live-share');await page.locator('#live-admin-camera').selectOption(camera.id);
  await expect(page.locator('#live-share-urls')).toContainText('/wide/fast');
  await expect(page.locator('#live-share-urls')).not.toContainText('/zoom/');
+ await page.locator('#live-share-server-url').fill('rtsp://viewer.example:8554');
+ await expect(page.locator('#live-share-urls')).toContainText(`rtsp://viewer.example:8554/live/${camera.id}/wide/fast`);
  page.once('dialog',dialog=>dialog.accept());await openPage(page,'live');const filter=page.locator('#live-filter-'+camera.id);if(await filter.getAttribute('aria-pressed')==='false')await filter.click();
  await expect(page.locator('#live-grid').getByRole('button',{name:'Zoom anzeigen'})).toHaveCount(0);
  const restored=await(await page.request.get(`/api/cameras/${encodeURIComponent(camera.id)}/live`)).json();

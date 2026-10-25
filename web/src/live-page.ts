@@ -9,7 +9,7 @@ type Context={api:<T>(url:string,options?:RequestInit)=>Promise<T>;cameras:()=>C
 export function initLivePage(c:Context){
  const root=document.createElement('section');root.id='live-page';root.className='content-page';root.setAttribute('role','main');root.hidden=true;
  root.innerHTML=`<div class="page-heading"><div><span class="eyebrow">JETZT VOR ORT</span><h1>Liveansicht</h1></div><span id="live-service-status" class="muted" role="status"></span></div>
- <section class="archive-controls" aria-label="Livekameras auswählen"><div class="view-toolbar"><p class="muted">Aktuelle Kamerabilder</p><label class="compact-label">Ansicht<select id="live-layout"><option value="auto">Automatisch</option><option value="1x1">1 × 1</option><option value="2x2">2 × 2</option><option value="3x3">3 × 3</option><option value="4x4">4 × 4</option></select></label></div><section class="camera-selection" aria-label="Livekameraauswahl"><div class="selection-heading"><strong>Kameras</strong><div><button id="live-select-all" class="text-button" type="button">Alle</button><button id="live-select-none" class="text-button" type="button">Keine</button></div></div><div id="live-camera-filters" class="camera-filters"></div></section></section>
+ <section class="archive-controls" aria-label="Livekameras auswählen"><div class="view-toolbar"><p class="muted">Aktuelle Kamerabilder</p><label class="compact-label">Ansicht<select id="live-layout"><option value="auto">Automatisch</option><option value="1x1">1 × 1</option><option value="2x2">2 × 2</option><option value="3x3">3 × 3</option><option value="4x4">4 × 4</option></select></label></div><section class="camera-selection" aria-label="Livekameraauswahl"><div class="selection-heading"><strong>Kameras</strong><div><button id="live-select-all" class="text-button" type="button">Alle</button><button id="live-select-none" class="text-button" type="button">Keine</button></div></div><p class="setting-help">Reihenfolge: Alt + Pfeil links/rechts auf einer Kamera.</p><div id="live-camera-filters" class="camera-filters"></div></section></section>
  <p id="live-empty" class="empty-filter-hint"></p><div id="live-grid" class="video-grid live-grid"></div><div class="live-pagination"><button id="live-prev" class="button secondary" type="button">← Zurück</button><span id="live-range" role="status"></span><button id="live-next" class="button secondary" type="button">Weiter →</button></div><p><button id="live-setup" class="button secondary" type="button">Livequellen einrichten</button></p>`;
  document.querySelector('.workspace')!.append(root);
  const $=<T extends HTMLElement=HTMLElement>(id:string)=>root.querySelector<T>('#'+id)!;
@@ -26,9 +26,10 @@ export function initLivePage(c:Context){
   $('live-service-status').textContent=info.message;$('live-setup').hidden=!c.admin();
   const filters=$('live-camera-filters');filters.replaceChildren();
   for(const id of order){const camera=cameras.find(camera=>camera.id===id)!;const enabled=!!info.cameras[id]?.enabled;
-   const b=document.createElement('button');b.id='live-filter-'+id;b.type='button';b.className='filter'+(selected.has(id)?' selected':'');b.textContent=camera.name+(enabled?'':' · nicht eingerichtet');b.setAttribute('aria-pressed',String(selected.has(id)));b.draggable=true;
+   const b=document.createElement('button');b.id='live-filter-'+id;b.type='button';b.className='filter'+(selected.has(id)?' selected':'');b.textContent=camera.name+(enabled?'':' · nicht eingerichtet');b.setAttribute('aria-pressed',String(selected.has(id)));b.setAttribute('aria-keyshortcuts','Alt+ArrowLeft Alt+ArrowRight');b.title='Reihenfolge mit Alt + Pfeil links/rechts ändern';b.draggable=true;
    b.onclick=()=>{if(selected.has(id))selected.delete(id);else selected.add(id);setSelected([...selected])};
-   b.ondragstart=e=>e.dataTransfer?.setData('text/plain',id);b.ondragover=e=>e.preventDefault();b.ondrop=e=>{e.preventDefault();const source=e.dataTransfer?.getData('text/plain');if(source&&order.includes(source)){prefs.liveOrder=moveCamera(order,source,id);persist();render()}};filters.append(b);
+   b.ondragstart=e=>e.dataTransfer?.setData('text/plain',id);b.ondragover=e=>e.preventDefault();b.ondrop=e=>{e.preventDefault();const source=e.dataTransfer?.getData('text/plain');if(source&&order.includes(source)){prefs.liveOrder=moveCamera(order,source,id);persist();render()}};
+   b.onkeydown=e=>{if(!e.altKey||!['ArrowLeft','ArrowRight'].includes(e.key))return;const target=order.indexOf(id)+(e.key==='ArrowLeft'?-1:1);if(target<0||target>=order.length)return;e.preventDefault();prefs.liveOrder=moveCamera(order,id,order[target]);persist();render()};filters.append(b);
   }
   const layout=$<HTMLSelectElement>('live-layout');layout.value=prefs.liveLayout||'auto';
   const chosen=order.filter(id=>selected.has(id)),grid=$('live-grid'),[columns,rows]=gridSize(layout.value,2,2,chosen.length,grid.clientWidth||innerWidth);
@@ -48,6 +49,7 @@ export function initLivePage(c:Context){
     const heading=document.createElement('strong');heading.textContent=camera.name+(view==='zoom'?' · Zoom':'');
     const video=document.createElement('video');video.setAttribute('aria-label','Livebild '+heading.textContent);video.onclick=()=>void video.play().catch(()=>{});
     const status=document.createElement('p');status.className='live-tile-status';status.setAttribute('role','status');
+    const qualityHint=document.createElement('p');qualityHint.className='setting-help';qualityHint.hidden=true;
     const controls=document.createElement('div');controls.className='live-tile-controls';
     const button=(text:string,fn:()=>void)=>{const b=document.createElement('button');b.type='button';b.className='text-button';b.textContent=text;b.onclick=fn;controls.append(b);return b};
     const quality=document.createElement('select');quality.setAttribute('aria-label','Livequalität '+heading.textContent);quality.innerHTML='<option value="fast">Schnell</option>';
@@ -57,15 +59,18 @@ export function initLivePage(c:Context){
     button('Vergrößern',()=>{if(document.fullscreenElement)void document.exitFullscreen();else if(tile.requestFullscreen)void tile.requestFullscreen().catch(()=>tile.classList.toggle('expanded'));else tile.classList.toggle('expanded')});
     if(view==='wide'&&zoomAvailable(id)){const zoom=button(openZoom.has(id)?'Zoom schließen':'Zoom anzeigen',()=>{if(openZoom.has(id))openZoom.delete(id);else openZoom.add(id);render();document.getElementById('live-zoom-'+id)?.focus()});zoom.id='live-zoom-'+id;zoom.setAttribute('aria-expanded',String(openZoom.has(id)))}
     nodes.set(key,tile);
-    const start=()=>{players.get(key)?.dispose();if(!info.ready||!capability?.enabled||document.hidden){status.textContent=!capability?.enabled?'Livequelle nicht eingerichtet':info.message||'Livebild angehalten';return}players.set(key,new LivePlayer(video,id,view,quality.value,message=>{status.textContent=message},()=>{quality.value='fast';c.notify('Hohe Qualität wird nicht unterstützt. Schneller Stream wird verwendet.');start()}))};
-    quality.onchange=start;button('Erneut verbinden',start);tile.append(heading,video,status,controls);group.append(tile);start();
+    const start=()=>{players.get(key)?.dispose();if(!info.ready||!capability?.enabled||document.hidden){status.textContent=!capability?.enabled?'Livequelle nicht eingerichtet':info.message||'Livebild angehalten';return}players.set(key,new LivePlayer(video,id,view,quality.value,message=>{status.textContent=message},()=>{quality.value='fast';qualityHint.textContent='Hohe Qualität nicht verfügbar · schneller Stream aktiv';qualityHint.hidden=false;start()}))};
+    quality.onchange=()=>{qualityHint.hidden=true;start()};button('Erneut verbinden',start);tile.append(heading,video,status,qualityHint,controls);group.append(tile);start();
    }
   }
   $<HTMLButtonElement>('live-prev').disabled=page===0;$<HTMLButtonElement>('live-next').disabled=(page+1)*capacity>=chosen.length;
   if(focused)document.getElementById(focused)?.focus({preventScroll:true});
   $('live-range').textContent=chosen.length?`Kameras ${page*capacity+1}–${Math.min(chosen.length,(page+1)*capacity)} von ${chosen.length}`:'Keine Kamera ausgewählt';
  }
- async function refresh(){const current=++generation;try{const next=await c.api<LiveInfo>('/api/live');if(current!==generation)return;const changed=JSON.stringify(next)!==JSON.stringify(info);info=next;if(changed){stop();render()}}catch(error){if(current===generation)$('live-service-status').textContent=(error as Error).message}finally{if(current===generation){clearTimeout(poll);if(active&&!document.hidden)poll=setTimeout(()=>void refresh(),10000)}}}
+ async function refresh(){const current=++generation;try{const next=await c.api<LiveInfo>('/api/live');if(current!==generation)return;const previous=info;info=next;$('live-service-status').textContent=next.message;
+  if(previous.ready!==next.ready){stop();render()}
+  else{let changed=false;for(const id of new Set([...Object.keys(previous.cameras),...Object.keys(next.cameras)]))if(JSON.stringify(previous.cameras[id])!==JSON.stringify(next.cameras[id])){changed=true;for(const [key,node] of nodes)if(key.startsWith(id+':')){players.get(key)?.dispose();players.delete(key);node.remove();nodes.delete(key)}}if(changed)render()}
+ }catch(error){if(current===generation)$('live-service-status').textContent=(error as Error).message}finally{if(current===generation){clearTimeout(poll);if(active&&!document.hidden)poll=setTimeout(()=>void refresh(),10000)}}}
  $('live-select-all').onclick=()=>setSelected(c.cameras().map(camera=>camera.id));$('live-select-none').onclick=()=>setSelected([]);
  $('live-layout').onchange=()=>{c.preferences().liveLayout=$<HTMLSelectElement>('live-layout').value;page=0;persist();render()};
  $('live-prev').onclick=()=>{page--;render()};$('live-next').onclick=()=>{page++;render()};$('live-setup').onclick=()=>navigate('admin/cameras/live');

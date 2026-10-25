@@ -171,6 +171,24 @@ func TestLivePreferencesAndExportPaths(t *testing.T) {
 	if strings.Contains(w.Body.String(), first.Password) {
 		t.Fatal("export password leaked on read")
 	}
+	for _, raw := range []string{"https://viewer.example:8554", "rtsp://user:secret@viewer.example.org:8554", "rtsp://viewer.example:8554/path", "rtsp://viewer.example:8554?", "rtsp://viewer.example:8554#", "rtsp://viewer.example:0", "rtsp://viewer.example:65536"} {
+		w = request(a, "PUT", "/api/admin/live-share", map[string]any{"enabled": false, "serverUrl": raw}, cookie, session.CSRF)
+		if w.Code != 400 {
+			t.Fatalf("invalid server URL %q: %d", raw, w.Code)
+		}
+	}
+	w = request(a, "PUT", "/api/admin/live-share", map[string]any{"enabled": false, "serverUrl": "rtsp://viewer.example:8554"}, cookie, session.CSRF)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"serverUrl":"rtsp://viewer.example:8554"`) {
+		t.Fatal(w.Body.String())
+	}
+	w = request(a, "PUT", "/api/admin/live-share", map[string]any{"enabled": false}, cookie, session.CSRF)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"serverUrl":"rtsp://viewer.example:8554"`) {
+		t.Fatal("legacy PUT lost server URL", w.Body.String())
+	}
+	w = request(a, "PUT", "/api/admin/live-share", map[string]any{"enabled": false, "serverUrl": ""}, cookie, session.CSRF)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"serverUrl":""`) {
+		t.Fatal("clearing server URL failed", w.Body.String())
+	}
 }
 func TestLiveMigrationAndMissingBinary(t *testing.T) {
 	a := testApp(t)

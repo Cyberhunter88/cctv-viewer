@@ -10,6 +10,9 @@ test('live navigation and empty selection persist independently from recordings'
  await page.reload();await expect(page.locator('#live-empty')).toContainText('Keine Kameras ausgewählt');
  await openPage(page,'recordings');expect(await page.locator('#camera-filters .selected').allTextContents()).toEqual(recorded);
  await openPage(page,'live');await page.locator('#live-select-all').click();await expect(page.locator('#live-camera-filters .selected')).toHaveCount(2);
+ const first=await page.locator('#live-camera-filters .filter').first().textContent();
+ await page.locator('#live-camera-filters .filter').first().focus();await page.keyboard.press('Alt+ArrowRight');
+ await expect(page.locator('#live-camera-filters .filter').last()).toHaveText(first!);
  await page.locator('#live-camera-filters .filter').first().click();await expect(page.locator('#live-camera-filters .selected')).toHaveCount(1);
 });
 
@@ -19,6 +22,21 @@ test('live camera administration protects unsaved edits and does not disclose pa
  await page.locator('#live-fast').fill('rtsp://camera.example.org/sub');
  page.once('dialog',dialog=>dialog.dismiss());await page.locator('#close-dialog').click();await expect(page.locator('#live-admin')).toBeVisible();await expect(page.locator('#live-fast')).toHaveValue('rtsp://camera.example.org/sub');
  page.once('dialog',dialog=>dialog.accept());await page.locator('#close-dialog').click();await expect(page).toHaveURL(/#recordings$/);
+});
+
+test('Home Assistant server URL persists in the form and generates copyable links',async({page})=>{
+ let serverUrl='';
+ await page.route('**/api/admin/live-share',route=>{if(route.request().method()==='PUT')serverUrl=route.request().postDataJSON().serverUrl;return route.fulfill({json:{enabled:false,username:'homeassistant',password:'',hasPassword:true,address:'0.0.0.0:8554',listening:false,serverUrl}})});
+ await page.route('**/api/cameras/*/live',route=>route.fulfill({json:{enabled:true,username:'',hasPassword:false,shared:true,sources:{fast:'rtsp://camera.example/sub',high:'',zoomFast:'',zoomHigh:''}}}));
+ await login(page);await openPage(page,'admin/live-share');
+ const id=await page.locator('#live-admin-camera').inputValue();
+ await page.locator('#live-share-server-url').fill('rtsp://viewer.example:8554');
+ await expect(page.locator('#live-share-urls')).toContainText(`rtsp://viewer.example:8554/live/${id}/wide/fast`);
+ await page.locator('#live-share-form button[type=submit]').click();
+ await expect(page.locator('#live-share-error')).toBeEmpty();
+ await page.reload();await openPage(page,'admin/live-share');
+ await expect(page.locator('#live-share-server-url')).toHaveValue('rtsp://viewer.example:8554');
+ await expect(page.locator('#live-share-urls')).toContainText(`rtsp://viewer.example:8554/live/${id}/wide/fast`);
 });
 
 test('real live stream plays through HTTPS fallback, supports zoom and releases on leave',async({page})=>{

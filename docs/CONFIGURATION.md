@@ -10,7 +10,7 @@ Bearbeitung der `.env` für weitere Benutzer erforderlich.
 | Einstellungen → Wiedergabe | Kamerabilder, Raster, Vorladen, Zeitleiste, Tastenkürzel und Diagnose |
 | Einstellungen → Mein Konto / Meine Sitzungen | Eigenes lokales Passwort ändern; eigene aktive Sitzungen einzeln oder gemeinsam beenden |
 | Verwaltung → Kameras | Reiter Allgemein, Aufnahmen und Live; Aufnahmeordner, Dateizuordnung, Livequellen und Vorladen |
-| Verwaltung → Streamfreigabe | Globale RTSP-Freigabe und Home-Assistant-Zugangsdaten |
+| Verwaltung → Streamfreigabe | Globale RTSP-Freigabe, Home-Assistant-Zugangsdaten und kopierbare Server-URL |
 | Verwaltung → Benutzer | Lokale Konten anlegen, suchen, bearbeiten, sperren, entsperren und löschen; Passwörter setzen |
 | Verwaltung → Sitzungen | Aktive lokale und SSO-Sitzungen aller Konten anzeigen und einzeln beenden |
 | Verwaltung → Anmeldung / OIDC | Lokale Anmeldung, Issuer, Client-ID, Client-Secret, Gruppen-Claim sowie Gruppen-/Subject-Freigaben |

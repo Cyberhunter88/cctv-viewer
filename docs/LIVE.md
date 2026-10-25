@@ -73,9 +73,13 @@ location / {
    Dockerhosts ersetzen und
    `docker compose up -d` ausführen. Alles läuft mit derselben `compose.yaml`
    in einem Container. Standardmäßig bindet Port 8554 nur an den Dockerhost.
-4. In Home Assistant **Einstellungen → Geräte & Dienste → Integration hinzufügen →
-   Generic Camera** wählen. Die angezeigte Streamadresse mit der erreichbaren
-   Viewer-Adresse ergänzen. Benutzername/Passwort separat eintragen und
+4. Unter **Streamfreigabe** die von Home Assistant erreichbare **Server-URL**
+   eintragen, zum Beispiel `rtsp://192.168.1.10:8554`. Sie dient nur den
+   kopierbaren Streamadressen und ändert weder Listener noch Docker-Portmapping.
+   Ohne Eintrag bleibt der Platzhalter in den angezeigten Adressen erhalten.
+5. In Home Assistant **Einstellungen → Geräte & Dienste → Integration hinzufügen →
+   Generic Camera** wählen. Die fertige Streamadresse kopieren,
+   Benutzername/Passwort separat eintragen und
    **RTSP-Transport TCP** auswählen. Ein separates Standbild ist nicht erforderlich,
    wenn Home Assistants Stream-Integration aktiv ist.
 

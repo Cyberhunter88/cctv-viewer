@@ -15,7 +15,7 @@ import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRe
 import {initSearchPage,type SearchPage} from './search-page';
 import {initCameraEditor} from './camera-editor';
 import {createTimelineView} from './timeline-view';
-interface Camera {viewMode?:string;wideMarker?:string;zoomMarker?:string;zoomOffset?:number;supportsZoom?:boolean;id:string;name:string;folder:string;pattern:string;timezone:string;offset:number;format?:string;prefix?:string;indexingMode?:string;directoryPattern?:string;sourceStatus?:string;lastScan?:number;indexedVideos?:number}
+interface Camera {viewMode?:string;wideMarker?:string;zoomMarker?:string;zoomOffset?:number;supportsZoom?:boolean;id:string;name:string;folder:string;pattern:string;timezone:string;offset:number;format?:string;prefix?:string;indexingMode?:string;directoryPattern?:string;sourceStatus?:string;lastScan?:number;lastRecording?:number;indexedVideos?:number}
 interface ViewDetection {status:'confirmed'|'swapped'|'unclear';message:string;pairs:number}
 interface Session {preferenceKey:string;name:string;role:'admin'|'viewer';csrf:string;kind:'local'|'oidc'}
 interface CameraScan {id:string;name:string;state:string;inspected:number;added:number;changed:number;skipped:number}
@@ -191,7 +191,7 @@ function renderGrid(){
  restored?.focus({preventScroll:true});
 }
 function renderCameras(){
- lastHotspotCursor=undefined;playableRecords=playbackRecordings(records,cameras); const filters=$('camera-filters');filters.replaceChildren();for(const id of order){const camera=cameras.find(c=>c.id===id);if(!camera)continue;const b=element('button','filter'+(selected.has(id)?' selected':''),camera.name);b.setAttribute('aria-pressed',String(selected.has(id)));b.draggable=true;b.ondragstart=e=>e.dataTransfer?.setData('text/plain',id);b.ondragover=e=>e.preventDefault();b.ondrop=e=>{e.preventDefault();const source=e.dataTransfer?.getData('text/plain');if(!source||!order.includes(source))return;order=moveCamera(order,source,id);renderCameras();saveView()};b.onclick=()=>{if(selected.has(id))selected.delete(id);else selected.add(id);page=0;renderCameras();saveView()};filters.append(b)}
+ lastHotspotCursor=undefined;playableRecords=playbackRecordings(records,cameras); const filters=$('camera-filters');filters.replaceChildren();for(const id of order){const camera=cameras.find(c=>c.id===id);if(!camera)continue;const b=element('button','filter'+(selected.has(id)?' selected':''),camera.name);b.setAttribute('aria-pressed',String(selected.has(id)));b.draggable=true;b.ondragstart=e=>e.dataTransfer?.setData('text/plain',id);b.ondragover=e=>e.preventDefault();b.ondrop=e=>{e.preventDefault();const source=e.dataTransfer?.getData('text/plain');if(!source||!order.includes(source))return;order=moveCamera(order,source,id);renderCameras();saveView()};b.id='recording-filter-'+id;b.title='Reihenfolge mit Alt + Pfeil links/rechts ändern';b.setAttribute('aria-keyshortcuts','Alt+ArrowLeft Alt+ArrowRight');b.onkeydown=e=>{if(!e.altKey||!['ArrowLeft','ArrowRight'].includes(e.key))return;const target=order.indexOf(id)+(e.key==='ArrowLeft'?-1:1);if(target<0||target>=order.length)return;e.preventDefault();order=moveCamera(order,id,order[target]);renderCameras();document.getElementById('recording-filter-'+id)?.focus({preventScroll:true});saveView()};b.onclick=()=>{if(selected.has(id))selected.delete(id);else selected.add(id);page=0;renderCameras();saveView()};filters.append(b)}
  renderGrid();$('empty').hidden=cameras.length!==0;$('timeline-section').hidden=cameras.length===0;$('playback-controls').hidden=cameras.length===0;$('add-first').hidden=session.role!=='admin';update();void thumbnails();
 }
 function setScan(scan:Scan){
@@ -271,7 +271,9 @@ function renderCameraList(){
   const select=element('button','camera-edit'),name=element('strong','camera-name',c.name);
   select.type='button';select.setAttribute('aria-label',c.name);select.setAttribute('aria-pressed',String(editing===c.id));
   const status=element('span','camera-status'+(c.sourceStatus==='offline'?' is-offline':''),`${c.sourceStatus==='offline'?'Quelle offline':'Quelle erreichbar'} · ${c.indexedVideos||0} ${c.indexedVideos===1?'Video':'Videos'}`);
-  if(cameraLiveCapabilities[c.id])status.textContent+=' · '+(cameraLiveCapabilities[c.id].enabled?'Live aktiv':'Live aus');
+  if(cameraLiveCapabilities[c.id])status.textContent+=' · '+(cameraLiveCapabilities[c.id].enabled?'Live eingerichtet':'Live aus');
+  if(c.lastScan)status.textContent+=' · Scan '+new Date(c.lastScan*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Berlin'});
+  status.textContent+=' · '+(c.lastRecording?'Letzte Aufnahme '+new Date(c.lastRecording*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Berlin'}):'Noch keine Aufnahme im Index');
   select.append(name,status,element('span','camera-edit-label','Bearbeiten →'));
   select.onclick=()=>{if(cameraSaving||!discardCamera()||!cameraSettings.canChange())return;editCamera(c);showCameraEditor()};
   const actions=element('div','camera-entry-actions');
