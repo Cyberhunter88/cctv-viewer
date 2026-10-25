@@ -26,6 +26,16 @@ test('search offers chronological order and groups results by day',async({page})
  await expect(page.locator('.search-day').first()).toBeVisible();
  await expect(page.locator('.search-result img.search-preview').first()).toHaveAttribute('loading','lazy');
 });
+
+test('failed search keeps a visible retry action',async({page})=>{
+ let calls=0;
+ await page.route('**/api/search*',route=>{if(++calls===1)return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Suche vorübergehend nicht verfügbar'})});return route.fulfill({json:{results:[{id:'retry-hit',cameraId:'Testkamera-B',cameraName:'Testkamera-B',filename:'retry.mp4',start:1791966605,duration:30}],total:1,offset:0,limit:100,hasMore:false}})});
+ await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible();
+ await openNavigation(page,'search-button');await page.locator('#search-form input[name=q]').fill('Testkamera-B');await page.locator('#search-submit').click();
+ await expect(page.getByRole('button',{name:'Suche erneut versuchen'})).toBeVisible();
+ await page.getByRole('button',{name:'Suche erneut versuchen'}).click();
+ await expect(page.locator('.search-result')).toHaveCount(1);expect(calls).toBe(2);
+});
 test('search result opens the right hotspot page',async({page})=>{
  await page.route('**/api/cameras',async route=>{
   if(route.request().method()!=='GET')return route.continue();

@@ -183,20 +183,21 @@ func (a *App) Handler() http.Handler {
 			fail(w, 500, "Kameras nicht lesbar")
 			return
 		}
-		rows, e := a.db.QueryContext(r.Context(), `SELECT c.id,COALESCE(s.success,0),COALESCE(v.video_count,0) FROM cameras c LEFT JOIN camera_scans s ON s.camera_id=c.id LEFT JOIN (SELECT camera_id,COUNT(*) AS video_count FROM recordings WHERE codec!='jpeg' GROUP BY camera_id) v ON v.camera_id=c.id`)
+		rows, e := a.db.QueryContext(r.Context(), `SELECT c.id,COALESCE(s.success,0),COALESCE(v.video_count,0),COALESCE(v.last_recording,0) FROM cameras c LEFT JOIN camera_scans s ON s.camera_id=c.id LEFT JOIN (SELECT camera_id,COUNT(*) AS video_count,MAX(start+duration) AS last_recording FROM recordings WHERE codec!='jpeg' GROUP BY camera_id) v ON v.camera_id=c.id`)
 		if e != nil {
 			fail(w, 500, "Kamerastatus nicht lesbar")
 			return
 		}
 		type cameraStats struct {
-			lastScan int64
-			videos   int
+			lastScan      int64
+			videos        int
+			lastRecording float64
 		}
 		stats := make(map[string]cameraStats, len(cams))
 		for rows.Next() {
 			var id string
 			var item cameraStats
-			if e = rows.Scan(&id, &item.lastScan, &item.videos); e != nil {
+			if e = rows.Scan(&id, &item.lastScan, &item.videos, &item.lastRecording); e != nil {
 				rows.Close()
 				fail(w, 500, "Kamerastatus nicht lesbar")
 				return
@@ -211,6 +212,7 @@ func (a *App) Handler() http.Handler {
 		}
 		for i := range cams {
 			cams[i].LastScan = stats[cams[i].ID].lastScan
+			cams[i].LastRecording = stats[cams[i].ID].lastRecording
 			cams[i].IndexedVideos = stats[cams[i].ID].videos
 			cams[i].SourceStatus = "online"
 			if st, e := a.root.Stat(cams[i].Folder); e != nil || !st.IsDir() {
@@ -242,7 +244,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/streams/{id}", a.protect(false, a.deleteStream))
 	mux.HandleFunc("GET /api/streams/{id}/{file}", a.protect(false, a.streamFile))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && r.URL.Path != "/app.js" && r.URL.Path != "/theme.js" && r.URL.Path != "/style.css" && r.URL.Path != "/favicon.svg" && r.URL.Path != "/favicon.ico" {
+		if r.URL.Path != "/" && r.URL.Path != "/app.js" && r.URL.Path != "/chunks/hls.js" && r.URL.Path != "/theme.js" && r.URL.Path != "/style.css" && r.URL.Path != "/favicon.svg" && r.URL.Path != "/favicon.ico" {
 			http.NotFound(w, r)
 			return
 		}

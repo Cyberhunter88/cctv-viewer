@@ -4,6 +4,14 @@ Referenz: [cctv-timeline-viewer-core, Commit 9c3128c756430529dc5c34c52d6bb4e8e5c
 Abgleich von README, Kamera-/Such-/System-APIs, Indexierung, Hotspot und Oberfläche.
 Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht übernommen.
 
+## Ergänzungen ab 0.12.0
+
+| Funktion | Umsetzung | Nachweis |
+|---|---|---|
+| Kopierbare HA-Streamadressen | Gespeicherte RTSP-Server-URL ersetzt den Platzhalter, ohne Listener oder Portmapping zu ändern | Go: LivePreferencesAndExportPaths; Browser: Livefreigabe |
+| Stabilere Liveansicht | Statusaktualisierungen lassen unveränderte Player laufen; Qualitätsrückfall steht an der Kachel | Browser: Liveansicht |
+| Such- und Kamerastatus | Lade- und Wiederholungszustände, letzte Aufnahme und letzter Scan in der Kameraliste | Go: Kamerastatus; Browser: Suche und Kameraverwaltung |
+
 ## Ergänzungen ab 0.11.2
 
 | Funktion | Umsetzung | Nachweis |

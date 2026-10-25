@@ -8,6 +8,7 @@ data
 *.db*
 web/dist/app.js
 web/dist/app.js.map
+web/dist/chunks/
 secrets
 .sync-conflicts/
 **/*.sync-conflict-*

@@ -21,7 +21,10 @@ export function initSearchPage(options:SearchOptions){
  const sortLabel=document.createElement('label');sortLabel.textContent='Sortierung';
  const sort=document.createElement('select');sort.name='order';sort.add(new Option('Neueste zuerst','desc'));sort.add(new Option('Älteste zuerst','asc'));sortLabel.append(sort);
  form.querySelector('#search-submit')?.before(sortLabel);
- function cancelSearch(){generation++;requests.cancel();more.disabled=false;$<HTMLButtonElement>('search-submit').disabled=false}
+ const searchStatus=document.createElement('p');searchStatus.id='search-status';searchStatus.className='muted';searchStatus.setAttribute('role','status');form.after(searchStatus);
+ const retry=document.createElement('button');retry.type='button';retry.className='button secondary';retry.textContent='Suche erneut versuchen';retry.hidden=true;$('search-error').after(retry);
+ let retryAppend=false;
+ function cancelSearch(){generation++;requests.cancel();more.disabled=false;$<HTMLButtonElement>('search-submit').disabled=false;search.removeAttribute('aria-busy');searchStatus.textContent=''}
  registerPage('search',{element:search,title:'Suche',leave:()=>{cancelSearch();return true},enter:()=>{
   const select=$<HTMLSelectElement>('search-camera'),previous=select.value;
   select.replaceChildren(new Option('Alle Kameras',''));
@@ -36,7 +39,7 @@ export function initSearchPage(options:SearchOptions){
   const request=requests.begin();
   const own=++generation,query=new URLSearchParams(params);
   query.set('offset',String(offset));if(cursor){query.set('cursor',cursor);query.set('count','0')}more.disabled=true;
-  $('search-error').textContent='';
+  $('search-error').textContent='';retry.hidden=true;searchStatus.textContent=append?'Weitere Treffer werden geladen …':'Suche läuft …';search.setAttribute('aria-busy','true');
   try{
    const data=await options.request('/api/search?'+query,request.signal);
    if(own!==generation||!request.current())return;
@@ -55,14 +58,14 @@ export function initSearchPage(options:SearchOptions){
    offset+=data.results.length;cursor=data.nextCursor||'';
    $('search-count').hidden=total===0;
    $('search-count').textContent=total?`${offset} von ${total} Treffern angezeigt`:'';
-   if(!total)root.textContent='Keine Treffer im bisherigen Index. Weitere Tage öffnen oder Kameras scannen.';
+   if(!total)root.textContent='Keine Treffer für diese Suche im bisherigen Index. Prüfe die Filter oder öffne weitere Tage beziehungsweise starte einen Kamerascan.';
    hasMore=data.hasMore;more.hidden=!hasMore;
    more.textContent=`Weitere ${Math.min(data.limit,total-offset)} laden`;
-  }catch(e){if(own===generation&&request.current()&&(e as Error).name!=='AbortError'){retryInitial=false;$('search-error').textContent=(e as Error).message}}
-  finally{if(own===generation&&request.current()){more.disabled=false;$<HTMLButtonElement>('search-submit').disabled=false}}
+  }catch(e){if(own===generation&&request.current()&&(e as Error).name!=='AbortError'){retryInitial=false;retryAppend=append;$('search-error').textContent=(e as Error).message;retry.hidden=false}}
+  finally{if(own===generation&&request.current()){more.disabled=false;$<HTMLButtonElement>('search-submit').disabled=false;search.removeAttribute('aria-busy');searchStatus.textContent=''}}
  }
  form.onsubmit=e=>{
-  e.preventDefault();cancelSearch();retryInitial=false;params=undefined;offset=0;cursor='';total=0;lastDay='';hasMore=false;
+  e.preventDefault();cancelSearch();retryInitial=false;retry.hidden=true;params=undefined;offset=0;cursor='';total=0;lastDay='';hasMore=false;
   try{
    const data=new FormData(form);params=new URLSearchParams();
    for(const [key,value] of data){if(!value)continue;params.set(key,(key==='from'||key==='to')?String(berlinEpoch(String(value).length===16?String(value)+':00':String(value))):String(value))}
@@ -71,6 +74,7 @@ export function initSearchPage(options:SearchOptions){
   }catch(error){$('search-error').textContent=(error as Error).message}
  };
  more.addEventListener('click',()=>{if(hasMore&&!more.disabled)void load(true)});
+ retry.addEventListener('click',()=>void load(retryAppend));
  window.addEventListener('pagehide',cancelSearch);
  window.addEventListener('pageshow',event=>{if(event.persisted&&!search.hidden&&retryInitial)void load()});
 }

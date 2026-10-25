@@ -62,6 +62,29 @@ func login(t *testing.T, a *App) (*http.Cookie, Session) {
 	}
 	return cookie, s
 }
+func TestHLSChunkIsServedAsJavaScript(t *testing.T) {
+	a := testApp(t)
+	a.assets = fstest.MapFS{"index.html": {Data: []byte("test")}, "chunks/hls.js": {Data: []byte("export const ready = true")}}
+	w := request(a, "GET", "/chunks/hls.js", nil, nil, "")
+	if w.Code != 200 || w.Header().Get("Content-Type") != "text/javascript; charset=utf-8" || !strings.Contains(w.Body.String(), "ready") {
+		t.Fatal(w.Code, w.Header().Get("Content-Type"), w.Body.String())
+	}
+}
+func TestCameraStatusIncludesLatestIndexedRecording(t *testing.T) {
+	a := testApp(t)
+	if err := a.db.SaveCamera(Camera{ID: "camera", Name: "Camera", Folder: "camera", Timezone: "Europe/Berlin"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec(`INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod,filename) VALUES('clip','camera','camera/clip.mp4',1000,30,'h264',1,1,'clip.mp4')`); err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := login(t, a)
+	w := request(a, "GET", "/api/cameras", nil, cookie, "")
+	var cameras []Camera
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &cameras) != nil || len(cameras) != 1 || cameras[0].LastRecording != 1030 || cameras[0].IndexedVideos != 1 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}
 func TestTimestamps(t *testing.T) {
 	pattern := "{YYYY}/{MM}/{DD}/{hh}-{mm}-{ss}.mp4"
 	cases := []struct {

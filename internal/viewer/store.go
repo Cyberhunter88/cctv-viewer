@@ -36,6 +36,7 @@ type Camera struct {
 	DirectoryPattern string         `json:"directoryPattern"`
 	SourceStatus     string         `json:"sourceStatus"`
 	LastScan         int64          `json:"lastScan"`
+	LastRecording    float64        `json:"lastRecording"`
 	IndexedVideos    int            `json:"indexedVideos"`
 }
 type Recording struct {

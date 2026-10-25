@@ -1,10 +1,12 @@
-import Hls from 'hls.js';
+import type Hls from 'hls.js';
 import { recordingAt, clock, type Recording } from './timeline';
 import type { ViewState } from './view-state';
 interface PlaybackCamera {
   id: string;
   name: string;
 }
+let hlsModule:Promise<typeof import('hls.js')>|undefined;
+function loadHls(){return hlsModule??=import('hls.js')}
 export interface TileContext {
   state: ViewState;
   cursor: () => number;
@@ -318,18 +320,23 @@ export class Tile {
           this.video.src = stream.url;
         }
         // A growing EVENT playlist starts at the recording origin, not the live edge.
-        else if (Hls.isSupported()) {
-          this.hls = new Hls({ startPosition: 0, maxBufferLength: 20, maxMaxBufferLength: 40, backBufferLength: 10 });
-          this.hls.on(Hls.Events.ERROR, (_event, data) => {
-            if (data.fatal) {
-              this.recover('Streaming unterbrochen');
-            }
-          });
-          this.hls.loadSource(stream.url);
-          this.hls.attachMedia(this.video);
-        }
-        else if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
-          this.video.src = stream.url;
+        else if (transport === 'hls') {
+          const {default:Hls}=await loadHls();
+          if(epoch!==this.epoch)return;
+          if(!Hls.isSupported()){
+            if(!this.video.canPlayType('application/vnd.apple.mpegurl'))throw new Error('HLS wird nicht unterstützt');
+            this.video.src=stream.url;
+          }
+          else {
+            this.hls = new Hls({ startPosition: 0, maxBufferLength: 20, maxMaxBufferLength: 40, backBufferLength: 10 });
+            this.hls.on(Hls.Events.ERROR, (_event, data) => {
+              if (data.fatal) {
+                this.recover('Streaming unterbrochen');
+              }
+            });
+            this.hls.loadSource(stream.url);
+            this.hls.attachMedia(this.video);
+          }
         }
         else {
           throw new Error('HLS wird nicht unterstützt');
