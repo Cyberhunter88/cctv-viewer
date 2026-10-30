@@ -101,16 +101,24 @@ func TestSearchClockCorrectionAndPagination(t *testing.T) {
 								Total      int
 								HasMore    bool
 								NextCursor string
-							} { t.Helper(); w := httptest.NewRecorder(); app.searchRecordings(w, httptest.NewRequest("GET", "/api/search?"+params.Encode(), nil)); if w.Code != 200 {
-								t.Fatal(w.Code, w.Body.String())
-							}; var page struct {
-								Results    []searchHit
-								Total      int
-								HasMore    bool
-								NextCursor string
-							}; if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil {
-								t.Fatal(err)
-							}; return page }
+							} {
+								t.Helper()
+								w := httptest.NewRecorder()
+								app.searchRecordings(w, httptest.NewRequest("GET", "/api/search?"+params.Encode(), nil))
+								if w.Code != 200 {
+									t.Fatal(w.Code, w.Body.String())
+								}
+								var page struct {
+									Results    []searchHit
+									Total      int
+									HasMore    bool
+									NextCursor string
+								}
+								if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil {
+									t.Fatal(err)
+								}
+								return page
+							}
 							got := []searchHit{}
 							for pageNumber := 0; ; pageNumber++ {
 								if pageNumber > 5 {
