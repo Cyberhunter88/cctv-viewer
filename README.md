@@ -382,8 +382,9 @@ zur nächsten Aufnahme in den sichtbaren Kameras.
 
 ## Ressourcen und Diagnose
 
-- `CTV_MAX_TRANSCODERS=0`: unbegrenzte Zahl gleichzeitiger Encoder. UI-Bereich 0–64;
+- `CTV_MAX_TRANSCODERS=4`: maximal vier gleichzeitige Encoder. `0` erlaubt unbegrenzt; UI-Bereich 0–64;
   ein kleineres Limit betrifft neue Aufträge, bestehende Encoder laufen weiter.
+  Der Standard gilt auch für bestehende Installationen ohne eigenen Umgebungs- oder Webwert.
   Bei komprimierter Wiedergabe benötigt ein Weitwinkel-/Zoom-Paar bis zu zwei
   Encoderplätze. Originalwiedergabe benötigt keine Encoderplätze.
 - `CTV_HLS_TEMP_MB=256`: gemeinsames Budget für temporäre komprimierte Streams;

@@ -4,6 +4,12 @@ Referenz: [cctv-timeline-viewer-core, Commit 9c3128c756430529dc5c34c52d6bb4e8e5c
 Abgleich von README, Kamera-/Such-/System-APIs, Indexierung, Hotspot und Oberfläche.
 Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht übernommen.
 
+## Ergänzungen ab 0.12.1
+
+| Funktion | Umsetzung | Nachweis |
+|---|---|---|
+| Ressourcenschutz | Passwortänderungen teilen das Hashing-Limit; ohne eigene Einstellung sind standardmäßig vier Encoder erlaubt | Go: PasswordChangeSharesHashingLimit, ConfigDefaultsAndValidation |
+
 ## Ergänzungen ab 0.12.0
 
 | Funktion | Umsetzung | Nachweis |

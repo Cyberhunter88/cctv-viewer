@@ -45,10 +45,14 @@ func TestLiveWarmPolicy(t *testing.T) {
 }
 func TestLiveWarmSchedule(t *testing.T) {
 	last := time.Now()
-	if got := warmDeadline("idle", 0, last); !got.Equal(last.Add(60*time.Second)) {
+	if got := warmDeadline("idle", 0, last); !got.Equal(last.Add(60 * time.Second)) {
 		t.Fatal("idle source has no expiration deadline", got)
 	}
-	for _, tc := range []struct{ mode string; users int; last time.Time }{
+	for _, tc := range []struct {
+		mode  string
+		users int
+		last  time.Time
+	}{
 		{"always", 0, last}, {"off", 0, last}, {"idle", 1, last}, {"idle", 0, time.Time{}},
 	} {
 		if got := warmDeadline(tc.mode, tc.users, tc.last); !got.IsZero() {

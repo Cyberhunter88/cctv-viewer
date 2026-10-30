@@ -73,6 +73,13 @@ func (a *App) saveUser(w http.ResponseWriter, r *http.Request) {
 	hash := ""
 	var e error
 	if in.Password != "" {
+		select {
+		case a.limits.active <- struct{}{}:
+			defer func() { <-a.limits.active }()
+		default:
+			fail(w, 429, "Passwortprüfung ausgelastet")
+			return
+		}
 		hash, e = HashPassword(in.Password)
 		if e != nil {
 			fail(w, 400, e.Error())
@@ -171,6 +178,13 @@ func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(in.Current) > 1024 || !a.limits.allow(a.clientIP(r)) {
 		fail(w, 429, "Zu viele Versuche")
+		return
+	}
+	select {
+	case a.limits.active <- struct{}{}:
+		defer func() { <-a.limits.active }()
+	default:
+		fail(w, 429, "Passwortprüfung ausgelastet")
 		return
 	}
 	var old string

@@ -166,6 +166,29 @@ func TestLoginBodyValidationAndHashingLimit(t *testing.T) {
 	}
 }
 
+func TestPasswordChangeSharesHashingLimit(t *testing.T) {
+	a := testApp(t)
+	cookie, session := login(t, a)
+	for range cap(a.limits.active) {
+		a.limits.active <- struct{}{}
+	}
+	w := request(a, "POST", "/api/password", map[string]string{"current": "a long secure password", "password": "another secure password"}, cookie, session.CSRF)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("password change bypassed occupied hashing slots: %d", w.Code)
+	}
+	w = request(a, "POST", "/api/admin/users", map[string]any{"username": "another", "role": "viewer", "password": "another secure password", "create": true}, cookie, session.CSRF)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("admin password creation bypassed occupied hashing slots: %d", w.Code)
+	}
+	for len(a.limits.active) > 0 {
+		<-a.limits.active
+	}
+	w = request(a, "POST", "/api/password", map[string]string{"current": "a long secure password", "password": "another secure password"}, cookie, session.CSRF)
+	if w.Code != http.StatusOK {
+		t.Fatalf("password change failed with free hashing capacity: %d", w.Code)
+	}
+}
+
 type loginSettingsBody struct {
 	*strings.Reader
 	disable func()
