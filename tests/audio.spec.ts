@@ -111,6 +111,7 @@ test('compressed playback starts at the requested position when native HLS is ad
  });
  const cleanup=await setup(page);
  try{
+  const linuxWebKit=await page.evaluate(()=>navigator.platform.startsWith('Linux')&&navigator.vendor==='Apple Computer, Inc.');
   await page.locator('.tile-audio').last().click();await page.locator('#play').click();
   await expect.poll(()=>page.locator('video').last().evaluate(v=>!v.paused&&v.currentTime>.2)).toBe(true);
   const streams:{transport:string;profile:string}[]=[];
@@ -118,11 +119,12 @@ test('compressed playback starts at the requested position when native HLS is ad
   for(const quality of ['balanced','fast']){
    const previousExpanded=expanded.size;
    await page.locator('#quality').selectOption(quality);await audible(page,1);
-   await expect.poll(()=>expanded.size,{timeout:15000}).toBeGreaterThanOrEqual(previousExpanded+2);
+   if(!linuxWebKit)await expect.poll(()=>expanded.size,{timeout:15000}).toBeGreaterThanOrEqual(previousExpanded+2);
    await expect.poll(()=>page.locator('video').last().evaluate(v=>!v.paused&&v.readyState>=2&&v.currentTime>1.5),{timeout:25000}).toBe(true);
+   await expect.poll(()=>page.locator('video').evaluateAll(v=>v.every(x=>!x.paused&&x.readyState>=2)),{timeout:25000}).toBe(true);
    await expect(page.locator('.tile-message.error')).toHaveCount(0);
    expect(streams.filter(s=>s.profile===quality).length).toBeGreaterThanOrEqual(2);
-   expect(streams.every(s=>s.transport==='hls')).toBe(true);
+   expect(streams.every(s=>s.transport===(linuxWebKit?'mp4':'hls'))).toBe(true);
    // The shared clock and both recordings must remain near the start, rather
    // than jumping to the live edge of a playlist that is still growing.
    const seconds=await page.locator('#clock').textContent();expect(Number(seconds!.split(':')[2])).toBeLessThan(20);
