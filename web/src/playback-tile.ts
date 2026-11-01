@@ -1,6 +1,9 @@
 import type Hls from 'hls.js';
 import { recordingAt, clock, type Recording } from './timeline';
 import type { ViewState } from './view-state';
+// Linux WebKit's GStreamer MediaSource can fail with multiple HLS audio streams.
+// Fragmented MP4 avoids that backend path and still supports compressed playback.
+const useProgressiveOnLinuxWebKit = navigator.platform.startsWith('Linux') && navigator.vendor === 'Apple Computer, Inc.';
 interface PlaybackCamera {
   id: string;
   name: string;
@@ -302,7 +305,7 @@ export class Tile {
       }
       else {
         this.abort = new AbortController();
-        const transport = this.video.canPlayType('application/vnd.apple.mpegurl') ? 'hls' : 'mp4';
+        const transport = !useProgressiveOnLinuxWebKit && this.video.canPlayType('application/vnd.apple.mpegurl') ? 'hls' : 'mp4';
         const stream = await this.context.request<{
           id: string;
           url: string;

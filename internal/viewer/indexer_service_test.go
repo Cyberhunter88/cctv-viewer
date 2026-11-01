@@ -26,6 +26,21 @@ func waitIndex(t *testing.T, a *App) ScanStatus {
 	t.Fatal("indexer did not finish")
 	return ScanStatus{}
 }
+
+func TestScanHistoryWriteFailureIsReported(t *testing.T) {
+	a := testApp(t)
+	if _, err := a.db.Exec(`DROP TABLE scan_history`); err != nil {
+		t.Fatal(err)
+	}
+	a.index.mu.Lock()
+	a.index.status = ScanStatus{Warnings: []string{"system warning"}}
+	a.saveScanHistoryLocked(scanJob{id: "history-error"})
+	warnings := append([]string(nil), a.index.status.Warnings...)
+	a.index.mu.Unlock()
+	if !contains(warnings, "Scanverlauf konnte nicht gespeichert werden") {
+		t.Fatalf("history write failure not reported: %v", warnings)
+	}
+}
 func TestIndexQueueDedupeAndFairness(t *testing.T) {
 	a := testApp(t)
 	a.index.mu.Lock()
@@ -192,64 +207,111 @@ func TestPartialAndUnavailableSourcesPreserveExistingIndex(t *testing.T) {
 	}
 }
 func TestMissingRecordingRequiresConfirmedCleanup(t *testing.T) {
-	a:=testApp(t)
-	c:=fixture(t,a,"libx264")
+	a := testApp(t)
+	c := fixture(t, a, "libx264")
 	a.scanDay("2026-10-14")
-	items,err:=a.db.Recordings(c.ID,0,2e10)
-	if err!=nil || len(items)!=1 { t.Fatal(items,err) }
-	if err:=os.Remove(filepath.Join(a.cfg.RecordingsDir,items[0].Path));err!=nil { t.Fatal(err) }
-	if !a.scanPartition(c,c.Folder,0,math.MaxInt64) { t.Fatal("empty source scan failed") }
-	if _,err:=a.db.Recording(items[0].ID);err!=nil { t.Fatal("ordinary scan deleted recording",err) }
-	ids,digest,err:=a.cleanupCandidates(c.ID)
-	if err!=nil || len(ids)!=1 || digest=="" { t.Fatal(ids,digest,err) }
-	cookie,session:=login(t,a)
-	preview:=request(a,"GET","/api/index/cleanup?camera="+c.ID,nil,cookie,"")
-	if preview.Code!=200 { t.Fatal(preview.Code,preview.Body.String()) }
-	commit:=request(a,"POST","/api/index/cleanup",map[string]string{"camera":c.ID,"digest":"stale"},cookie,session.CSRF)
-	if commit.Code!=409 { t.Fatal(commit.Code,commit.Body.String()) }
-	commit=request(a,"POST","/api/index/cleanup",map[string]string{"camera":c.ID,"digest":digest},cookie,session.CSRF)
-	if commit.Code!=200 { t.Fatal(commit.Code,commit.Body.String()) }
-	if _,err:=a.db.Recording(items[0].ID);err==nil { t.Fatal("confirmed cleanup kept stale recording") }
+	items, err := a.db.Recordings(c.ID, 0, 2e10)
+	if err != nil || len(items) != 1 {
+		t.Fatal(items, err)
+	}
+	if err := os.Remove(filepath.Join(a.cfg.RecordingsDir, items[0].Path)); err != nil {
+		t.Fatal(err)
+	}
+	if !a.scanPartition(c, c.Folder, 0, math.MaxInt64) {
+		t.Fatal("empty source scan failed")
+	}
+	if _, err := a.db.Recording(items[0].ID); err != nil {
+		t.Fatal("ordinary scan deleted recording", err)
+	}
+	ids, digest, err := a.cleanupCandidates(c.ID)
+	if err != nil || len(ids) != 1 || digest == "" {
+		t.Fatal(ids, digest, err)
+	}
+	cookie, session := login(t, a)
+	preview := request(a, "GET", "/api/index/cleanup?camera="+c.ID, nil, cookie, "")
+	if preview.Code != 200 {
+		t.Fatal(preview.Code, preview.Body.String())
+	}
+	commit := request(a, "POST", "/api/index/cleanup", map[string]string{"camera": c.ID, "digest": "stale"}, cookie, session.CSRF)
+	if commit.Code != 409 {
+		t.Fatal(commit.Code, commit.Body.String())
+	}
+	commit = request(a, "POST", "/api/index/cleanup", map[string]string{"camera": c.ID, "digest": digest}, cookie, session.CSRF)
+	if commit.Code != 200 {
+		t.Fatal(commit.Code, commit.Body.String())
+	}
+	if _, err := a.db.Recording(items[0].ID); err == nil {
+		t.Fatal("confirmed cleanup kept stale recording")
+	}
 }
 
 func TestScanJobPersistedUntilCompletion(t *testing.T) {
-	a:=testApp(t)
+	a := testApp(t)
 	a.index.mu.Lock()
-	a.index.status.Running=true
-	a.index.current=scanJob{date:"2026-10-14",camera:"active"}
+	a.index.status.Running = true
+	a.index.current = scanJob{date: "2026-10-14", camera: "active"}
 	a.index.mu.Unlock()
-	if !a.queueScan(scanJob{date:"2026-10-14",camera:"pending",manual:true},true) { t.Fatal("queue rejected") }
+	if !a.queueScan(scanJob{date: "2026-10-14", camera: "pending", manual: true}, true) {
+		t.Fatal("queue rejected")
+	}
 	var payload string
-	if err:=a.db.QueryRow(`SELECT payload FROM scan_jobs`).Scan(&payload);err!=nil || !strings.Contains(payload,`"camera":"pending"`) { t.Fatal(payload,err) }
+	if err := a.db.QueryRow(`SELECT payload FROM scan_jobs`).Scan(&payload); err != nil || !strings.Contains(payload, `"camera":"pending"`) {
+		t.Fatal(payload, err)
+	}
 }
 func TestPendingScanResumesAfterRestart(t *testing.T) {
-	dir:=t.TempDir()
-	config:=Config{DataDir:filepath.Join(dir,"data"),RecordingsDir:filepath.Join(dir,"recordings"),BaseURL:"http://localhost:8080",LocalAdmin:true,SessionTTL:time.Hour,ScanInterval:time.Hour,DevHTTP:true}
-	if err:=os.MkdirAll(config.RecordingsDir,0700);err!=nil { t.Fatal(err) }
-	assets:=fstest.MapFS{"index.html":{Data:[]byte("test")}}
-	first,err:=New(context.Background(),config,assets)
-	if err!=nil { t.Fatal(err) }
-	first.index.mu.Lock();first.index.status.Running=true;first.index.current=scanJob{date:"2026-10-14",camera:"active"};first.index.mu.Unlock()
-	if !first.queueScan(scanJob{date:"2026-10-14",manual:true},true) { t.Fatal("queue rejected") }
+	dir := t.TempDir()
+	config := Config{DataDir: filepath.Join(dir, "data"), RecordingsDir: filepath.Join(dir, "recordings"), BaseURL: "http://localhost:8080", LocalAdmin: true, SessionTTL: time.Hour, ScanInterval: time.Hour, DevHTTP: true}
+	if err := os.MkdirAll(config.RecordingsDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	assets := fstest.MapFS{"index.html": {Data: []byte("test")}}
+	first, err := New(context.Background(), config, assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.index.mu.Lock()
+	first.index.status.Running = true
+	first.index.current = scanJob{date: "2026-10-14", camera: "active"}
+	first.index.mu.Unlock()
+	if !first.queueScan(scanJob{date: "2026-10-14", manual: true}, true) {
+		t.Fatal("queue rejected")
+	}
 	first.Close()
-	second,err:=New(context.Background(),config,assets)
-	if err!=nil { t.Fatal(err) }
+	second, err := New(context.Background(), config, assets)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer second.Close()
-	status:=waitIndex(t,second)
-	if status.Completion!=1 { t.Fatal(status) }
+	status := waitIndex(t, second)
+	if status.Completion != 1 {
+		t.Fatal(status)
+	}
 	var remaining int
-	if err:=second.db.QueryRow(`SELECT COUNT(*) FROM scan_jobs`).Scan(&remaining);err!=nil || remaining!=0 { t.Fatal(remaining,err) }
+	if err := second.db.QueryRow(`SELECT COUNT(*) FROM scan_jobs`).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatal(remaining, err)
+	}
 }
 func TestFailedAutomaticScanRetriesSoon(t *testing.T) {
-	a:=testApp(t)
-	c:=Camera{ID:"offline-auto",Name:"Offline",Folder:"missing",Format:"automatic",Timezone:"Europe/Berlin",IndexingMode:"full"}
-	if err:=a.db.SaveCamera(c);err!=nil { t.Fatal(err) }
-	if !a.queueScan(scanJob{date:"2026-10-14",camera:c.ID,incremental:true},true) { t.Fatal("queue rejected") }
-	status:=waitIndex(t,a)
-	if status.State!="failed" { t.Fatal(status) }
+	a := testApp(t)
+	c := Camera{ID: "offline-auto", Name: "Offline", Folder: "missing", Format: "automatic", Timezone: "Europe/Berlin", IndexingMode: "full"}
+	if err := a.db.SaveCamera(c); err != nil {
+		t.Fatal(err)
+	}
+	if !a.queueScan(scanJob{date: "2026-10-14", camera: c.ID, incremental: true}, true) {
+		t.Fatal("queue rejected")
+	}
+	status := waitIndex(t, a)
+	if status.State != "failed" {
+		t.Fatal(status)
+	}
 	var next int64
-	if err:=a.db.QueryRow(`SELECT next_run FROM scan_schedule WHERE camera_id=?`,c.ID).Scan(&next);err!=nil { t.Fatal(err) }
-	if delay:=next-time.Now().Unix();delay<295 || delay>305 { t.Fatal("unexpected retry delay",delay) }
+	if err := a.db.QueryRow(`SELECT next_run FROM scan_schedule WHERE camera_id=?`, c.ID).Scan(&next); err != nil {
+		t.Fatal(err)
+	}
+	if delay := next - time.Now().Unix(); delay < 295 || delay > 305 {
+		t.Fatal("unexpected retry delay", delay)
+	}
 }
 func TestIncrementalLookbackAcrossMidnightAndDST(t *testing.T) {
 	for _, date := range []string{"2026-10-15", "2026-03-30", "2026-10-26"} {

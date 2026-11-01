@@ -22,7 +22,7 @@ func TestDayRecordingsMatchesPerCameraQueries(t *testing.T) {
 	}
 	for _, item := range []struct {
 		id, camera, path, codec string
-		start, duration float64
+		start, duration         float64
 	}{
 		{"wide", "alpha", "alpha/clip_wide.mp4", "h264", 108, 10},
 		{"zoom", "alpha", "alpha/clip_zoom.mp4", "h264", 108, 10},

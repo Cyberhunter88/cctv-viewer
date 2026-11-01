@@ -11,7 +11,7 @@ import (
 )
 
 type liveWarm struct {
-	camera, key string
+	camera, key  string
 	users        int
 	gatewayUsers int
 	last         time.Time

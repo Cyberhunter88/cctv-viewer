@@ -3,6 +3,7 @@ package viewer
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -61,12 +62,12 @@ type scanJob struct {
 }
 
 type persistedScanJob struct {
-	Date string `json:"date"`
-	Camera string `json:"camera"`
-	Batch string `json:"batch"`
-	All bool `json:"all"`
-	Incremental bool `json:"incremental"`
-	Manual bool `json:"manual"`
+	Date        string `json:"date"`
+	Camera      string `json:"camera"`
+	Batch       string `json:"batch"`
+	All         bool   `json:"all"`
+	Incremental bool   `json:"incremental"`
+	Manual      bool   `json:"manual"`
 }
 
 func (j scanJob) persisted() persistedScanJob {
@@ -75,24 +76,38 @@ func (j scanJob) persisted() persistedScanJob {
 
 func (a *App) restoreScans() error {
 	rows, err := a.db.Query(`SELECT id,payload FROM scan_jobs ORDER BY active DESC,queued_at,id`)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer rows.Close()
 	for rows.Next() {
 		var id, payload string
-		if err := rows.Scan(&id, &payload); err != nil { return err }
+		if err := rows.Scan(&id, &payload); err != nil {
+			return err
+		}
 		var p persistedScanJob
-		if err := json.Unmarshal([]byte(payload), &p); err != nil { return err }
-		j := scanJob{date:p.Date,camera:p.Camera,batch:p.Batch,id:id,all:p.All,incremental:p.Incremental,manual:p.Manual}
-		if _,_,err := dayBounds(j.date); err != nil { return err }
-		a.index.queue = append(a.index.queue,j)
+		if err := json.Unmarshal([]byte(payload), &p); err != nil {
+			return err
+		}
+		j := scanJob{date: p.Date, camera: p.Camera, batch: p.Batch, id: id, all: p.All, incremental: p.Incremental, manual: p.Manual}
+		if _, _, err := dayBounds(j.date); err != nil {
+			return err
+		}
+		a.index.queue = append(a.index.queue, j)
 	}
-	if err := rows.Err(); err != nil { return err }
-	if err := rows.Close(); err != nil { return err }
-	if len(a.index.queue)>0 {
-		a.index.current=a.index.queue[0]
-		a.index.queue=a.index.queue[1:]
-		if _,err:=a.db.Exec(`UPDATE scan_jobs SET active=1 WHERE id=?`,a.index.current.id);err!=nil { return err }
-		a.index.status=ScanStatus{Running:true,Date:a.index.current.date,JobID:a.index.current.id,State:"running",Warnings:[]string{}}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(a.index.queue) > 0 {
+		a.index.current = a.index.queue[0]
+		a.index.queue = a.index.queue[1:]
+		if _, err := a.db.Exec(`UPDATE scan_jobs SET active=1 WHERE id=?`, a.index.current.id); err != nil {
+			return err
+		}
+		a.index.status = ScanStatus{Running: true, Date: a.index.current.date, JobID: a.index.current.id, State: "running", Warnings: []string{}}
 		a.work.Add(1)
 		go a.runScanQueue(a.index.current)
 	}
@@ -206,6 +221,7 @@ func (x *indexer) nextJob() scanJob {
 	x.queue = append(x.queue[:chosen], x.queue[chosen+1:]...)
 	return job
 }
+
 // A recursive camera scan indexes every day, so a second date does not need a
 // duplicate walk while that camera is already being scanned or is queued.
 func scanCoversCamera(job scanJob, camera Camera, date string) bool {
@@ -258,7 +274,9 @@ func (a *App) queueScanLocked(job scanJob, force bool) bool {
 	if a.ctx.Err() != nil {
 		return false
 	}
-	if a.index.cleanup { return false }
+	if a.index.cleanup {
+		return false
+	}
 	key := job.date + "/" + job.camera
 	if !force && time.Since(a.index.last[key]) < time.Minute {
 		return false
@@ -269,9 +287,12 @@ func (a *App) queueScanLocked(job scanJob, force bool) bool {
 	for i, q := range a.index.queue {
 		if sameScan(q, job) {
 			if job.manual {
-				promoted:=q;promoted.manual=true
-				payload,_:=json.Marshal(promoted.persisted())
-				if _,err:=a.db.ExecContext(a.ctx,`UPDATE scan_jobs SET payload=? WHERE id=?`,string(payload),q.id);err==nil { a.index.queue[i].manual=true }
+				promoted := q
+				promoted.manual = true
+				payload, _ := json.Marshal(promoted.persisted())
+				if _, err := a.db.ExecContext(a.ctx, `UPDATE scan_jobs SET payload=? WHERE id=?`, string(payload), q.id); err == nil {
+					a.index.queue[i].manual = true
+				}
 			}
 			return false
 		}
@@ -281,10 +302,12 @@ func (a *App) queueScanLocked(job scanJob, force bool) bool {
 	}
 	job.id = token()[:16]
 	payload, err := json.Marshal(job.persisted())
-	if err != nil { return false }
-	active:=!a.index.status.Running
+	if err != nil {
+		return false
+	}
+	active := !a.index.status.Running
 	if _, err = a.db.ExecContext(a.ctx, `INSERT INTO scan_jobs(id,payload,queued_at,active) VALUES(?,?,?,?)`, job.id, string(payload), time.Now().UnixNano(), active); err != nil {
-		a.index.status.Warnings=append(a.index.status.Warnings,"Scanauftrag konnte nicht gespeichert werden")
+		a.index.status.Warnings = append(a.index.status.Warnings, "Scanauftrag konnte nicht gespeichert werden")
 		return false
 	}
 	if a.index.status.Running {
@@ -298,114 +321,141 @@ func (a *App) queueScanLocked(job scanJob, force bool) bool {
 	return true
 }
 func (a *App) runScanQueue(job scanJob) {
-		defer a.work.Done()
-		current := job
-		for {
-			a.scanJob(current)
-			a.index.mu.Lock()
-			if current.manual {
-				a.index.manualStreak++
-			} else {
-				a.index.manualStreak = 0
+	defer a.work.Done()
+	current := job
+	for {
+		a.scanJob(current)
+		a.index.mu.Lock()
+		if current.manual {
+			a.index.manualStreak++
+		} else {
+			a.index.manualStreak = 0
+		}
+		if !current.incremental {
+			a.index.last[current.date+"/"+current.camera] = time.Now()
+		}
+		for k, v := range a.index.last {
+			if time.Since(v) > time.Hour {
+				delete(a.index.last, k)
 			}
-			if !current.incremental {
-				a.index.last[current.date+"/"+current.camera] = time.Now()
-			}
-			for k, v := range a.index.last {
-				if time.Since(v) > time.Hour {
-					delete(a.index.last, k)
-				}
-			}
-			a.index.completion++
-			a.index.status.State = "complete"
-			if len(a.index.status.Warnings) > 0 || a.index.status.Skipped > 0 {
+		}
+		a.index.completion++
+		a.index.status.State = "complete"
+		if len(a.index.status.Warnings) > 0 || a.index.status.Skipped > 0 {
+			a.index.status.State = "partial"
+		}
+		for _, c := range a.index.status.Cameras {
+			if c.State == "partial" || c.State == "failed" {
 				a.index.status.State = "partial"
 			}
-			for _, c := range a.index.status.Cameras {
-				if c.State == "partial" || c.State == "failed" {
-					a.index.status.State = "partial"
+		}
+		failed := 0
+		for _, c := range a.index.status.Cameras {
+			if c.State == "failed" {
+				failed++
+			}
+		}
+		if failed > 0 && failed == len(a.index.status.Cameras) {
+			a.index.status.State = "failed"
+		}
+		if a.ctx.Err() != nil {
+			a.index.status.State = "cancelled"
+			a.index.queue = nil
+			for i := range a.index.status.Cameras {
+				if a.index.status.Cameras[i].State == "queued" {
+					a.index.status.Cameras[i].State = "cancelled"
 				}
 			}
-			failed := 0
-			for _, c := range a.index.status.Cameras {
-				if c.State == "failed" {
-					failed++
-				}
+		}
+		if current.incremental && a.ctx.Err() == nil {
+			next := time.Now().Add(time.Duration(a.config().AutoScanMinutes) * time.Minute)
+			if a.index.status.State != "complete" {
+				next = time.Now().Add(5 * time.Minute)
 			}
-			if failed > 0 && failed == len(a.index.status.Cameras) {
-				a.index.status.State = "failed"
+			if _, e := a.db.ExecContext(a.ctx, `INSERT INTO scan_schedule VALUES(?,?) ON CONFLICT(camera_id) DO UPDATE SET next_run=excluded.next_run`, current.camera, next.Unix()); e != nil {
+				a.index.status.Warnings = append(a.index.status.Warnings, "Zeitplan konnte nicht gespeichert werden")
 			}
-			if a.ctx.Err() != nil {
-				a.index.status.State = "cancelled"
-				a.index.queue = nil
-				for i := range a.index.status.Cameras {
-					if a.index.status.Cameras[i].State == "queued" {
-						a.index.status.Cameras[i].State = "cancelled"
-					}
-				}
+		}
+		a.saveScanHistoryLocked(current)
+		if a.ctx.Err() == nil {
+			if _, err := a.db.ExecContext(a.ctx, `DELETE FROM scan_jobs WHERE id=?`, current.id); err != nil {
+				a.index.status.Warnings = append(a.index.status.Warnings, "Scanauftrag konnte nicht abgeschlossen werden")
 			}
-			if current.incremental && a.ctx.Err() == nil {
-				next := time.Now().Add(time.Duration(a.config().AutoScanMinutes)*time.Minute)
-				if a.index.status.State != "complete" { next = time.Now().Add(5*time.Minute) }
-				if _, e := a.db.ExecContext(a.ctx, `INSERT INTO scan_schedule VALUES(?,?) ON CONFLICT(camera_id) DO UPDATE SET next_run=excluded.next_run`, current.camera, next.Unix()); e != nil {
-					a.index.status.Warnings=append(a.index.status.Warnings,"Zeitplan konnte nicht gespeichert werden")
-				}
-			}
-			a.saveScanHistoryLocked(current)
-			if a.ctx.Err()==nil {
-				if _,err:=a.db.ExecContext(a.ctx,`DELETE FROM scan_jobs WHERE id=?`,current.id);err!=nil { a.index.status.Warnings=append(a.index.status.Warnings,"Scanauftrag konnte nicht abgeschlossen werden") }
-			}
-			if len(a.index.queue) == 0 {
-				a.index.status.Running = false
-				a.index.status.Finished = time.Now().UTC().Format(time.RFC3339)
-				a.index.mu.Unlock()
-				return
-			}
-			current = a.index.nextJob()
-			if _,err:=a.db.Exec(`UPDATE scan_jobs SET active=1 WHERE id=?`,current.id);err!=nil { a.index.status.Warnings=append(a.index.status.Warnings,"Aktiver Scanauftrag konnte nicht gespeichert werden") }
-			a.index.current = current
-			a.index.status = ScanStatus{Running: true, Date: current.date, JobID: current.id, State: "running", Warnings: []string{}}
+		}
+		if len(a.index.queue) == 0 {
+			a.index.status.Running = false
+			a.index.status.Finished = time.Now().UTC().Format(time.RFC3339)
 			a.index.mu.Unlock()
+			return
+		}
+		current = a.index.nextJob()
+		if _, err := a.db.Exec(`UPDATE scan_jobs SET active=1 WHERE id=?`, current.id); err != nil {
+			a.index.status.Warnings = append(a.index.status.Warnings, "Aktiver Scanauftrag konnte nicht gespeichert werden")
+		}
+		a.index.current = current
+		a.index.status = ScanStatus{Running: true, Date: current.date, JobID: current.id, State: "running", Warnings: []string{}}
+		a.index.mu.Unlock()
 	}
 }
 
 func safeScanWarning(message string) string {
-	lower:=strings.ToLower(message)
-	if strings.ContainsAny(message, `/\`) || strings.Contains(lower,".mp4") || strings.Contains(lower,".mkv") || strings.Contains(lower,".dav") || strings.Contains(lower,".avi") || strings.Contains(lower,".mov") {
+	lower := strings.ToLower(message)
+	if strings.ContainsAny(message, `/\`) || strings.Contains(lower, ".mp4") || strings.Contains(lower, ".mkv") || strings.Contains(lower, ".dav") || strings.Contains(lower, ".avi") || strings.Contains(lower, ".mov") {
 		return "Datei oder Ordner konnte nicht indexiert werden"
 	}
-	if len(message)>240 { return message[:240] }
+	if len(message) > 240 {
+		return message[:240]
+	}
 	return message
 }
 
 func (a *App) saveScanHistoryLocked(job scanJob) {
-	status:=a.index.status
-	globalWarnings:=[]string{}
-	for _,warning:=range status.Warnings {
-		assigned:=false
-		for _,camera:=range status.Cameras { if strings.HasPrefix(warning,camera.Name+": ") { assigned=true;break } }
-		if !assigned { globalWarnings=append(globalWarnings,safeScanWarning(warning)) }
-	}
-	for _,camera:=range status.Cameras {
-		warnings:=[]string{}
-		for _,warning:=range status.Warnings {
-			if strings.HasPrefix(warning,camera.Name+": ") {
-				warnings=append(warnings,safeScanWarning(strings.TrimPrefix(warning,camera.Name+": ")))
+	status := a.index.status
+	globalWarnings := []string{}
+	for _, warning := range status.Warnings {
+		assigned := false
+		for _, camera := range status.Cameras {
+			if strings.HasPrefix(warning, camera.Name+": ") {
+				assigned = true
+				break
 			}
 		}
-		encoded,_:=json.Marshal(warnings)
-		state:=camera.State
-		if a.ctx.Err()!=nil { state="interrupted" }
-		_,err:=a.db.Exec(`INSERT INTO scan_history(id,camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,job.id+"/"+camera.ID+"/"+fmt.Sprint(time.Now().UnixNano()),camera.ID,camera.Name,job.date,job.manual,time.Now().Unix(),state,camera.Inspected,camera.Added,camera.Changed,camera.Skipped,string(encoded))
-		if err!=nil { a.index.status.Warnings=append(a.index.status.Warnings,"Scanverlauf konnte nicht gespeichert werden"); return }
+		if !assigned {
+			globalWarnings = append(globalWarnings, safeScanWarning(warning))
+		}
 	}
-	if len(globalWarnings)>0 || len(status.Cameras)==0 {
-		encoded,_:=json.Marshal(globalWarnings)
-		state:=status.State
-		if a.ctx.Err()!=nil { state="interrupted" }
-		_,_ = a.db.Exec(`INSERT INTO scan_history(id,camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,job.id+"/system/"+fmt.Sprint(time.Now().UnixNano()),"","System",job.date,job.manual,time.Now().Unix(),state,status.Inspected,status.Added,status.Changed,status.Skipped,string(encoded))
+	for _, camera := range status.Cameras {
+		warnings := []string{}
+		for _, warning := range status.Warnings {
+			if strings.HasPrefix(warning, camera.Name+": ") {
+				warnings = append(warnings, safeScanWarning(strings.TrimPrefix(warning, camera.Name+": ")))
+			}
+		}
+		encoded, _ := json.Marshal(warnings)
+		state := camera.State
+		if a.ctx.Err() != nil {
+			state = "interrupted"
+		}
+		_, err := a.db.Exec(`INSERT INTO scan_history(id,camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, job.id+"/"+camera.ID+"/"+fmt.Sprint(time.Now().UnixNano()), camera.ID, camera.Name, job.date, job.manual, time.Now().Unix(), state, camera.Inspected, camera.Added, camera.Changed, camera.Skipped, string(encoded))
+		if err != nil {
+			a.index.status.Warnings = append(a.index.status.Warnings, "Scanverlauf konnte nicht gespeichert werden")
+			return
+		}
 	}
-	_,_ = a.db.Exec(`DELETE FROM scan_history WHERE id IN (SELECT id FROM scan_history ORDER BY finished DESC,id DESC LIMIT -1 OFFSET 200)`)
+	if len(globalWarnings) > 0 || len(status.Cameras) == 0 {
+		encoded, _ := json.Marshal(globalWarnings)
+		state := status.State
+		if a.ctx.Err() != nil {
+			state = "interrupted"
+		}
+		if _, err := a.db.Exec(`INSERT INTO scan_history(id,camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, job.id+"/system/"+fmt.Sprint(time.Now().UnixNano()), "", "System", job.date, job.manual, time.Now().Unix(), state, status.Inspected, status.Added, status.Changed, status.Skipped, string(encoded)); err != nil {
+			a.index.status.Warnings = append(a.index.status.Warnings, "Scanverlauf konnte nicht gespeichert werden")
+			return
+		}
+	}
+	if _, err := a.db.Exec(`DELETE FROM scan_history WHERE id IN (SELECT id FROM scan_history ORDER BY finished DESC,id DESC LIMIT -1 OFFSET 200)`); err != nil {
+		a.index.status.Warnings = append(a.index.status.Warnings, "Scanverlauf konnte nicht bereinigt werden")
+	}
 }
 func (a *App) runScheduledScan() {
 	cfg := a.config()
@@ -429,7 +479,10 @@ func (a *App) runScheduledScan() {
 	// Queue all due cameras, including recursive sources. Dedupe limits repeated ticks.
 	for _, c := range cams {
 		var next int64
-		a.db.QueryRowContext(a.ctx, `SELECT next_run FROM scan_schedule WHERE camera_id=?`, c.ID).Scan(&next)
+		if err := a.db.QueryRowContext(a.ctx, `SELECT next_run FROM scan_schedule WHERE camera_id=?`, c.ID).Scan(&next); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			a.warn("Zeitplan nicht lesbar")
+			return
+		}
 		if next > time.Now().Unix() {
 			continue
 		}
@@ -639,12 +692,12 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 	}()
 	healthy := true
 	type mediaEntry struct {
-		name string
+		name  string
 		entry fs.DirEntry
 	}
 	type fileState struct {
 		size, mod int64
-		settled int
+		settled   int
 	}
 	batch := make([]mediaEntry, 0, 128)
 	process := func(name string, d fs.DirEntry, old fileState, exists bool) error {
