@@ -19,6 +19,7 @@ behalten ihre jeweiligen Lizenzen. Insbesondere:
   Quellversionen, Prüfsummen, Patches und Bauanweisungen. Die vollständige
   Paketliste steht in der SBOM des jeweiligen Image-Digests.
 - tini: MIT.
+- @axe-core/playwright und axe-core: MPL-2.0; nur Entwicklungsabhängigkeiten für den Barrierefreiheitstest, nicht im Image enthalten.
 - go2rtc 1.9.14: MIT; wird als separates Programm mitgeliefert und verwaltet.
   Quellen: https://github.com/AlexxIT/go2rtc/tree/v1.9.14 . Der reproduzierbare
   Build steht in `scripts/build_go2rtc.sh`; die Lizenz liegt im Image unter
