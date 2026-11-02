@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"math"
 	"net/http"
 	"os"
@@ -221,16 +222,23 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 		cancel()
 		os.RemoveAll(dir)
 		a.releaseEncoder()
+		a.metrics.streamFailures.Add(1)
+		slog.Error("ffmpeg konnte nicht gestartet werden", "error", e)
 		fail(w, 500, "Video-Umwandlung konnte nicht gestartet werden")
 		return
 	}
 	a.mediaMu.Lock()
 	a.streams[id] = s
 	a.mediaMu.Unlock()
+	a.metrics.streamsStarted.Add(1)
 	a.work.Add(1)
 	go func() {
 		defer a.work.Done()
 		e := cmd.Wait()
+		if e != nil && ctx.Err() == nil {
+			a.metrics.streamFailures.Add(1)
+			slog.Warn("ffmpeg beendet mit Fehler", "stream", id, "error", e)
+		}
 		cancel()
 		a.mediaMu.Lock()
 		s.err = e

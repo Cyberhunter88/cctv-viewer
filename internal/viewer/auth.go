@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -307,6 +308,8 @@ func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
 		hash = a.dummyHash
 	}
 	if !checkPassword(hash, input.Password) || hash == a.dummyHash {
+		a.metrics.loginFailures.Add(1)
+		slog.Warn("Anmeldung fehlgeschlagen", "ip", a.clientIP(r))
 		fail(w, 401, "Anmeldedaten ungültig")
 		return
 	}
@@ -314,6 +317,7 @@ func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Anmeldung fehlgeschlagen")
 		return
 	}
+	a.metrics.loginSuccess.Add(1)
 	jsonOut(w, 200, map[string]bool{"ok": true})
 }
 func (a *App) initOIDC(ctx context.Context) error {

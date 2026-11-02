@@ -54,6 +54,7 @@ zurückgesetzt werden. Ohne gesetzte Variable gilt dann der Programmstandard.
 | `CTV_OIDC_ALLOWED_GROUPS`, `CTV_OIDC_ADMIN_GROUPS` | Exakte Gruppenfreigaben und Administratorgruppen |
 | `CTV_OIDC_ALLOWED_SUBJECTS`, `CTV_OIDC_ADMIN_SUBJECTS` | Exakte Subject-Freigaben und Administrator-Subjects |
 | `CTV_MAX_TRANSCODERS`, `CTV_HLS_TEMP_MB`, `CTV_CACHE_MB` | Ressourcenlimits |
+| `CTV_LOG_LEVEL` | Protokollstufe (`debug`, `info`, `warn`, `error`; Standard `info`), nur per Umgebung |
 | `CTV_SCAN_INTERVAL_SECONDS` | Bestehender technischer Scanintervall-Ausgangswert; die automatische tägliche Indexierung wird separat unter Betrieb konfiguriert |
 
 Optional bleibt `CTV_OIDC_CLIENT_SECRET_FILE` mit zusätzlich schreibgeschützt

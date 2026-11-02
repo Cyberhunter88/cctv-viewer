@@ -44,6 +44,7 @@ type App struct {
 	mediaMu         sync.Mutex
 	streams         map[string]*stream
 	encoderActive   int
+	metrics         counters
 	cacheMu         sync.Mutex
 	thumbSlots      chan struct{}
 	assets          fs.FS
