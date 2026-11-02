@@ -204,7 +204,64 @@ type attempt struct {
 type limiter struct {
 	mu      sync.Mutex
 	entries map[string]attempt
+	failed  map[string]attempt
 	active  chan struct{}
+}
+
+const (
+	accountFailureLimit  = 10
+	accountFailureWindow = 15 * time.Minute
+)
+
+// refund gives back an IP attempt after a successful login.
+func (l *limiter) refund(ip string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if v, ok := l.entries[ip]; ok && v.count > 0 {
+		v.count--
+		l.entries[ip] = v
+	}
+}
+
+// accountLocked reports whether too many recent failures exist for the account.
+func (l *limiter) accountLocked(name string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	v, ok := l.failed[name]
+	if ok && time.Since(v.start) > accountFailureWindow {
+		delete(l.failed, name)
+		return false
+	}
+	return ok && v.count >= accountFailureLimit
+}
+
+func (l *limiter) accountFailure(name string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.failed == nil {
+		l.failed = map[string]attempt{}
+	}
+	now := time.Now()
+	for k, v := range l.failed {
+		if now.Sub(v.start) > accountFailureWindow {
+			delete(l.failed, k)
+		}
+	}
+	v, ok := l.failed[name]
+	if !ok {
+		if len(l.failed) >= 10000 {
+			return
+		}
+		v.start = now
+	}
+	v.count++
+	l.failed[name] = v
+}
+
+func (l *limiter) accountSuccess(name string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.failed, name)
 }
 
 func (l *limiter) allow(ip string) bool {
@@ -284,6 +341,12 @@ func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "Anmeldedaten ungültig")
 		return
 	}
+	account := strings.ToLower(strings.TrimSpace(input.Username))
+	if a.limits.accountLocked(account) {
+		w.Header().Set("Retry-After", "900")
+		fail(w, 429, "Zu viele Anmeldeversuche. Bitte später erneut versuchen.")
+		return
+	}
 	// Never hold authentication locks or hashing slots while reading client data.
 	a.authMu.RLock()
 	defer a.authMu.RUnlock()
@@ -309,6 +372,7 @@ func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if !checkPassword(hash, input.Password) || hash == a.dummyHash {
 		a.metrics.loginFailures.Add(1)
+		a.limits.accountFailure(account)
 		slog.Warn("Anmeldung fehlgeschlagen", "ip", a.clientIP(r))
 		fail(w, 401, "Anmeldedaten ungültig")
 		return
@@ -318,6 +382,8 @@ func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.metrics.loginSuccess.Add(1)
+	a.limits.accountSuccess(account)
+	a.limits.refund(a.clientIP(r))
 	jsonOut(w, 200, map[string]bool{"ok": true})
 }
 func (a *App) initOIDC(ctx context.Context) error {
