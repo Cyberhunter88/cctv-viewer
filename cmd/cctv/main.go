@@ -18,6 +18,7 @@ import (
 var version = "dev"
 
 func main() {
+	configureLogging(os.Getenv("CTV_LOG_LEVEL"))
 	if e := run(); e != nil {
 		slog.Error(e.Error())
 		os.Exit(1)
@@ -121,4 +122,13 @@ func run() error {
 		return server.Shutdown(shutdown)
 	}
 	return nil
+}
+
+// configureLogging sets the default slog level from CTV_LOG_LEVEL (debug, info, warn, error).
+func configureLogging(level string) {
+	var l slog.Level
+	if err := l.UnmarshalText([]byte(level)); err != nil || level == "" {
+		l = slog.LevelInfo
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: l})))
 }

@@ -1,4 +1,4 @@
-import {clamp,clock,type Recording} from './timeline';
+import {clamp,clock,gaps,type Recording} from './timeline';
 
 interface CameraTrack {id:string;name:string;viewMode?:string}
 interface TimelineFrame {
@@ -11,7 +11,7 @@ export function createTimelineView(canvas:HTMLCanvasElement,overview:HTMLCanvasE
  let timelineKey='',overviewKey='',timelineRecords:Recording[]|undefined,overviewRecords:Recording[]|undefined;
  function colors(){
   const css=getComputedStyle(document.documentElement);
-  return Object.fromEntries(['line','muted','track','record','cursor','panel'].map(key=>[key,css.getPropertyValue('--timeline-'+key).trim()]));
+  return Object.fromEntries(['line','muted','track','record','gap','cursor','panel'].map(key=>[key,css.getPropertyValue('--timeline-'+key).trim()]));
  }
  function description(frame:TimelineFrame){
   const root=document.getElementById('timeline-description')!,list=document.createElement('ul');
@@ -20,6 +20,7 @@ export function createTimelineView(canvas:HTMLCanvasElement,overview:HTMLCanvasE
   for(const camera of frame.cameras){
    const ranges=frame.records.filter(record=>record.cameraId===camera.id&&record.start<frame.viewEnd&&record.start+record.duration>frame.viewStart);
    if(!ranges.length){const item=document.createElement('li');item.textContent=`${camera.name}: keine Aufnahme in diesem Zeitfenster`;list.append(item);continue}
+   for(const gap of gaps(frame.records,camera.id,frame.viewStart,frame.viewEnd)){const item=document.createElement('li');item.textContent=`${camera.name}: Lücke von ${clock(gap.start)} bis ${clock(gap.end)}`;list.append(item)}
    for(const record of ranges){
     const item=document.createElement('li'),start=Math.max(frame.viewStart,record.start),end=Math.min(frame.viewEnd,record.start+record.duration);
     const view=record.view==='wide'?' · Weitwinkel':record.view==='zoom'?' · Zoom':'';
@@ -71,6 +72,7 @@ export function createTimelineView(canvas:HTMLCanvasElement,overview:HTMLCanvasE
     for(const record of records.filter(item=>item.cameraId===camera.id&&item.start<viewEnd&&(item.kind==='image'?item.start>=viewStart:item.start+item.duration>viewStart))){
      ctx.fillStyle=palette.record;ctx.fillRect(x(record.start),y+3,record.kind==='image'?4:Math.max(2,record.duration/span*area),17);
     }
+    for(const gap of gaps(records,camera.id,viewStart,viewEnd)){ctx.fillStyle=palette.gap;ctx.fillRect(x(gap.start),y+21,Math.max(2,(gap.end-gap.start)/span*area),2)}
     ctx.restore();
    });
    timelineLayer.width=canvas.width;timelineLayer.height=canvas.height;timelineLayer.getContext('2d')!.drawImage(canvas,0,0);

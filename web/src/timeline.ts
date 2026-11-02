@@ -28,6 +28,18 @@ export function recordingAt(records:Recording[],camera:string,time:number,view?:
 export function nextRecording(records:Recording[],cameras:string[],time:number):number|undefined {
  let next=Infinity;const data=index(records);for(const id of cameras){const sorted=data.get(id)?.records;if(sorted){const r=sorted[upperBound(sorted,time)];if(r)next=Math.min(next,r.start)}}return next===Infinity?undefined:next;
 }
+export interface Gap{start:number;end:number}
+// Uncovered intervals between two recordings of one camera, clipped to the window.
+// Time before the first and after the last recording is not a gap: the camera may simply not have run.
+export function gaps(records:Recording[],camera:string,from:number,to:number,minSeconds=60):Gap[]{
+ const data=index(records).get(camera);if(!data)return[];
+ const out:Gap[]=[];let covered=-Infinity;
+ for(const r of data.records){
+  if(covered!==-Infinity&&r.start-covered>=minSeconds){const start=Math.max(covered,from),end=Math.min(r.start,to);if(end>start)out.push({start,end})}
+  covered=Math.max(covered,r.start+r.duration);
+ }
+ return out;
+}
 export function latestStartBetween(records:Recording[],camera:string,from:number,to:number):Recording|undefined{const data=index(records).get(camera);if(!data)return;const r=data.records[upperBound(data.records,to)-1];return r&&r.start>from?r:undefined}
 export function clamp(value:number,min:number,max:number):number{return Math.max(min,Math.min(max,value))}
 const dateFormatter=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'});

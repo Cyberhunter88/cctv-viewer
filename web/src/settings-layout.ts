@@ -3,6 +3,7 @@ export function initSettingsLayout(){
  const help:Record<string,string>={
   'management-dialog':'Einstellungen für Benutzer, Anmeldung und den Betrieb des Viewers.',
   'password-dialog':'Dein Konto und dein Passwort verwalten.',
+  'audit-page':'Wer hat sich angemeldet und was wurde geändert?',
   'sessions-page':'Aktive Anmeldungen prüfen und bei Bedarf beenden.',
   'preferences-dialog':'Darstellung und Wiedergabe an deine Arbeitsweise anpassen.',
   'batch-dialog':'Mehrere Aufnahmeordner auswählen und gemeinsam als Kameras hinzufügen.'

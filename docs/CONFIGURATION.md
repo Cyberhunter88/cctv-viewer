@@ -54,6 +54,7 @@ zurückgesetzt werden. Ohne gesetzte Variable gilt dann der Programmstandard.
 | `CTV_OIDC_ALLOWED_GROUPS`, `CTV_OIDC_ADMIN_GROUPS` | Exakte Gruppenfreigaben und Administratorgruppen |
 | `CTV_OIDC_ALLOWED_SUBJECTS`, `CTV_OIDC_ADMIN_SUBJECTS` | Exakte Subject-Freigaben und Administrator-Subjects |
 | `CTV_MAX_TRANSCODERS`, `CTV_HLS_TEMP_MB`, `CTV_CACHE_MB` | Ressourcenlimits |
+| `CTV_LOG_LEVEL` | Protokollstufe (`debug`, `info`, `warn`, `error`; Standard `info`), nur per Umgebung |
 | `CTV_SCAN_INTERVAL_SECONDS` | Bestehender technischer Scanintervall-Ausgangswert; die automatische tägliche Indexierung wird separat unter Betrieb konfiguriert |
 
 Optional bleibt `CTV_OIDC_CLIENT_SECRET_FILE` mit zusätzlich schreibgeschützt
@@ -129,3 +130,10 @@ und setzt Zugangsdaten nicht zurück. Die ursprüngliche Schlüsseldatei muss au
 der passenden Sicherung wiederhergestellt werden. Für einen Wechsel zurück auf
 eine ältere Programmversion ist eine passende Sicherung von vor der Migration
 erforderlich; die verschlüsselten Konfigurationen sind dort nicht lesbar.
+
+## Protokoll, Metriken und Sicherung (ab 0.13.0)
+
+- **Protokoll:** Administratoren sehen unter „Protokoll“ Anmeldungen, Benutzer-, Kamera-, Einstellungs- und Sitzungsänderungen (`GET /api/admin/audit`). Einträge enthalten keine Passwörter und werden nach 180 Tagen gelöscht.
+- **Metriken:** `GET /api/admin/metrics` (nur Administratoren) liefert Laufzeit, Umwandlungs- und Anmeldezähler als JSON.
+- **Anmeldeschutz:** Zusätzlich zur Begrenzung je IP wird ein Konto nach 10 Fehlversuchen in 15 Minuten vorübergehend gesperrt. Erfolgreiche Anmeldungen verbrauchen keinen IP-Versuch.
+- **Konfigurationssicherung:** `GET /api/admin/backup` exportiert Kameras, Einstellungs-Überschreibungen (ohne OIDC-Secret) und Benutzerrollen. `POST /api/admin/backup` stellt nur Kameradefinitionen wieder her; Einstellungen und Benutzer werden bewusst nicht importiert, um Aussperrungen zu vermeiden. Aufnahmen, Passwort-Hashes und Live-Zugangsdaten sind nicht enthalten.

@@ -44,6 +44,7 @@ type App struct {
 	mediaMu         sync.Mutex
 	streams         map[string]*stream
 	encoderActive   int
+	metrics         counters
 	cacheMu         sync.Mutex
 	thumbSlots      chan struct{}
 	assets          fs.FS
@@ -227,10 +228,10 @@ func (a *App) Handler() http.Handler {
 		}
 		jsonOut(w, 200, cams)
 	}))
-	mux.HandleFunc("POST /api/cameras", a.protect(true, a.saveCamera))
-	mux.HandleFunc("POST /api/cameras/batch", a.protect(true, a.saveCameraBatch))
+	mux.HandleFunc("POST /api/cameras", a.protect(true, a.audit("camera.save", a.saveCamera)))
+	mux.HandleFunc("POST /api/cameras/batch", a.protect(true, a.audit("camera.batch", a.saveCameraBatch)))
 	mux.HandleFunc("POST /api/cameras/preview", a.protect(true, a.preview))
-	mux.HandleFunc("DELETE /api/cameras/{id}", a.protect(true, a.deleteCamera))
+	mux.HandleFunc("DELETE /api/cameras/{id}", a.protect(true, a.audit("camera.delete", a.deleteCamera)))
 	a.registerManagement(mux)
 	a.registerLive(mux)
 	mux.HandleFunc("GET /api/cameras/folders", a.protect(true, a.cameraFolders))

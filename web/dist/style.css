@@ -8,7 +8,7 @@
  --selected:#253b2e; --error:#ffaaaa; --warning-border:#9c8644;
  --warning-bg:#272315; --warning-text:#edda9c; --success-text:#d0edd9;
  --timeline-line:#3d4b56; --timeline-muted:#b0bec7; --timeline-track:#253540;
- --timeline-record:#8ed0a2; --timeline-cursor:#d0ffe0; --timeline-panel:#141a20;
+ --timeline-record:#8ed0a2; --timeline-gap:#e0a93b; --timeline-cursor:#d0ffe0; --timeline-panel:#141a20;
 }
 :root[data-theme=light] {
  color-scheme: light;
@@ -18,7 +18,7 @@
  --selected:#e0f1e5; --error:#a51e29; --warning-border:#947019;
  --warning-bg:#fff3cf; --warning-text:#684b00; --success-text:#194b2d;
  --timeline-line:#b5c3cc; --timeline-muted:#405460; --timeline-track:#dce5ea;
- --timeline-record:#397a50; --timeline-cursor:#123d24; --timeline-panel:#ffffff;
+ --timeline-record:#397a50; --timeline-gap:#a35f00; --timeline-cursor:#123d24; --timeline-panel:#ffffff;
 }
 :root {
   font-family: Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline.ts';
+import {gaps,recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline.ts';
 const records:Recording[]=[{id:'a',cameraId:'1',start:100,duration:60,codec:'h264'},{id:'b',cameraId:'1',start:150,duration:30,codec:'h264'},{id:'c',cameraId:'2',start:200,duration:50,codec:'hevc'}];
 test('intervals are half-open and overlaps use latest clip',()=>{assert.equal(recordingAt(records,'1',99),undefined);assert.equal(recordingAt(records,'1',100)?.id,'a');assert.equal(recordingAt(records,'1',150)?.id,'b');assert.equal(recordingAt(records,'1',180),undefined)});
 test('gap skipping respects visible cameras',()=>{assert.equal(nextRecording(records,['1'],160),undefined);assert.equal(nextRecording(records,['2'],160),200);assert.equal(nextRecording(records,['1'],99),100)});
@@ -65,4 +65,13 @@ test('closed zoom never supplies initial position, gap jumps or previews',()=>{
  assert.equal(firstRecordingStart(closed,0),100);assert.equal(nextRecording(closed,['dual'],131),150);assert.equal(recordingAt(closed,'dual',96),undefined);assert.deepEqual(closed.map(r=>r.id),['wide','next-wide']);
  assert.equal(firstRecordingStart(displayedRecordings(items,cameras,new Set(['dual'])),0),95);
  assert.deepEqual(displayedRecordings(items,[{...cameras[0],supportsZoom:false}],new Set(['dual'])),closed);
+});
+
+test('gaps are only reported between recordings, clipped to the window and above the minimum',()=>{
+ const items:Recording[]=[{id:'a',cameraId:'1',start:100,duration:50,codec:'h264'},{id:'b',cameraId:'1',start:200,duration:50,codec:'h264'},{id:'c',cameraId:'1',start:255,duration:10,codec:'h264'},{id:'d',cameraId:'1',start:400,duration:10,codec:'h264'}];
+ assert.deepEqual(gaps(items,'1',0,1000,30),[{start:150,end:200},{start:265,end:400}]);
+ assert.deepEqual(gaps(items,'1',170,300,30),[{start:170,end:200},{start:265,end:300}]);
+ assert.deepEqual(gaps(items,'1',0,1000,60),[{start:265,end:400}]);
+ assert.deepEqual(gaps(items,'2',0,1000),[]);
+ assert.deepEqual(gaps([{id:'x',cameraId:'1',start:0,duration:500,codec:'h264'},{id:'y',cameraId:'1',start:100,duration:10,codec:'h264'}],'1',0,1000),[]);
 });

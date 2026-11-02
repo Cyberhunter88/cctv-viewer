@@ -22,9 +22,9 @@ type managedSession struct {
 func (a *App) registerSessions(m *http.ServeMux) {
 	m.HandleFunc("GET /api/sessions", a.protect(false, a.listSessions(false)))
 	m.HandleFunc("GET /api/admin/sessions", a.protect(true, a.listSessions(true)))
-	m.HandleFunc("DELETE /api/sessions/{id}", a.protect(false, a.revokeSession(false)))
-	m.HandleFunc("DELETE /api/admin/sessions/{id}", a.protect(true, a.revokeSession(true)))
-	m.HandleFunc("DELETE /api/sessions", a.protect(false, a.revokeOwnSessions))
+	m.HandleFunc("DELETE /api/sessions/{id}", a.protect(false, a.audit("session.revoke", a.revokeSession(false))))
+	m.HandleFunc("DELETE /api/admin/sessions/{id}", a.protect(true, a.audit("session.revoke", a.revokeSession(true))))
+	m.HandleFunc("DELETE /api/sessions", a.protect(false, a.audit("session.revoke-own", a.revokeOwnSessions)))
 }
 
 func (a *App) listSessions(all bool) http.HandlerFunc {

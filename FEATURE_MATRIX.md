@@ -4,6 +4,17 @@ Referenz: [cctv-timeline-viewer-core, Commit 9c3128c756430529dc5c34c52d6bb4e8e5c
 Abgleich von README, Kamera-/Such-/System-APIs, Indexierung, Hotspot und Oberfläche.
 Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht übernommen.
 
+## Ergänzungen ab 0.13.0
+
+| Funktion | Umsetzung | Nachweis |
+|---|---|---|
+| Protokoll | Anmeldungen sowie Benutzer-, Kamera-, Einstellungs- und Sitzungsänderungen werden ohne Geheimnisse gespeichert (180 Tage) und unter „Protokoll“ angezeigt | Go: AuditRecordsLoginsAndAdminActionsWithoutSecrets, AuditCleanupRemovesOldEntries |
+| Metriken und Protokollstufe | `GET /api/admin/metrics` für Administratoren; `CTV_LOG_LEVEL` steuert die Protokollstufe | Go: MetricsAreAdminOnlyAndCountLogins |
+| Anmeldeschutz | Konto-Sperre nach 10 Fehlversuchen in 15 Minuten; erfolgreiche Anmeldungen verbrauchen keinen IP-Versuch | Go: AccountLockoutAfterRepeatedFailuresAndSuccessReset, SuccessfulLoginRefundsIPAttempt |
+| Konfigurationssicherung | Export von Kameras, Einstellungen und Rollen ohne Zugangsdaten; Import stellt Kameras wieder her | Go: BackupRoundTripOmitsSecretsAndRestoresCameras |
+| Lücken in der Zeitleiste | Zwischen zwei Aufnahmen einer Kamera wird eine Lücke markiert und für Screenreader beschrieben | TypeScript: gaps; Browser: a11y |
+| Barrierefreiheit und Robustheit | axe-Prüfung der Hauptseiten in beiden Designs; Fuzz-Tests für Zeitstempel, Partitionen und Listen; Indexer in Queue- und Scan-Dateien getrennt | Browser: a11y; Go: FuzzParseTimestamp |
+
 ## Ergänzungen ab 0.12.1
 
 | Funktion | Umsetzung | Nachweis |
