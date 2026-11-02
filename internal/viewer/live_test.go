@@ -207,7 +207,7 @@ func TestLiveMigrationAndMissingBinary(t *testing.T) {
 	}
 	var version int
 	store.QueryRow(`PRAGMA user_version`).Scan(&version)
-	if version != 5 {
+	if version != 6 {
 		t.Fatal(version)
 	}
 	info, e := os.Stat(filepath.Join(a.cfg.DataDir, "viewer-before-v5.db"))

@@ -191,6 +191,9 @@ func (a *App) protect(admin bool, h http.HandlerFunc) http.HandlerFunc {
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 	c, _ := r.Cookie("ctv_session")
 	if c != nil {
+		if s, e := a.session(r); e == nil {
+			a.recordAudit(r.Context(), s.Name, "logout", "", a.clientIP(r), true)
+		}
 		a.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE hash=?`, digest(c.Value))
 	}
 	a.cookie(w, "ctv_session", "", -1)
@@ -373,6 +376,7 @@ func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
 	if !checkPassword(hash, input.Password) || hash == a.dummyHash {
 		a.metrics.loginFailures.Add(1)
 		a.limits.accountFailure(account)
+		a.recordAudit(r.Context(), input.Username, "login.local", "", a.clientIP(r), false)
 		slog.Warn("Anmeldung fehlgeschlagen", "ip", a.clientIP(r))
 		fail(w, 401, "Anmeldedaten ungültig")
 		return
@@ -383,6 +387,7 @@ func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	a.metrics.loginSuccess.Add(1)
 	a.limits.accountSuccess(account)
+	a.recordAudit(r.Context(), input.Username, "login.local", "", a.clientIP(r), true)
 	a.limits.refund(a.clientIP(r))
 	jsonOut(w, 200, map[string]bool{"ok": true})
 }
@@ -528,6 +533,7 @@ func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	role := a.oidcRole(id.Subject, claims)
 	if role == "" {
+		a.recordAudit(r.Context(), id.Subject, "login.oidc", "", a.clientIP(r), false)
 		fail(w, 403, "Dieses Konto ist nicht freigegeben")
 		return
 	}
@@ -548,6 +554,7 @@ func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Anmeldung fehlgeschlagen")
 		return
 	}
+	a.recordAudit(r.Context(), s.Name, "login.oidc", "", a.clientIP(r), true)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {

@@ -29,12 +29,13 @@ type localUser struct {
 func (a *App) registerManagement(m *http.ServeMux) {
 	a.registerSessions(m)
 	m.HandleFunc("GET /api/admin/users", a.protect(true, a.users))
-	m.HandleFunc("POST /api/admin/users", a.protect(true, a.saveUser))
-	m.HandleFunc("DELETE /api/admin/users/{name}", a.protect(true, a.deleteUser))
+	m.HandleFunc("POST /api/admin/users", a.protect(true, a.audit("user.save", a.saveUser)))
+	m.HandleFunc("DELETE /api/admin/users/{name}", a.protect(true, a.audit("user.delete", a.deleteUser)))
+	m.HandleFunc("GET /api/admin/audit", a.protect(true, a.auditList))
 	m.HandleFunc("GET /api/admin/metrics", a.protect(true, a.metricsHandler))
-	m.HandleFunc("POST /api/password", a.protect(false, a.changePassword))
+	m.HandleFunc("POST /api/password", a.protect(false, a.audit("password.change", a.changePassword)))
 	m.HandleFunc("GET /api/admin/settings", a.protect(true, a.getSettings))
-	m.HandleFunc("PUT /api/admin/settings", a.protect(true, a.saveSettings))
+	m.HandleFunc("PUT /api/admin/settings", a.protect(true, a.audit("settings.save", a.saveSettings)))
 	m.HandleFunc("GET /auth/oidc/test", a.protect(true, a.startOIDCTest))
 	m.HandleFunc("GET /auth/oidc/test/callback", a.protect(true, a.finishOIDCTest))
 }
@@ -67,6 +68,7 @@ func (a *App) saveUser(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	setAuditTarget(r, in.Username)
 	if strings.TrimSpace(in.Username) == "" || len(in.Username) > 100 || (in.Role != "admin" && in.Role != "viewer") {
 		fail(w, 400, "Benutzername oder Rolle ungültig")
 		return

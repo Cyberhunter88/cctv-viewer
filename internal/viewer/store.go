@@ -83,7 +83,7 @@ func OpenStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if version > 5 {
+	if version > 6 {
 		db.Close()
 		return nil, errors.New("Datenbankschema neuer als diese Anwendung")
 	}
@@ -241,7 +241,9 @@ CREATE TABLE IF NOT EXISTS scan_schedule(camera_id TEXT PRIMARY KEY REFERENCES c
 	if _, err = db.Exec(`BEGIN;
 	 CREATE TABLE IF NOT EXISTS camera_live(camera_id TEXT PRIMARY KEY REFERENCES cameras(id) ON DELETE CASCADE,payload TEXT NOT NULL);
 	 CREATE TABLE IF NOT EXISTS live_share(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL);
-	 PRAGMA user_version=5; COMMIT;`); err != nil {
+	 CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT,ts INTEGER NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL,ip TEXT NOT NULL,ok INTEGER NOT NULL);
+	 CREATE INDEX IF NOT EXISTS audit_log_ts ON audit_log(ts);
+	 PRAGMA user_version=6; COMMIT;`); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -404,4 +406,5 @@ func (s *Store) Recording(id string) (Recording, error) {
 func (s *Store) Cleanup(ctx context.Context) {
 	s.ExecContext(ctx, `DELETE FROM sessions WHERE expires<?`, time.Now().Unix())
 	s.ExecContext(ctx, `DELETE FROM oidc_flows WHERE expires<?`, time.Now().Unix())
+	s.ExecContext(ctx, `DELETE FROM audit_log WHERE ts<?`, time.Now().Add(-auditRetention).Unix())
 }
