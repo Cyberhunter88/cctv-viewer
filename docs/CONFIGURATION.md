@@ -130,3 +130,10 @@ und setzt Zugangsdaten nicht zurück. Die ursprüngliche Schlüsseldatei muss au
 der passenden Sicherung wiederhergestellt werden. Für einen Wechsel zurück auf
 eine ältere Programmversion ist eine passende Sicherung von vor der Migration
 erforderlich; die verschlüsselten Konfigurationen sind dort nicht lesbar.
+
+## Protokoll, Metriken und Sicherung (ab 0.13.0)
+
+- **Protokoll:** Administratoren sehen unter „Protokoll“ Anmeldungen, Benutzer-, Kamera-, Einstellungs- und Sitzungsänderungen (`GET /api/admin/audit`). Einträge enthalten keine Passwörter und werden nach 180 Tagen gelöscht.
+- **Metriken:** `GET /api/admin/metrics` (nur Administratoren) liefert Laufzeit, Umwandlungs- und Anmeldezähler als JSON.
+- **Anmeldeschutz:** Zusätzlich zur Begrenzung je IP wird ein Konto nach 10 Fehlversuchen in 15 Minuten vorübergehend gesperrt. Erfolgreiche Anmeldungen verbrauchen keinen IP-Versuch.
+- **Konfigurationssicherung:** `GET /api/admin/backup` exportiert Kameras, Einstellungs-Überschreibungen (ohne OIDC-Secret) und Benutzerrollen. `POST /api/admin/backup` stellt nur Kameradefinitionen wieder her; Einstellungen und Benutzer werden bewusst nicht importiert, um Aussperrungen zu vermeiden. Aufnahmen, Passwort-Hashes und Live-Zugangsdaten sind nicht enthalten.
