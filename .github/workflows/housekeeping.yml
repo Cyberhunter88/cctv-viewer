@@ -1,0 +1,33 @@
+name: Alte Läufe und Caches aufräumen
+on:
+  schedule:
+    - cron: '41 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Alte Läufe und Branch-Caches wirklich löschen (sonst nur Vorschau)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: housekeeping
+  cancel-in-progress: false
+jobs:
+  housekeeping:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Aufräumen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLY: ${{ github.event_name == 'schedule' || inputs.apply }}
+        run: |
+          args=(--repository "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID")
+          if [ "$APPLY" = true ]; then args+=(--apply); fi
+          python3 scripts/housekeeping.py "${args[@]}"

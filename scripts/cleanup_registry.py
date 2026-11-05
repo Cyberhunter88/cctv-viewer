@@ -167,11 +167,12 @@ def inventory(repository, build_package=False):
     return endpoint, versions
 
 
-def assert_idle(repository):
+def assert_idle(repository, ignore_run_id=None):
+    """Abort while CI or release runs are active; ignore_run_id is the calling run itself."""
     for workflow in ("ci.yml", "release.yml"):
         for status in ("queued", "in_progress", "waiting", "pending", "requested"):
             pages = api(f"repos/{repository}/actions/workflows/{workflow}/runs?status={status}&per_page=100")
-            if any(page["workflow_runs"] for page in pages):
+            if any(run["id"] != ignore_run_id for page in pages for run in page["workflow_runs"]):
                 raise ValueError("CI oder Release läuft/wartet; Bereinigung später erneut starten")
 
 
@@ -221,7 +222,8 @@ def write_summary(proposal, selected):
         output.write('\nAnzeige auf jeweils 20 Zeilen begrenzt; vollständige Listen im Artefakt.\n')
 
 
-def cleanup(repository, output, selected=(), min_age_days=14, build_package=False):
+def cleanup(repository, output, selected=(), min_age_days=14, build_package=False,
+            delete_all=False, ignore_run_id=None):
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("Ungültiges Repository")
     if build_package and min_age_days < 30:
@@ -241,7 +243,9 @@ def cleanup(repository, output, selected=(), min_age_days=14, build_package=Fals
     endpoint, versions, protection = snapshot()
     proposal = plan(versions, image, min_age_days=min_age_days, **protection)
     Path(output).write_text(json.dumps(proposal, indent=2) + "\n")
-    selected = set(selected)
+    # delete_all übernimmt ausschließlich die vom Plan geprüften Kandidaten;
+    # alle Schutzregeln und Neuprüfungen unten gelten unverändert.
+    selected = {item["id"] for item in proposal["candidates"]} if delete_all else set(selected)
     write_summary(proposal, selected)
     if not selected:
         print(f"Vorschau: {len(proposal['candidates'])} löschbare interne Versionen; {proposal['retained']} geschützt. Plan: {output}")
@@ -252,14 +256,14 @@ def cleanup(repository, output, selected=(), min_age_days=14, build_package=Fals
     selected_plan = plan(versions, image, min_age_days=min_age_days, selection=selected, **protection)
     if selected != {item["id"] for item in selected_plan["candidates"]}:
         raise ValueError("Auswahl wird noch von beibehaltenen Manifesten referenziert; nichts gelöscht")
-    assert_idle(repository)
+    assert_idle(repository, ignore_run_id)
     # A new image, alias change or newly added manifest reference invalidates
     # the reviewed inventory. Never delete from a stale snapshot.
     _, current, current_protection = snapshot()
     if fingerprint(current) != fingerprint(versions) or current_protection != protection:
         raise ValueError("Registry-Inventar hat sich verändert; neue Vorschau erstellen")
     for identifier in sorted(selected):
-        assert_idle(repository)
+        assert_idle(repository, ignore_run_id)
         api(endpoint + "/" + str(identifier), method="DELETE")
         print(f"Unreferenzierte interne Version gelöscht: {identifier}")
         if os.environ.get('GITHUB_STEP_SUMMARY'):
@@ -274,10 +278,15 @@ def main():
     parser.add_argument('--build-package', action='store_true')
     parser.add_argument("--min-age-days", type=int)
     parser.add_argument("--delete-version-id", type=int, action="append", default=[])
+    parser.add_argument("--delete-candidates", action="store_true",
+                        help="alle nach den Schutzregeln zulässigen Kandidaten löschen (Release-Abschluss)")
+    parser.add_argument("--ignore-run-id", type=int, help="eigenen laufenden Workflow-Lauf bei der Ruheprüfung ignorieren")
     args = parser.parse_args()
+    if args.delete_candidates and args.delete_version_id:
+        parser.error("--delete-candidates und --delete-version-id schließen sich aus")
     cleanup(args.repository, args.output, args.delete_version_id,
             args.min_age_days if args.min_age_days is not None else (30 if args.build_package else 14),
-            args.build_package)
+            args.build_package, args.delete_candidates, args.ignore_run_id)
 
 
 if __name__ == "__main__":

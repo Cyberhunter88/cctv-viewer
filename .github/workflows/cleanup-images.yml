@@ -33,8 +33,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Registry-Werkzeug installieren
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends skopeo
+          command -v skopeo >/dev/null 2>&1 || {
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends skopeo
+          }
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io

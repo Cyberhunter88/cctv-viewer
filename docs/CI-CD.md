@@ -110,6 +110,16 @@ docker inspect --format '{{index .Config.Labels "org.opencontainers.image.versio
 
 Der `latest`-Digest lässt sich dem unveränderlichen Versions-Tag, dessen OCI-Versions-/Commit-Labels und dem Release-Asset `release-proof.json` zuordnen. Zum dauerhaft reproduzierbaren Einsatz kann statt eines Tags `ghcr.io/cyberhunter88/cctv-viewer@sha256:<digest>` verwendet werden. Server werden durch diese Workflows nicht automatisch aktualisiert.
 
+### Automatisches Aufräumen am Release-Ende
+
+Nach erfolgreicher Veröffentlichung läuft im Release-Workflow der Job **Aufräumen nach dem Release** (`continue-on-error`; ein Fehler dort lässt das Release unberührt). Er löscht mit `--delete-candidates` ausschließlich die vom Plan ermittelten Kandidaten, also mit allen oben beschriebenen Schutzregeln, Neuprüfungen und Manifestgraphen:
+
+1. überholte interne Versionen im Build-Paket (mindestens 30 Tage alt, außerhalb der zehn neuesten Main-Commits und der Release-Digests);
+2. historische interne `build-*`/`candidate-*`-Einträge im Release-Paket (mindestens 14 Tage);
+3. alte Workflow-Läufe (über 30 Tage, die zehn neuesten erfolgreichen Läufe je Workflow bleiben) und Caches von PRs/Feature-Branches (PR-Caches nach 2, Branch-Caches nach 7 Tagen ohne Zugriff; Main-Caches bleiben).
+
+Den eigenen Lauf ignoriert die Ruheprüfung über `--ignore-run-id`; andere wartende oder laufende CI-/Release-Läufe brechen die Registry-Bereinigung weiterhin ab. Pläne liegen 14 Tage als Artefakt `release-cleanup-report` vor. Der Workflow **Alte Läufe und Caches aufräumen** (`housekeeping.yml`) führt Punkt 3 sonntags automatisch aus und lässt sich manuell als Vorschau oder mit **apply** starten; er berührt keine Pakete. Lokal: `python3 scripts/housekeeping.py --repository Cyberhunter88/cctv-viewer` (Vorschau ohne `--apply`).
+
 ### Alte interne GHCR-Einträge gezielt bereinigen
 
 Der separate Workflow **Alte interne Docker-Images bereinigen** wird ausschließlich manuell auf `main` gestartet. Die Auswahl **package** trennt `release` (historische interne Einträge im Installationspaket) und `builds` (Aufbewahrung im Schwesterpaket). Standard ist `release`. Lösch-IDs gelten ausschließlich für das ausgewählte Paket.
