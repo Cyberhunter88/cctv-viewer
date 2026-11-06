@@ -213,7 +213,7 @@ class BuildRetentionTest(unittest.TestCase):
 
 
 class CleanupExecutionTest(unittest.TestCase):
-    def run_cleanup(self, selected=(), change_inventory=False, busy=False):
+    def run_cleanup(self, selected=(), change_inventory=False, busy=False, delete_all=False):
         self.versions = [version(1,['latest']),version(2,['build-42-1-amd64'])]
         current = copy.deepcopy(self.versions)
         if change_inventory:
@@ -225,7 +225,7 @@ class CleanupExecutionTest(unittest.TestCase):
                  patch('cleanup_registry.assert_idle', side_effect=ValueError('busy') if busy else None), \
                  patch('cleanup_registry.api') as api:
                 try:
-                    cleanup('example/viewer', output, selected)
+                    cleanup('example/viewer', output, selected, delete_all=delete_all, ignore_run_id=7)
                 except ValueError as error:
                     self.error = error
                 else:
@@ -243,6 +243,18 @@ class CleanupExecutionTest(unittest.TestCase):
         self.assertEqual(len(calls),1)
         self.assertEqual(calls[0].args, ('endpoint/2',))
         self.assertEqual(calls[0].kwargs, dict(method='DELETE'))
+
+    def test_delete_all_removes_only_plan_candidates_and_ignores_own_run(self):
+        calls = self.run_cleanup(delete_all=True)
+        self.assertIsNone(self.error)
+        self.assertEqual([c.args for c in calls], [('endpoint/2',)])
+
+    def test_own_run_is_ignored_by_idle_check_but_others_block(self):
+        with patch('cleanup_registry.api', return_value=[dict(workflow_runs=[dict(id=7)])]):
+            assert_idle('example/viewer', 7)
+        with patch('cleanup_registry.api', return_value=[dict(workflow_runs=[dict(id=8)])]):
+            with self.assertRaises(ValueError):
+                assert_idle('example/viewer', 7)
 
     def test_protected_unknown_changed_or_busy_state_prevents_deletion(self):
         for kwargs in [dict(selected=[1]),dict(selected=[99]),dict(selected=[2],change_inventory=True),dict(selected=[2],busy=True)]:

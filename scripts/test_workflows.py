@@ -214,6 +214,26 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('group: ghcr-cleanup-preview', preview)
         self.assertNotIn('group: docker-publication', preview)
 
+    def test_release_ends_with_non_blocking_cleanup_after_successful_publication(self):
+        job = self.release.split('\n  cleanup:\n', 1)[1]
+        self.assertIn('needs: [prepare, publish]', job)
+        self.assertIn("if: needs.publish.result == 'success'", job)
+        self.assertIn('continue-on-error: true', job)
+        self.assertIn('--delete-candidates', job)
+        self.assertIn('--ignore-run-id "$GITHUB_RUN_ID"', job)
+        self.assertIn('--build-package', job)
+        self.assertIn('scripts/housekeeping.py', job)
+        self.assertNotIn('contents: write', job)
+        self.assertNotIn('needs: cleanup', self.release)
+
+    def test_weekly_housekeeping_only_touches_runs_and_caches(self):
+        text = (ROOT / '.github/workflows/housekeeping.yml').read_text()
+        self.assertIn("if: github.ref == 'refs/heads/main'", text)
+        self.assertIn('actions: write', text)
+        self.assertNotIn('packages:', text)
+        self.assertNotIn('contents: write', text)
+        self.assertIn('schedule:', text)
+
     def test_release_reports_all_mutating_step_outcomes_even_on_failure(self):
         from workflow_summary import STAGES
         for identifier, _ in STAGES:

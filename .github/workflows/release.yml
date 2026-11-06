@@ -94,8 +94,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Werkzeuge für unveränderte Multiarch-Kopien installieren
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends skopeo
+          command -v skopeo >/dev/null 2>&1 || {
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends skopeo
+          }
       - name: Arbeitsdateien festlegen
         run: |
           {
@@ -157,3 +159,47 @@ jobs:
         env:
           RELEASE_STEPS: ${{ toJSON(steps) }}
         run: python3 scripts/workflow_summary.py release
+  cleanup:
+    name: Aufräumen nach dem Release
+    needs: [prepare, publish]
+    # Nur nach vollständig veröffentlichtem Release; ein Fehler hier macht das Release nicht rückgängig.
+    if: needs.publish.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+      - name: Registry-Werkzeug bereitstellen
+        run: |
+          command -v skopeo >/dev/null 2>&1 || {
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends skopeo
+          }
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Überholte interne Images im Build-Paket löschen
+        run: python3 scripts/cleanup_registry.py --repository "$GITHUB_REPOSITORY" --build-package --delete-candidates --ignore-run-id "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/cleanup-builds.json"
+      - name: Alte interne Tags im Release-Paket löschen
+        run: python3 scripts/cleanup_registry.py --repository "$GITHUB_REPOSITORY" --delete-candidates --ignore-run-id "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/cleanup-release.json"
+      - name: Alte Workflow-Läufe und Branch-Caches löschen
+        run: python3 scripts/housekeeping.py --repository "$GITHUB_REPOSITORY" --apply --current-run-id "$GITHUB_RUN_ID"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: release-cleanup-report
+          path: |
+            ${{ runner.temp }}/cleanup-builds.json
+            ${{ runner.temp }}/cleanup-release.json
+          if-no-files-found: ignore
+          retention-days: 14
