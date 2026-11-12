@@ -4,6 +4,24 @@ Referenz: [cctv-timeline-viewer-core, Commit 9c3128c756430529dc5c34c52d6bb4e8e5c
 Abgleich von README, Kamera-/Such-/System-APIs, Indexierung, Hotspot und Oberfläche.
 Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht übernommen.
 
+## Ergänzungen ab 0.14.0
+
+| Funktion | Umsetzung | Nachweis |
+|---|---|---|
+| Schnellere Indexierung und Tagesabfrage | Dateimuster und Zeitzonen werden beim Scan wiederverwendet; je Kamera prüfen zwei `ffprobe`-Prozesse gleichzeitig; Tages- und Suchabfragen lesen nur den Indexbereich, der den Zeitraum überlappen kann | Go: TimestampCachesReturnStableResults, ParallelProbesIndexEveryFileWithItsOwnResult, BatchedScanReportsEveryFileOnce, DayQueryBoundsKeepLongAndMidnightRecordings |
+| Lesezugriffe neben Scans | Wiedergabe, Suche und Sitzungsprüfung lesen über eigene Nur-Lese-Verbindungen und warten nicht hinter Indexschreibvorgängen; WAL mit `synchronous=NORMAL` | Go: ReadPoolSeesCommitsAndRejectsWrites |
+| Auslieferung | Oberfläche gzip-komprimiert mit ETag-Revalidierung; Vorschaubilder warten auf einen freien Platz statt abzubrechen und werden revalidiert; Cachepflege mit einem Durchlauf | Go: StaticAssetsAreCompressedAndRevalidated, ThumbnailRequestsWaitForFreeSlot, ThumbnailCacheRevalidationAndPosition, CachePruneRemovesOldestPreviewsOnlyOverBudget |
+| Vorschau auf der Zeitleiste | Beim Überfahren zeigt die Zeitmarke ein Bild der Aufnahme an dieser Stelle (10-Sekunden-Raster, nur mit aktivierten Vorschaubildern) | Go: ThumbnailCacheRevalidationAndPosition; TypeScript: timeline rows |
+| Gespeicherte Ansichten | Bis zu 20 benannte Kombinationen aus Kameraauswahl und Raster je Konto, neben der Kameraauswahl anwendbar | Go: SavedViewsValidationAndReplacement; TypeScript: saved views |
+| Speicherbelegung | Videos, Größe, Tagesschnitt und älteste Aufnahme je Kamera unter „Kameras“ | Go: StorageOverviewPerCameraAndDay; TypeScript: storage |
+| Warnungen | Webhook bei nicht erreichbarer Aufnahmequelle und optional nach Stunden ohne neue Aufnahme; eine Meldung je Zustandswechsel, Wiederholung nach fehlgeschlagener Zustellung | Go: AlertsReportEachStateChangeOnce, AlertSettingsStaySecretAndValidated, AlertRedirectsAreNotFollowed |
+| Hardware-Encoding | VAAPI oder Intel Quick Sync für die reduzierte Wiedergabe wählbar; automatischer Rückfall auf Software für zehn Minuten | Go: StreamArgumentsPerEncoder, PlaybackEncoderSkipsHardwareAfterFailure, UnavailableHardwareEncoderFallsBackToSoftware |
+| Prometheus-Metriken | `GET /metrics` im Textformat, nur mit `CTV_METRICS_TOKEN` | Go: PrometheusMetricsRequireConfiguredToken, MetricsTokenConfiguration |
+| Zweiter Faktor | TOTP für lokale Konten unter „Mein Konto“; verschlüsselt gespeichert, Codes nicht wiederverwendbar, Zurücksetzen durch Administratoren; Datenbankschema 7 | Go: TOTPCodesFollowRFC6238, TOTPSetupLoginAndRemoval, TOTPAdministratorResetAndPermissions, SchemaVersionSevenAddsSecondFactorColumns |
+
+Hardware-Encoding ist nur über Argument- und Rückfalltests geprüft; eine Messung
+mit realer Grafikhardware liegt nicht vor.
+
 ## Ergänzungen ab 0.13.0
 
 | Funktion | Umsetzung | Nachweis |
