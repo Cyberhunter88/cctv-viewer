@@ -28,6 +28,12 @@ func viewerDefaults(c Config) Config {
 	if c.HLSTempBytes == 0 {
 		c.HLSTempBytes = 256 << 20
 	}
+	if c.Encoder == "" {
+		c.Encoder = "software"
+	}
+	if c.VAAPIDevice == "" {
+		c.VAAPIDevice = "/dev/dri/renderD128"
+	}
 	return c
 }
 func preferenceOwner(s Session) string { return digest(s.Kind + "\x00" + s.Subject) }
