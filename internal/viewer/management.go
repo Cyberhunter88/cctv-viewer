@@ -25,10 +25,12 @@ type localUser struct {
 	Username string `json:"username"`
 	Role     string `json:"role"`
 	Disabled bool   `json:"disabled"`
+	TOTP     bool   `json:"totp"`
 }
 
 func (a *App) registerManagement(m *http.ServeMux) {
 	a.registerSessions(m)
+	a.registerTOTP(m)
 	m.HandleFunc("GET /api/admin/users", a.protect(true, a.users))
 	m.HandleFunc("POST /api/admin/users", a.protect(true, a.audit("user.save", a.saveUser)))
 	m.HandleFunc("DELETE /api/admin/users/{name}", a.protect(true, a.audit("user.delete", a.deleteUser)))
@@ -45,7 +47,7 @@ func (a *App) registerManagement(m *http.ServeMux) {
 	m.HandleFunc("GET /auth/oidc/test/callback", a.protect(true, a.finishOIDCTest))
 }
 func (a *App) users(w http.ResponseWriter, r *http.Request) {
-	rows, e := a.db.QueryContext(r.Context(), `SELECT username,role,disabled FROM admins ORDER BY username`)
+	rows, e := a.db.QueryContext(r.Context(), `SELECT username,role,disabled,totp_enabled FROM admins ORDER BY username`)
 	if e != nil {
 		fail(w, 500, "Benutzer nicht lesbar")
 		return
@@ -54,7 +56,7 @@ func (a *App) users(w http.ResponseWriter, r *http.Request) {
 	out := []localUser{}
 	for rows.Next() {
 		var u localUser
-		if e = rows.Scan(&u.Username, &u.Role, &u.Disabled); e != nil {
+		if e = rows.Scan(&u.Username, &u.Role, &u.Disabled, &u.TOTP); e != nil {
 			fail(w, 500, "Benutzer nicht lesbar")
 			return
 		}

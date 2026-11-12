@@ -125,7 +125,7 @@ func OpenStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if version > 6 {
+	if version > 7 {
 		db.Close()
 		return nil, errors.New("Datenbankschema neuer als diese Anwendung")
 	}
@@ -192,6 +192,9 @@ func OpenStore(dir string) (*Store, error) {
 		{"recordings", "settled", "ALTER TABLE recordings ADD COLUMN settled INTEGER NOT NULL DEFAULT 0"},
 		{"admins", "role", "ALTER TABLE admins ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'"},
 		{"admins", "disabled", "ALTER TABLE admins ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0"},
+		{"admins", "totp_secret", "ALTER TABLE admins ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''"},
+		{"admins", "totp_enabled", "ALTER TABLE admins ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0"},
+		{"admins", "totp_step", "ALTER TABLE admins ADD COLUMN totp_step INTEGER NOT NULL DEFAULT 0"},
 	} {
 		rows, e := db.Query("PRAGMA table_info(" + migration.table + ")")
 		if e != nil {
@@ -287,7 +290,7 @@ CREATE TABLE IF NOT EXISTS scan_schedule(camera_id TEXT PRIMARY KEY REFERENCES c
 	 CREATE TABLE IF NOT EXISTS live_share(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL);
 	 CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT,ts INTEGER NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL,ip TEXT NOT NULL,ok INTEGER NOT NULL);
 	 CREATE INDEX IF NOT EXISTS audit_log_ts ON audit_log(ts);
-	 PRAGMA user_version=6; COMMIT;`); err != nil {
+	 PRAGMA user_version=7; COMMIT;`); err != nil {
 		db.Close()
 		return nil, err
 	}

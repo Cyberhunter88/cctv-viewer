@@ -336,11 +336,12 @@ func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Code     string `json:"code"`
 	}
 	if !decode(w, r, &input) {
 		return
 	}
-	if len(input.Password) > 1024 || len(input.Username) > 100 {
+	if len(input.Password) > 1024 || len(input.Username) > 100 || len(input.Code) > 16 {
 		fail(w, 401, "Anmeldedaten ungültig")
 		return
 	}
@@ -380,6 +381,26 @@ func (a *App) localLogin(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("Anmeldung fehlgeschlagen", "ip", a.clientIP(r))
 		fail(w, 401, "Anmeldedaten ungültig")
 		return
+	}
+	// The second factor is only evaluated after the password was correct, so
+	// its presence does not reveal anything about unknown accounts.
+	if secret, enabled, step, e := a.totpAccount(r, input.Username); e != nil {
+		fail(w, 500, "Anmeldung fehlgeschlagen")
+		return
+	} else if enabled {
+		if strings.TrimSpace(input.Code) == "" {
+			a.limits.refund(a.clientIP(r))
+			jsonOut(w, 401, map[string]any{"error": "Bestätigungscode erforderlich", "totpRequired": true})
+			return
+		}
+		if !a.acceptTOTP(r, input.Username, secret, input.Code, step) {
+			a.metrics.loginFailures.Add(1)
+			a.limits.accountFailure(account)
+			a.recordAudit(r.Context(), input.Username, "login.local", "", a.clientIP(r), false)
+			slog.Warn("Anmeldung fehlgeschlagen", "ip", a.clientIP(r))
+			jsonOut(w, 401, map[string]any{"error": "Bestätigungscode ungültig", "totpRequired": true})
+			return
+		}
 	}
 	if e := a.newLocalSession(w, input.Username, role, hash); e != nil {
 		fail(w, 500, "Anmeldung fehlgeschlagen")
