@@ -15,12 +15,12 @@ import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRe
 import {initSearchPage,type SearchPage} from './search-page';
 import {initCameraEditor} from './camera-editor';
 import {createTimelineView} from './timeline-view';
-interface Camera {viewMode?:string;wideMarker?:string;zoomMarker?:string;zoomOffset?:number;supportsZoom?:boolean;id:string;name:string;folder:string;pattern:string;timezone:string;offset:number;format?:string;prefix?:string;indexingMode?:string;directoryPattern?:string;sourceStatus?:string;lastScan?:number;lastRecording?:number;indexedVideos?:number}
-interface ViewDetection {status:'confirmed'|'swapped'|'unclear';message:string;pairs:number}
+import {initCameraList} from './camera-list';
+import {initCameraBatch} from './camera-batch';
+import {initPreferencesDialog} from './preferences-dialog';
+import {log,initDiagnostics} from './diagnostics';
+import type {Camera,ViewDetection,Scan,Day} from './types';
 interface Session {preferenceKey:string;name:string;role:'admin'|'viewer';csrf:string;kind:'local'|'oidc'}
-interface CameraScan {id:string;name:string;state:string;inspected:number;added:number;changed:number;skipped:number}
-interface Scan {jobId?:string;state?:string;completion?:number;queue?:{id:string;date:string;camera:string;automatic:boolean}[];cameras?:CameraScan[];active?:string[];completed?:number;total?:number;running:boolean;date:string;camera:string;indexed:number;warnings:string[]}
-interface Day {recordings:Recording[];from:number;to:number;scan:Scan}
 prepareDialogs();
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 let session:Session, cameras:Camera[]=[],records:Recording[]=[],playableRecords:Recording[]=[],displayedRecords:Recording[]=[],selected=new Set<string>(),from=0,to=0,cursor=0,viewStart=0,viewEnd=0,playing=false,scanRunning=false,loadGeneration=0,dayLoadPending=false;
@@ -36,8 +36,6 @@ let refreshRange=()=>{};let page=0,order:string[]=[],hotspot:string|undefined,la
 let scanCompletion=0,loadedScanCompletion=0;
 let toastTimer:ReturnType<typeof setTimeout>|undefined;
  const state:ViewState=defaultView();
- let trace:{at:number;event:string;camera?:string;detail?:string}[]=[],tracing=false,traceStart=0;
- function log(event:string,camera?:string,detail?:string){if(tracing&&trace.length<20000)trace.push({at:Math.round(performance.now()-traceStart),event,camera,detail});}
 
 let fullscreenGridPending=false;
 async function toggleFullscreen(tile:HTMLElement){
@@ -235,79 +233,20 @@ async function thumbnails(){const root=$('thumbnails'),ids=visible().map(c=>c.id
  await Promise.allSettled(pairs.map(async({record,img})=>{try{const response=await fetch('/api/recordings/'+record.id+'/thumbnail');if(!response.ok)throw new Error('thumbnail');const blob=await response.blob();if(generation!==thumbGeneration)return;const url=URL.createObjectURL(blob);thumbURLs.push(url);img.src=url}catch{if(generation===thumbGeneration)thumbKey=''}}));
 }
 const dialog=$('camera-dialog'),cameraForm=$<HTMLFormElement>('camera-form');
-const historySection=element('section','scan-history');historySection.innerHTML='<h4>Letzte Indexierungen</h4><div id="scan-history-list" aria-live="polite"></div>';
-dialog.querySelector('.camera-maintenance')?.append(historySection);
-type ScanHistoryRow={cameraId:string;cameraName:string;date:string;manual:boolean;finished:number;state:string;inspected:number;added:number;changed:number;skipped:number;warnings:string[]};
-async function loadScanHistory(){
- const rows=await api<ScanHistoryRow[]>('/api/index/history'),root=$('scan-history-list');root.replaceChildren();
- for(const row of rows){
-  const item=element('div','scan-history-entry');
-  const when=new Date(row.finished*1000).toLocaleString('de-DE');
-  item.append(element('strong','',`${row.cameraName} · ${when} · ${row.state}`),element('span','',` ${row.inspected} geprüft · ${row.added} neu · ${row.changed} geändert · ${row.skipped} übersprungen`));
-  for(const warning of row.warnings)item.append(element('p','warning',warning));
-  if(row.manual&&['partial','failed','interrupted'].includes(row.state)){
-   const retry=element('button','button secondary','Erneut scannen');retry.type='button';retry.onclick=async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({camera:row.cameraId,date:row.date,all:true})}));notify('Scan erneut gestartet.')};item.append(retry);
-  }
-  root.append(item);
- }
- if(!rows.length)root.textContent='Noch keine abgeschlossene Indexierung.';
-}
 let cameraSaving=false;
-let cameraLiveCapabilities:Record<string,{enabled:boolean}>={};
-async function loadCameraLiveStatus(){
- try{const info=await api<{cameras:Record<string,{enabled:boolean}>}>('/api/live');cameraLiveCapabilities=info.cameras;renderCameraList()}catch{/* Recording configuration remains usable without live status. */}
-}
+const cameraList=initCameraList({
+ api,notify,cameras:()=>cameras,order:()=>order,setOrder:next=>{order=next},saving:()=>cameraSaving,date:()=>dateInput.value,dialog,form:cameraForm,setScan,
+ discardCamera:()=>discardCamera(),canChange:()=>cameraSettings.canChange(),clearSettings:()=>cameraSettings.clear(),editCamera:camera=>editCamera(camera),showCameraEditor:()=>showCameraEditor(),resetCamera:()=>resetCamera(),
+ openLive:id=>liveAdmin.open(id),renderCameras:()=>renderCameras(),saveView:()=>saveView(),refreshCameras:()=>refreshCameras(),loadDay:()=>loadDay()
+});
+const {renderCameraList,loadScanHistory,loadCameraLiveStatus}=cameraList;
 const {cameraInput,discardCamera,markCameraSaved,resetCamera,showCameraEditor,editCamera,leaveCameraEditor}=initCameraEditor(cameraForm,dialog,renderCameraList,()=>cameraSaving);
 const cameraSettings=initCameraSettings(cameraForm,dialog,liveAdmin,()=>cameras[0]?.id||'',id=>{
  const camera=cameras.find(camera=>camera.id===id);if(!camera||cameraSaving||!discardCamera())return false;editCamera(camera);showCameraEditor();return true;
 },()=>!cameraSaving&&discardCamera(),resetCamera);
 cameraForm.addEventListener('cameraeditorclosed',()=>cameraSettings.clear());
-const cameraSearch=document.createElement('input');cameraSearch.type='search';cameraSearch.placeholder='Kameras suchen';cameraSearch.setAttribute('aria-label','Kameras suchen');$('camera-list').before(cameraSearch);cameraSearch.addEventListener('input',renderCameraList);
+cameraList.mountSearch();
 
-function renderCameraList(){
- const list=$('camera-list');list.replaceChildren();$('camera-list-count').textContent=String(cameras.length);
- if(!cameras.length){const empty=element('p','camera-empty','Noch keine Kameras eingerichtet. Füge deine erste Aufnahmequelle hinzu.');list.append(empty)}
- const editing=(cameraForm.elements.namedItem('id') as HTMLInputElement).value;
- for(let i=0;i<order.length;i++){
-  const c=cameras.find(c=>c.id===order[i]);if(!c||cameraSearch.value&&!c.name.toLocaleLowerCase('de').includes(cameraSearch.value.toLocaleLowerCase('de')))continue;
-  const entry=element('article','camera-entry'+(editing===c.id?' is-selected':''));
-  const select=element('button','camera-edit'),name=element('strong','camera-name',c.name);
-  select.type='button';select.setAttribute('aria-label',c.name);select.setAttribute('aria-pressed',String(editing===c.id));
-  const status=element('span','camera-status'+(c.sourceStatus==='offline'?' is-offline':''),`${c.sourceStatus==='offline'?'Quelle offline':'Quelle erreichbar'} · ${c.indexedVideos||0} ${c.indexedVideos===1?'Video':'Videos'}`);
-  if(cameraLiveCapabilities[c.id])status.textContent+=' · '+(cameraLiveCapabilities[c.id].enabled?'Live eingerichtet':'Live aus');
-  if(c.lastScan)status.textContent+=' · Scan '+new Date(c.lastScan*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Berlin'});
-  status.textContent+=' · '+(c.lastRecording?'Letzte Aufnahme '+new Date(c.lastRecording*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Berlin'}):'Noch keine Aufnahme im Index');
-  select.append(name,status,element('span','camera-edit-label','Bearbeiten →'));
-  select.onclick=()=>{if(cameraSaving||!discardCamera()||!cameraSettings.canChange())return;editCamera(c);showCameraEditor()};
-  const actions=element('div','camera-entry-actions');
-  const more=element('details','camera-more');const summary=element('summary','','Aktionen');more.append(summary);const moreActions=element('div','camera-more-actions');more.append(moreActions);actions.append(more);
-  const addAction=(text:string,label:string,action:()=>void|Promise<void>,className='')=>{const b=element('button',className,text);b.type='button';b.title=label;b.setAttribute('aria-label',label+' · '+c.name);b.disabled=cameraSaving;b.onclick=()=>void Promise.resolve(action()).catch(e=>notify(e.message));if(['scan-camera','cleanup-camera','delete'].includes(className))moreActions.append(b);else actions.insertBefore(b,more);return b};
-  addAction('Live','Livequelle einrichten',()=>liveAdmin.open(c.id),'text-button');
-  const up=addAction('↑','Nach oben verschieben',()=>reorder(i-1),'move-button');up.disabled=cameraSaving||i===0;
-  const down=addAction('↓','Nach unten verschieben',()=>reorder(i+1),'move-button');down.disabled=cameraSaving||i===order.length-1;
-  const cameraId=c.id;
-  function reorder(target:number){order=moveCamera(order,cameraId,order[target]);renderCameras();renderCameraList();saveView()}
-  addAction('Scannen','Kamera scannen',async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({date:dateInput.value,camera:c.id,all:true})}))},'scan-camera');
-  addAction('Bereinigen','Fehlende Indexeinträge bereinigen',async()=>{
-   const preview=await api<{camera:string;count:number;digest:string}>('/api/index/cleanup?camera='+encodeURIComponent(c.id));
-   if(!preview.count){notify('Keine fehlenden Indexeinträge.');return}
-   if(!confirm(`${preview.count} fehlende Indexeinträge von „${c.name}“ entfernen? Originalaufnahmen bleiben erhalten. Bitte vorher prüfen, ob die Quelle vollständig gemountet ist.`))return;
-   const result=await api<{removed:number}>('/api/index/cleanup',{method:'POST',body:JSON.stringify({camera:c.id,digest:preview.digest})});
-   notify(`${result.removed} Indexeinträge entfernt.`);await refreshCameras();await loadDay();
-  },'cleanup-camera');
-  addAction('Entfernen','Kamera entfernen',async()=>{
-   if(!confirm(`Kamera „${c.name}“ aus dem Viewer entfernen? Die Originalaufnahmen bleiben erhalten.`))return;
-   if(editing===c.id&&(!discardCamera()||!cameraSettings.canChange()))return;
-   await api('/api/cameras/'+c.id,{method:'DELETE'});if(editing===c.id){resetCamera();cameraSettings.clear();dialog.classList.remove('camera-editing')}await refreshCameras();await loadDay();
-  },'delete');
-  entry.draggable=!cameraSaving;
-  entry.ondragstart=e=>e.dataTransfer?.setData('text/plain',c.id);
-  entry.ondragover=e=>e.preventDefault();
-  entry.ondrop=e=>{e.preventDefault();if(cameraSaving)return;const source=e.dataTransfer?.getData('text/plain');if(!source||source===c.id||!order.includes(source))return;order=moveCamera(order,source,c.id);renderCameras();renderCameraList();saveView()};
-  status.id='camera-source-'+c.id;select.setAttribute('aria-describedby',status.id);
-  select.disabled=cameraSaving;entry.append(select,actions);list.append(entry);
- }
-}
 resetCamera();
 cameraForm.addEventListener('submit',async e=>{
  e.preventDefault();if(cameraSaving)return;cameraSaving=true;const submit=cameraForm.querySelector<HTMLButtonElement>('button[type=submit]')!;submit.disabled=true;renderCameraList();
@@ -322,8 +261,6 @@ cameraForm.addEventListener('submit',async e=>{
  finally{controls.forEach((c,i)=>c.disabled=disabled[i]);cameraSaving=false;submit.disabled=false;renderCameraList()}
 });
 on('preview',async()=>{try{const result=await api<{examples:{file:string;time?:string;error?:string;view?:string}[];limited:boolean;detection?:ViewDetection;wideMarker:string;zoomMarker:string}>('/api/cameras/preview',{method:'POST',body:JSON.stringify(cameraInput())});$('preview-result').hidden=false;const status=result.detection?`${result.detection.message}\nKennungen: Weitwinkel ${result.wideMarker}, Zoom ${result.zoomMarker}\n\n`:'';$('preview-result').textContent=status+(result.examples.length?result.examples.map(v=>`${v.file}${v.view?" · "+({wide:"Weitwinkel",zoom:"Zoom",unknown:"Kennung unklar"}[v.view]||v.view):""}\n→ ${v.error||v.time}`).join('\n\n'):'Keine passenden Videodateien gefunden.');if(result.limited)$('preview-result').textContent+='\nSuche auf 10.000 Einträge begrenzt.'}catch(e){$('camera-error').textContent=(e as Error).message}});
-async function browseFolder(folder=''){const data=await api<{path:string;folders:string[];samples:string[];limited:boolean}>('/api/cameras/folders?path='+encodeURIComponent(folder));const root=$('folder-browser');root.hidden=false;root.replaceChildren();root.append(element('strong','',data.path==='.'?'Aufnahmeverzeichnis':data.path));if(data.path!=='.'){const back=element('button','text-button','↑ Übergeordneter Ordner');back.type='button';back.onclick=()=>void browseFolder(data.path.split('/').slice(0,-1).join('/')).catch(e=>notify(e.message));root.append(back);const choose=element('button','button secondary','Diesen Ordner verwenden');choose.type='button';choose.onclick=()=>{const folderField=cameraForm.elements.namedItem('folder') as HTMLInputElement,nameField=cameraForm.elements.namedItem('name') as HTMLInputElement,previous=folderField.value.split('/').pop();folderField.value=data.path;if(!nameField.value||nameField.value===previous)nameField.value=data.path.split('/').pop()||'';cameraForm.dispatchEvent(new Event('input',{bubbles:true}));root.hidden=true};root.append(choose)}for(const folder of data.folders){const b=element('button','text-button',folder.split('/').pop());b.type='button';b.onclick=()=>void browseFolder(folder).catch(e=>notify(e.message));root.append(b)}if(data.limited)root.append(element('small','','Suche begrenzt; bitte einen Unterordner wählen.'))}
-on('browse-folder',()=>browseFolder());
 
 on('new-camera',()=>{if(cameraSaving||!discardCamera()||!cameraSettings.canChange())return;resetCamera();cameraSettings.clear();showCameraEditor()});
 on('camera-back',()=>{if(cameraSettings.canChange())leaveCameraEditor()});on('camera-cancel',()=>{if(cameraSettings.canChange())leaveCameraEditor()});
@@ -388,48 +325,10 @@ async function runBoot(){const button=$<HTMLButtonElement>('boot-retry');button.
 $('boot-retry').addEventListener('click',()=>void runBoot());
 void runBoot();
 
-const preferences=$('preferences-dialog'),preferencesForm=$<HTMLFormElement>('preferences-form');
-let preferencesBaseline='',resetPreferencesPending=false,preferencesSaving=false;
-const preferenceChecks=['showNames','showTimestamps','showCodec','showOverview','showThumbnails','shortcuts'] as const;
-function preferencesSnapshot(){return JSON.stringify(Array.from(preferencesForm.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select')).map(e=>[e.id,e.type==='checkbox'?(e as HTMLInputElement).checked:e.value]))}
-function updatePreferencesSave(){const dirty=resetPreferencesPending||preferencesSnapshot()!==preferencesBaseline;$<HTMLButtonElement>('preferences-save').disabled=!dirty;preferencesForm.dataset.dirty=String(dirty)}
-function syncPreferences(value:ViewState=state){
- for(const key of preferenceChecks)$<HTMLInputElement>('pref-'+key).checked=value[key];
- $<HTMLSelectElement>('pref-density').value=value.density;$<HTMLSelectElement>('pref-seekStep').value=String(value.seekStep);$<HTMLInputElement>('pref-timelineHeight').value=String(value.timelineHeight);
- for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).value=value[id];
- $<HTMLInputElement>('grid-columns').value=String(value.columns);$<HTMLInputElement>('grid-rows').value=String(value.rows);$<HTMLInputElement>('auto-hotspot').checked=value.autoHotspot;
- $<HTMLSelectElement>('theme').value=$<HTMLSelectElement>('login-theme').value;
-}
-function applyPreferences(){
- document.documentElement.dataset.density=state.density;
- for(const key of ['showNames','showTimestamps','showCodec'] as const)document.body.classList.toggle('hide-'+key,!state[key]);
- $('overview').hidden=!state.showOverview;$('thumbnails').hidden=!state.showThumbnails;if(preferences.hidden)syncPreferences();scheduleResize();
-}
-function openPreferences(){if(preferencesForm.dataset.draftActive==='true')return;preferencesForm.dataset.draftActive='true';syncPreferences();resetPreferencesPending=false;preferencesBaseline=preferencesSnapshot();updatePreferencesSave();preferencesForm.dataset.dirty='false'}
-function leavePreferences(){if(preferencesSaving)return false;if((resetPreferencesPending||preferencesSnapshot()!==preferencesBaseline)&&!confirm('Ungespeicherte Einstellungen verwerfen?'))return false;preferencesForm.dataset.draftActive='false';syncPreferences();resetPreferencesPending=false;preferencesBaseline=preferencesSnapshot();updatePreferencesSave();return true}
-function closePreferences(){navigate('recordings')}
-for(const tab of ['appearance','playback'])registerPage('settings/'+tab,{element:preferences,group:'preferences',title:tab==='appearance'?'Darstellung':'Wiedergabe',leave:leavePreferences,enter:()=>{openPreferences();$('preferences-title').textContent=tab==='appearance'?'Darstellung':'Wiedergabe';for(const section of preferences.querySelectorAll<HTMLElement>('[data-preference-page]'))section.hidden=section.dataset.preferencePage!==tab}});
-const diagnostics=$<HTMLDialogElement>('diagnostics-dialog');
-on('diagnostics-open',()=>diagnostics.showModal());on('diagnostics-close',()=>diagnostics.close());
-on('preferences-close',closePreferences);on('preferences-cancel',closePreferences);
-preferences.addEventListener('cancel',e=>{e.preventDefault();closePreferences()});
-preferencesForm.addEventListener('input',updatePreferencesSave);preferencesForm.addEventListener('change',updatePreferencesSave);
-preferencesForm.noValidate=true;
-preferencesForm.addEventListener('submit',async e=>{
- e.preventDefault();const invalid=preferencesForm.querySelector<HTMLInputElement>(':invalid');if(invalid){const tab=invalid.closest<HTMLElement>('[data-preference-page]')?.dataset.preferencePage;if(tab)navigate('settings/'+tab);preferencesForm.reportValidity();return;}
- const theme=$<HTMLSelectElement>('theme').value;
- if(resetPreferencesPending){Object.assign(state,defaultView());delete state.railCollapsed;selected=new Set(cameras.map(c=>c.id));order=cameras.map(c=>c.id);hotspot=undefined;page=0;for(const id of ['layout','quality','speed'] as const)$<HTMLSelectElement>(id).value=state[id]}
- for(const key of preferenceChecks)state[key]=$<HTMLInputElement>('pref-'+key).checked;
- state.density=$<HTMLSelectElement>('pref-density').value as ViewState['density'];state.seekStep=Number($<HTMLSelectElement>('pref-seekStep').value);
- for(const id of ['preload','aspect'] as const)state[id]=$<HTMLSelectElement>(id).value;
- state.columns=Number($<HTMLInputElement>('grid-columns').value);state.rows=Number($<HTMLInputElement>('grid-rows').value);state.autoHotspot=$<HTMLInputElement>('auto-hotspot').checked;
- setTimelineHeight(Number($<HTMLInputElement>('pref-timelineHeight').value));
- state.theme=theme as ViewState['theme'];window.dispatchEvent(new CustomEvent('themecommit',{detail:theme}));
- applyRail();applyPreferences();if(resetPreferencesPending)tiles.forEach(t=>t.release());renderCameras();const saving=saveView();resetPreferencesPending=false;preferencesBaseline=preferencesSnapshot();updatePreferencesSave();preferencesSaving=true;try{await saving;preferencesSaving=false;if(preferencesSnapshot()===preferencesBaseline){preferencesForm.dataset.dirty='false';navigate('recordings');notify('Persönliche Einstellungen gespeichert.')}else notify('Einstellungen gespeichert. Weitere Änderungen sind noch nicht gespeichert.')}catch{}finally{preferencesSaving=false}
-});
-on('preferences-reset',()=>{
- if(!confirm('Persönliche Einstellungen und Kameraauswahl auf die Standardwerte zurücksetzen? Erst Speichern übernimmt die Änderung.'))return;
- syncPreferences(defaultView());$<HTMLSelectElement>('theme').value='system';resetPreferencesPending=true;updatePreferencesSave();
+const {applyPreferences}=initPreferencesDialog({
+ state,notify,scheduleResize:()=>scheduleResize(),setTimelineHeight:height=>setTimelineHeight(height),
+ resetSelection:()=>{selected=new Set(cameras.map(c=>c.id));order=cameras.map(c=>c.id);hotspot=undefined;page=0},
+ applyRail,releaseTiles:()=>tiles.forEach(t=>t.release()),renderCameras:()=>renderCameras(),saveView:()=>saveView()
 });
 on('select-all',()=>{selected=new Set(cameras.map(c=>c.id));page=0;renderCameras();saveView()});
 on('select-none',()=>{selected.clear();page=0;renderCameras();saveView()});
@@ -450,9 +349,7 @@ initSearchPage({
   const cameraIndex=ordered().findIndex(c=>c.id===r.cameraId);if(cameraIndex>=0)page=Math.floor(cameraIndex/visiblePageCapacity());renderCameras();saveView();
  }
 });
-on('trace-stop',()=>{tracing=false;$<HTMLInputElement>('trace-enabled').checked=false;$<HTMLButtonElement>('trace-stop').disabled=true;$<HTMLButtonElement>('trace-download').disabled=trace.length===0;$('trace-status').textContent='Gestoppt · '+trace.length+' Einträge'});
-$<HTMLInputElement>('trace-enabled').onchange=()=>{tracing=$<HTMLInputElement>('trace-enabled').checked;if(tracing){trace=[];traceStart=performance.now();log('start')}else log('stop');$<HTMLButtonElement>('trace-stop').disabled=!tracing;$<HTMLButtonElement>('trace-download').disabled=tracing||trace.length===0;$('trace-status').textContent=tracing?'Aufzeichnung läuft (maximal 20.000 Einträge)':'Gestoppt'};
-on('trace-download',async()=>{const status=await api('/api/playback-status');const blob=new Blob([JSON.stringify({version:1,status,events:trace},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=element('a');a.href=url;a.download='wiedergabediagnose.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)});
+initDiagnostics({api,notify});
 
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'&&document.fullscreenElement)void document.exitFullscreen().catch(()=>notify('Vollbild konnte nicht geschlossen werden.'));
@@ -484,15 +381,7 @@ document.addEventListener('keydown',e=>{
  }
 });
 
-const batchSelection=new Map<string,string>();
-function renderBatchSelection(){$('batch-dialog').dataset.dirty=String(batchSelection.size>0);const root=$('batch-selected');root.replaceChildren();for(const [folder,name] of batchSelection){const row=element('label','batch-row',folder),input=element('input');input.value=name;input.maxLength=100;input.setAttribute('aria-label','Anzeigename für '+folder);input.oninput=()=>batchSelection.set(folder,input.value);const remove=element('button','text-button','Entfernen');remove.type='button';remove.onclick=()=>{batchSelection.delete(folder);renderBatchSelection();void browseBatch(batchFolder)};row.append(input,remove);root.append(row)}$<HTMLButtonElement>('batch-save').disabled=batchSelection.size===0}
-let batchFolder='';
-async function browseBatch(folder=''){batchFolder=folder;const data=await api<{path:string;folders:string[];limited:boolean}>('/api/cameras/folders?path='+encodeURIComponent(folder));const root=$('batch-browser');root.replaceChildren();root.append(element('strong','',data.path==='.'?'Aufnahmeverzeichnis':data.path));if(data.path!=='.'){const back=element('button','text-button','↑ Übergeordneter Ordner');back.type='button';back.onclick=()=>void browseBatch(data.path.split('/').slice(0,-1).join('/')).catch(e=>notify(e.message));root.append(back)}for(const path of data.folders){const row=element('div','batch-row'),check=element('input');check.type='checkbox';check.checked=batchSelection.has(path);check.disabled=cameras.some(c=>c.folder===path);check.setAttribute('aria-label','Kameraordner '+path+' auswählen');check.onchange=()=>{if(check.checked)batchSelection.set(path,path.split('/').pop()||path);else batchSelection.delete(path);renderBatchSelection()};const open=element('button','text-button',path.split('/').pop());open.type='button';open.onclick=()=>void browseBatch(path).catch(e=>notify(e.message));row.append(check,open);if(check.disabled)row.append(element('small','','Bereits eingerichtet'));root.append(row)}if(data.limited)root.append(element('small','','Suche begrenzt; bitte einen Unterordner öffnen.'))}
-let batchSaving=false;
-registerPage('admin/cameras/batch',{element:$('batch-dialog'),title:'Mehrere Kameras hinzufügen',admin:true,enter:async()=>{batchSelection.clear();$('batch-error').textContent='';renderBatchSelection();try{await browseBatch()}catch(e){$('batch-error').textContent=(e as Error).message}},leave:next=>{if(batchSaving)return false;if(batchSelection.size&&!confirm('Ausgewählte Kameraordner verwerfen?'))return false;if(next!=='admin/cameras'&&!discardCamera())return false;batchSelection.clear();$('batch-dialog').dataset.dirty='false';if(next!=='admin/cameras'){resetCamera();dialog.classList.remove('camera-editing')}return true}});
-on('batch-open',()=>navigate('admin/cameras/batch'));
-on('batch-close',()=>navigate('admin/cameras'));
-on('batch-save',async()=>{if(batchSaving)return;batchSaving=true;const button=$<HTMLButtonElement>('batch-save');button.disabled=true;try{const settings=cameraInput();const added=await api<(Camera&{detection?:ViewDetection})[]>('/api/cameras/batch',{method:'POST',body:JSON.stringify({date:dateInput.value,cameras:[...batchSelection].map(([folder,name])=>({...settings,id:'',folder,name}))})});batchSelection.clear();$('batch-dialog').dataset.dirty='false';batchSaving=false;resetCamera();dialog.classList.remove('camera-editing');navigate('recordings');await refreshCameras();await loadDay();const dual=added.filter(c=>c.viewMode==='dual').length,swapped=added.filter(c=>c.detection?.status==='swapped').length,unclear=added.filter(c=>c.detection?.status==='unclear').length;notify(dual?`Kameras hinzugefügt. ${swapped} Zuordnungen korrigiert${unclear?`, ${unclear} nicht sicher bestimmbar`:''}.`:'Kameras hinzugefügt. Bis zu drei Kameras werden gleichzeitig indexiert.')}catch(e){$('batch-error').textContent=(e as Error).message}finally{batchSaving=false;button.disabled=false}});
+initCameraBatch({api,notify,cameras:()=>cameras,date:()=>dateInput.value,dialog,cameraInput,discardCamera,resetCamera,refreshCameras,loadDay:()=>loadDay()});
 
 window.addEventListener('themechange',()=>{timelineView.invalidate();draw()});
 
