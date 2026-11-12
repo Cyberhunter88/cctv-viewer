@@ -173,6 +173,7 @@ func (a *App) Handler() http.Handler {
 		}
 		jsonOut(w, 200, map[string]string{"status": "ok"})
 	})
+	mux.HandleFunc("GET /metrics", a.prometheusMetrics)
 	mux.HandleFunc("GET /auth/methods", func(w http.ResponseWriter, r *http.Request) {
 		jsonOut(w, 200, map[string]bool{"local": a.config().LocalAdmin, "oidc": a.oidcEnabled()})
 	})
