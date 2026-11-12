@@ -11,7 +11,7 @@ import {createPoller} from './poller';
 import {validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveCamera,defaultView,type ViewState} from './view-state';
 import {attachTimelineControls} from './timeline-controls';
 import {initManagement} from './management';
-import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline';
+import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,timelineRowAt,type Recording} from './timeline';
 import {initSearchPage,type SearchPage} from './search-page';
 import {initSavedViews} from './saved-views';
 import {initCameraEditor} from './camera-editor';
@@ -216,6 +216,14 @@ async function loadDay(reset=true,signal?:AbortSignal){
  }finally{if(reset&&generation===loadGeneration)dayLoadPending=false}
 }
 async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');for(const id of openZoom)if(!cameras.some(c=>c.id===id&&c.viewMode==='dual'))openZoom.delete(id);order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList();livePage.refresh()}
+// Preview frames are cached in ten-second steps; the start of a recording reuses its regular preview.
+function timelinePreview(time:number,y:number){
+ if(!state.showThumbnails)return undefined;
+ const camera=visible()[timelineRowAt(y,visible().length)],record=camera&&recordingAt(displayedRecords,camera.id,time);
+ if(!record||record.kind==='image')return undefined;
+ const offset=Math.floor(clamp(time-record.start,0,Math.max(0,record.duration-.001))/10)*10;
+ return '/api/recordings/'+encodeURIComponent(record.id)+'/thumbnail'+(offset?'?t='+offset:'');
+}
 function draw(){timelineView.draw({from,to,cursor,viewStart,viewEnd,cameras:visible(),records:displayedRecords,height:state.timelineHeight})}
 function zoom(factor:number,anchor=cursor){const span=clamp((viewEnd-viewStart)*factor,300,to-from);viewStart=clamp(anchor-span/2,from,to-span);viewEnd=viewStart+span;draw();refreshRange()}
 // Resize callbacks only schedule work: changing an observed layout inside the
@@ -318,7 +326,7 @@ async function boot(){
  // would be mistaken for a new addition again after every reload.
  preferenceWriter=new PreferenceWriter({...initialSnapshot,cameras:saved.cameras??initialSnapshot.cameras,order:saved.order??initialSnapshot.order},changes=>api('/api/preferences',{method:'PATCH',body:JSON.stringify(changes),keepalive:true}),preferenceStatus);
  try{localStorage.setItem('cctv-view:'+session.preferenceKey,JSON.stringify(preferenceSnapshot()))}catch{}
- refreshRange=attachTimelineControls(canvas,{bounds:()=>({from,to,cursor,viewStart,viewEnd}),seek,zoom,shortcuts:()=>state.shortcuts,seekStep:()=>state.seekStep,pan:(start,end)=>{viewStart=start;viewEnd=end;draw();refreshRange()}});
+ refreshRange=attachTimelineControls(canvas,{bounds:()=>({from,to,cursor,viewStart,viewEnd}),preview:timelinePreview,seek,zoom,shortcuts:()=>state.shortcuts,seekStep:()=>state.seekStep,pan:(start,end)=>{viewStart=start;viewEnd=end;draw();refreshRange()}});
  $('boot-error').hidden=true;$('app').hidden=false;startNavigation(()=>session.role==='admin',pause);pollingReady=true;if(!document.hidden)scanPoller.start();
 }
 function showBootError(error:unknown){$('boot-error-message').textContent=(error as Error).message||'Unbekannter Fehler';$('boot-error').hidden=false}

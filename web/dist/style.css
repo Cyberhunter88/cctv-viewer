@@ -1187,6 +1187,10 @@ input[type=checkbox] {
   white-space: nowrap;
   box-shadow: 0 4px 12px #000a
 }
+.timeline-tooltip img { display:block; margin-top:4px; width:160px; height:90px; object-fit:cover; border-radius:3px; background:var(--surface); }
+.timeline-tooltip img[hidden] { display:none; }
+.timeline-tooltip.with-preview { transform:none; margin-left:14px; padding:5px 7px 7px; }
+.timeline-tooltip.with-preview.flip { transform:translateX(-100%); margin-left:-14px; }
 .empty-filter-hint {
   grid-column: 1/-1;
   border: 1px dashed var(--line);

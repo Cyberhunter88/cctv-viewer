@@ -46,3 +46,5 @@ const dateFormatter=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',ye
 const clockFormatter=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit',second:'2-digit'});
 export function berlinDate(date:Date):string{return dateFormatter.format(date)}
 export function clock(time:number):string{return clockFormatter.format(new Date(time*1000))}
+/** Index of the camera row at a vertical timeline position, or -1 outside the recording bars. Matches the layout drawn by the timeline view. */
+export function timelineRowAt(y:number,count:number):number{const index=Math.floor((y-39)/34);return index>=0&&index<count&&y-39-index*34<23?index:-1}
