@@ -118,7 +118,9 @@ func OpenStore(dir string) (*Store, error) {
 			return nil, statErr
 		}
 	}
-	_, err = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
+	// WAL with synchronous=NORMAL stays consistent after a crash; only the most
+	// recent commits can be lost, and the index is rebuilt from the recordings.
+	_, err = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS cameras(id TEXT PRIMARY KEY,name TEXT NOT NULL,folder TEXT NOT NULL,pattern TEXT NOT NULL,timezone TEXT NOT NULL,offset INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS recordings(id TEXT PRIMARY KEY,camera_id TEXT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,path TEXT NOT NULL,start REAL NOT NULL,duration REAL NOT NULL,codec TEXT NOT NULL,size INTEGER NOT NULL,mod INTEGER NOT NULL,UNIQUE(camera_id,path));
  CREATE INDEX IF NOT EXISTS recordings_time ON recordings(camera_id,start);
@@ -319,7 +321,7 @@ func (s *Store) Recordings(camera string, from, to float64) ([]Recording, error)
 		return nil, err
 	}
 	margin := math.Abs(c.ZoomOffset)
-	rows, e := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE camera_id=? AND start<? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, camera, to+margin, from-margin)
+	rows, e := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE camera_id=? AND start<? AND start>? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, camera, to+margin, from-margin-maxRecordingSeconds, from-margin)
 	if e != nil {
 		return nil, e
 	}
@@ -355,7 +357,9 @@ func (s *Store) DayRecordings(cameras []Camera, from, to float64) ([]Recording, 
 		byID[camera.ID] = camera
 		margin = math.Max(margin, math.Abs(camera.ZoomOffset))
 	}
-	rows, err := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE start<? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, to+margin, from-margin)
+	// No indexed recording is longer than maxRecordingSeconds, so the start index
+	// can skip the entire history before the requested day.
+	rows, err := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE start<? AND start>? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, to+margin, from-margin-maxRecordingSeconds, from-margin)
 	if err != nil {
 		return nil, err
 	}

@@ -99,7 +99,7 @@ func (a *App) requestScan(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonOut(w, 202, a.scanStatus())
 }
-func mustBerlin() *time.Location { l, _ := time.LoadLocation("Europe/Berlin"); return l }
+func mustBerlin() *time.Location { l, _ := cachedLocation("Europe/Berlin"); return l }
 func (a *App) rebuildIndex(w http.ResponseWriter, r *http.Request) {
 	a.index.mu.Lock()
 	defer a.index.mu.Unlock()
@@ -192,6 +192,12 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 			expr := map[string]string{"from": effectiveStart + "+r.duration>=?", "to": effectiveStart + "<=?", "minDuration": "r.duration>=?"}[key]
 			conditions = append(conditions, expr)
 			args = append(args, n)
+			if key == "from" {
+				// Recordings are at most maxRecordingSeconds long, so the start
+				// index can discard everything that ended before the lower bound.
+				conditions = append(conditions, "r.start>=?-(SELECT COALESCE(MAX(ABS(zoom_offset)),0) FROM cameras)")
+				args = append(args, n-maxRecordingSeconds)
+			}
 			if key == "to" {
 				// Keep the original zoom-adjusted predicate, but let the start index
 				// discard recordings that cannot possibly precede the upper bound.

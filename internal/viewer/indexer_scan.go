@@ -21,7 +21,7 @@ import (
 
 func (a *App) scanCamera(job scanJob, c Camera, from, to time.Time) bool {
 	date := job.date
-	loc, e := time.LoadLocation(c.Timezone)
+	loc, e := cachedLocation(c.Timezone)
 	if e != nil {
 		a.warn(c.Name + ": ungültige Zeitzone")
 		return false
@@ -284,6 +284,10 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 
 const formats = "mov,matroska,webm,avi,mpegts,h264,hevc,dhav"
 
+// Longer media is rejected while indexing. Time-range queries rely on this
+// bound to limit how far before a range a recording can start.
+const maxRecordingSeconds = 48 * 3600
+
 func probe(ctx context.Context, f *os.File) (float64, string, error) {
 	duration, codec, _, e := probeMedia(ctx, f)
 	return duration, codec, e
@@ -324,7 +328,7 @@ func probeMedia(ctx context.Context, f *os.File) (float64, string, time.Time, er
 			break
 		}
 	}
-	if codec == "" || math.IsNaN(duration) || math.IsInf(duration, 0) || duration <= 0 || duration > 48*3600 {
+	if codec == "" || math.IsNaN(duration) || math.IsInf(duration, 0) || duration <= 0 || duration > maxRecordingSeconds {
 		return 0, "", time.Time{}, errors.New("ungültige Videodauer oder fehlende Videospur")
 	}
 	created, _ := time.Parse(time.RFC3339Nano, info.Format.Tags["creation_time"])

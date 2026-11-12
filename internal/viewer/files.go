@@ -9,8 +9,30 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
+
+// Scans parse one timestamp per file; compiling the pattern and reading the
+// zone database for each of them dominates large partitions.
+var (
+	patternCache     sync.Map
+	patternCacheSize atomic.Int64
+	locationCache    sync.Map
+)
+
+func cachedLocation(zone string) (*time.Location, error) {
+	if loc, ok := locationCache.Load(zone); ok {
+		return loc.(*time.Location), nil
+	}
+	loc, e := time.LoadLocation(zone)
+	if e != nil {
+		return nil, e
+	}
+	locationCache.Store(zone, loc)
+	return loc, nil
+}
 
 // os.Root pins resolution to the mounted directory, including symlink targets.
 func validRelative(p string) bool {
@@ -35,6 +57,17 @@ func openSource(root *os.Root, p string) (*os.File, error) {
 var tokens = map[string]string{"YYYY": `(?P<year>\d{4})`, "MM": `(?P<month>\d{2})`, "DD": `(?P<day>\d{2})`, "hh": `(?P<hour>\d{2})`, "mm": `(?P<minute>\d{2})`, "ss": `(?P<second>\d{2})`}
 
 func patternRE(pattern string) (*regexp.Regexp, error) {
+	if re, ok := patternCache.Load(pattern); ok {
+		return re.(*regexp.Regexp), nil
+	}
+	re, e := compilePattern(pattern)
+	// Previews may try many patterns; only a bounded number stays cached.
+	if e == nil && patternCacheSize.Add(1) <= 256 {
+		patternCache.Store(pattern, re)
+	}
+	return re, e
+}
+func compilePattern(pattern string) (*regexp.Regexp, error) {
 	if !validRelative(pattern) || len(pattern) > 300 {
 		return nil, errors.New("ungültiges Dateimuster")
 	}
@@ -63,7 +96,7 @@ func ParseTimestamp(pattern, name, zone string, offset float64) (time.Time, erro
 		}
 	}
 	local := parts["year"] + "-" + parts["month"] + "-" + parts["day"] + " " + parts["hour"] + ":" + parts["minute"] + ":" + parts["second"]
-	loc, e := time.LoadLocation(zone)
+	loc, e := cachedLocation(zone)
 	if e != nil {
 		return time.Time{}, e
 	}
@@ -149,7 +182,7 @@ func validateCamera(c Camera, root *os.Root) error {
 	default:
 		return errors.New("Unbekanntes Aufnahmeformat")
 	}
-	if _, e := time.LoadLocation(c.Timezone); e != nil {
+	if _, e := cachedLocation(c.Timezone); e != nil {
 		return errors.New("unbekannte Zeitzone")
 	}
 	f, e := root.Open(c.Folder)
@@ -222,8 +255,7 @@ func cameraTimestamp(c Camera, name string) (time.Time, error) {
 		}
 		return ParseTimestamp(pattern, name, c.Timezone, c.Offset)
 	}
-	re := regexp.MustCompile(`^(\d{4})/(\d{2})/(\d{2})/[^/]+_[0-9]+_([0-9]{14})\.(?i:mp4|jpg|jpeg)$`)
-	m := re.FindStringSubmatch(name)
+	m := reolinkPattern.FindStringSubmatch(name)
 	if m == nil {
 		return time.Time{}, errors.New("Dateiname passt nicht zum Reolink-Format")
 	}
@@ -235,6 +267,8 @@ func cameraTimestamp(c Camera, name string) (time.Time, error) {
 func supportedMedia(name string) bool {
 	return contains([]string{".mp4", ".mov", ".mkv", ".avi", ".ts", ".h264", ".h265", ".dav"}, strings.ToLower(path.Ext(name)))
 }
+
+var reolinkPattern = regexp.MustCompile(`^(\d{4})/(\d{2})/(\d{2})/[^/]+_[0-9]+_([0-9]{14})\.(?i:mp4|jpg|jpeg)$`)
 
 var timestampPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(\d{4})(\d{2})(\d{2})_?(\d{2})(\d{2})(\d{2})`),
