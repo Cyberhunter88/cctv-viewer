@@ -13,6 +13,7 @@ import {attachTimelineControls} from './timeline-controls';
 import {initManagement} from './management';
 import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline';
 import {initSearchPage,type SearchPage} from './search-page';
+import {initSavedViews} from './saved-views';
 import {initCameraEditor} from './camera-editor';
 import {createTimelineView} from './timeline-view';
 import {initCameraList} from './camera-list';
@@ -190,7 +191,7 @@ function renderGrid(){
 }
 function renderCameras(){
  lastHotspotCursor=undefined;playableRecords=playbackRecordings(records,cameras); const filters=$('camera-filters');filters.replaceChildren();for(const id of order){const camera=cameras.find(c=>c.id===id);if(!camera)continue;const b=element('button','filter'+(selected.has(id)?' selected':''),camera.name);b.setAttribute('aria-pressed',String(selected.has(id)));b.draggable=true;b.ondragstart=e=>e.dataTransfer?.setData('text/plain',id);b.ondragover=e=>e.preventDefault();b.ondrop=e=>{e.preventDefault();const source=e.dataTransfer?.getData('text/plain');if(!source||!order.includes(source))return;order=moveCamera(order,source,id);renderCameras();saveView()};b.id='recording-filter-'+id;b.title='Reihenfolge mit Alt + Pfeil links/rechts ändern';b.setAttribute('aria-keyshortcuts','Alt+ArrowLeft Alt+ArrowRight');b.onkeydown=e=>{if(!e.altKey||!['ArrowLeft','ArrowRight'].includes(e.key))return;const target=order.indexOf(id)+(e.key==='ArrowLeft'?-1:1);if(target<0||target>=order.length)return;e.preventDefault();order=moveCamera(order,id,order[target]);renderCameras();document.getElementById('recording-filter-'+id)?.focus({preventScroll:true});saveView()};b.onclick=()=>{if(selected.has(id))selected.delete(id);else selected.add(id);page=0;renderCameras();saveView()};filters.append(b)}
- renderGrid();$('empty').hidden=cameras.length!==0;$('timeline-section').hidden=cameras.length===0;$('playback-controls').hidden=cameras.length===0;$('add-first').hidden=session.role!=='admin';update();void thumbnails();
+ renderGrid();savedViews.sync();$('empty').hidden=cameras.length!==0;$('timeline-section').hidden=cameras.length===0;$('playback-controls').hidden=cameras.length===0;$('add-first').hidden=session.role!=='admin';update();void thumbnails();
 }
 function setScan(scan:Scan){
  scanRunning=scan.running;scanCompletion=scan.completion??scanCompletion;
@@ -309,7 +310,7 @@ async function boot(){
  const saved=validView(remote,cameras.map(c=>c.id));
  for(const id of ['layout','quality','speed'] as const)$<HTMLSelectElement>(id).value=saved[id]||defaultView()[id];
 
- delete state.railCollapsed;delete state.hotspot;
+ delete state.railCollapsed;delete state.hotspot;delete state.views;
  Object.assign(state,defaultView(),saved);state.theme=saved.theme||'system';window.dispatchEvent(new CustomEvent('themecommit',{detail:state.theme}));applyRail();hotspot=saved.hotspot;if(saved.cameras)selected=new Set([...saved.cameras,...(saved.order?cameras.filter(c=>!saved.order!.includes(c.id)).map(c=>c.id):[])]);if(saved.order)order=[...saved.order,...order.filter(id=>!saved.order!.includes(id))];for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).value=state[id];$<HTMLInputElement>('grid-columns').value=String(state.columns);$<HTMLInputElement>('grid-rows').value=String(state.rows);$<HTMLInputElement>('auto-hotspot').checked=state.autoHotspot;applyPreferences();setTimelineHeight(state.timelineHeight);renderCameras();await loadDay();
  const initialSnapshot=preferenceSnapshot();
  // Remember the server's known cameras so the next edit also saves newly
@@ -329,6 +330,11 @@ const {applyPreferences}=initPreferencesDialog({
  state,notify,scheduleResize:()=>scheduleResize(),setTimelineHeight:height=>setTimelineHeight(height),
  resetSelection:()=>{selected=new Set(cameras.map(c=>c.id));order=cameras.map(c=>c.id);hotspot=undefined;page=0},
  applyRail,releaseTiles:()=>tiles.forEach(t=>t.release()),renderCameras:()=>renderCameras(),saveView:()=>saveView()
+});
+const savedViews=initSavedViews({
+ views:()=>state.views||[],setViews:views=>{state.views=views;saveView()},notify,
+ current:()=>({selected,layout:$<HTMLSelectElement>('layout').value,columns:state.columns,rows:state.rows}),
+ apply:view=>{selected=new Set(view.cameras.filter(id=>cameras.some(c=>c.id===id)));$<HTMLSelectElement>('layout').value=view.layout;state.columns=view.columns;state.rows=view.rows;$<HTMLInputElement>('grid-columns').value=String(view.columns);$<HTMLInputElement>('grid-rows').value=String(view.rows);page=0;renderCameras();saveView()}
 });
 on('select-all',()=>{selected=new Set(cameras.map(c=>c.id));page=0;renderCameras();saveView()});
 on('select-none',()=>{selected.clear();page=0;renderCameras();saveView()});

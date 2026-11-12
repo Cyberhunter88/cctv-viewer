@@ -1997,6 +1997,12 @@ dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
 .scan-history-entry { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid var(--line); font-size:12px; }
 .scan-history-entry strong { font-size:13px; }
 .scan-history-entry .warning { width:100%; margin:0; }
+.saved-views { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.saved-views select { min-height:36px; max-width:240px; font-size:12px; }
+.saved-view-form { display:flex; align-items:flex-end; flex-wrap:wrap; gap:8px; flex-basis:100%; }
+.saved-view-form label { display:grid; gap:4px; font-size:12px; color:var(--muted); }
+.saved-view-form input { min-height:36px; width:min(260px,70vw); }
+.saved-view-form[hidden] { display:none; }
 .storage-scroll { margin-top:12px; overflow-x:auto; }
 .storage-table { width:100%; border-collapse:collapse; font-size:12px; }
 .storage-table :is(th,td) { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }

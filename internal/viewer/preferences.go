@@ -1,12 +1,15 @@
 package viewer
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"math"
 	"net/http"
 	"slices"
+	"strings"
+	"unicode/utf8"
 )
 
 // Preference fields are explicitly bounded; this is not arbitrary user storage.
@@ -45,6 +48,10 @@ func validPreferences(values map[string]json.RawMessage) bool {
 				if len(id) > 256 {
 					return false
 				}
+			}
+		case "views":
+			if !validSavedViews(raw, enums["layout"]) {
+				return false
 			}
 		case "hotspot":
 			var id string
@@ -137,4 +144,45 @@ func (a *App) preferences(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	jsonOut(w, 200, map[string]bool{"ok": true})
+}
+
+// validSavedViews checks the named camera selections stored with the preferences.
+func validSavedViews(raw json.RawMessage, layouts []string) bool {
+	var views []struct {
+		Name    *string  `json:"name"`
+		Cameras []string `json:"cameras"`
+		Layout  *string  `json:"layout"`
+		Columns *float64 `json:"columns"`
+		Rows    *float64 `json:"rows"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&views) != nil || views == nil || len(views) > 20 {
+		return false
+	}
+	names := map[string]bool{}
+	for _, view := range views {
+		if view.Name == nil || view.Layout == nil || view.Columns == nil || view.Rows == nil || view.Cameras == nil {
+			return false
+		}
+		name := *view.Name
+		if name == "" || name != strings.TrimSpace(name) || !utf8.ValidString(name) || utf8.RuneCountInString(name) > 60 || names[name] {
+			return false
+		}
+		names[name] = true
+		if len(view.Cameras) > 256 || !slices.Contains(layouts, *view.Layout) {
+			return false
+		}
+		for _, id := range view.Cameras {
+			if id == "" || len(id) > 256 {
+				return false
+			}
+		}
+		for _, size := range []float64{*view.Columns, *view.Rows} {
+			if size != math.Trunc(size) || size < 1 || size > 8 {
+				return false
+			}
+		}
+	}
+	return true
 }
