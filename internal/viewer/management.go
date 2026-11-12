@@ -35,6 +35,7 @@ func (a *App) registerManagement(m *http.ServeMux) {
 	m.HandleFunc("GET /api/admin/backup", a.protect(true, a.audit("backup.export", a.backupExport)))
 	m.HandleFunc("POST /api/admin/backup", a.protect(true, a.audit("backup.import", a.backupImport)))
 	m.HandleFunc("GET /api/admin/metrics", a.protect(true, a.metricsHandler))
+	m.HandleFunc("GET /api/admin/storage", a.protect(true, a.storageOverview))
 	m.HandleFunc("POST /api/password", a.protect(false, a.audit("password.change", a.changePassword)))
 	m.HandleFunc("GET /api/admin/settings", a.protect(true, a.getSettings))
 	m.HandleFunc("PUT /api/admin/settings", a.protect(true, a.audit("settings.save", a.saveSettings)))

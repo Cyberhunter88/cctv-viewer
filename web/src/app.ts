@@ -153,7 +153,7 @@ const scanPoller=createPoller({
   const wasRunning=scanRunning;setScan(scan);
   if((wasRunning&&!scan.running)||scanCompletion>loadedScanCompletion){
    await loadDay(false,signal);if(signal.aborted)return;
-   if(currentPage()==='admin/cameras')await loadScanHistory();
+   if(currentPage()==='admin/cameras'){await loadScanHistory();void loadStorage()}
   }
  },onError:error=>notify((error as Error).message)
 });
@@ -239,7 +239,7 @@ const cameraList=initCameraList({
  discardCamera:()=>discardCamera(),canChange:()=>cameraSettings.canChange(),clearSettings:()=>cameraSettings.clear(),editCamera:camera=>editCamera(camera),showCameraEditor:()=>showCameraEditor(),resetCamera:()=>resetCamera(),
  openLive:id=>liveAdmin.open(id),renderCameras:()=>renderCameras(),saveView:()=>saveView(),refreshCameras:()=>refreshCameras(),loadDay:()=>loadDay()
 });
-const {renderCameraList,loadScanHistory,loadCameraLiveStatus}=cameraList;
+const {renderCameraList,loadScanHistory,loadCameraLiveStatus,loadStorage}=cameraList;
 const {cameraInput,discardCamera,markCameraSaved,resetCamera,showCameraEditor,editCamera,leaveCameraEditor}=initCameraEditor(cameraForm,dialog,renderCameraList,()=>cameraSaving);
 const cameraSettings=initCameraSettings(cameraForm,dialog,liveAdmin,()=>cameras[0]?.id||'',id=>{
  const camera=cameras.find(camera=>camera.id===id);if(!camera||cameraSaving||!discardCamera())return false;editCamera(camera);showCameraEditor();return true;
@@ -267,7 +267,7 @@ on('camera-back',()=>{if(cameraSettings.canChange())leaveCameraEditor()});on('ca
 function closeCamera(){navigate('recordings')}
 on('close-dialog',closeCamera);
 registerPage('recordings',{element:$('recordings'),title:'Aufnahmen',enter:()=>scheduleResize()});
-registerPage('admin/cameras',{element:dialog,title:'Kameras',admin:true,enter:()=>{void loadScanHistory();void loadCameraLiveStatus();cameraSettings.show('general')},leave:next=>{if(cameraSaving)return false;if(next==='admin/cameras/live')return true;if(next==='admin/cameras/batch')return true;if(!discardCamera()||!cameraSettings.leave())return false;resetCamera();dialog.classList.remove('camera-editing');return true}});
+registerPage('admin/cameras',{element:dialog,title:'Kameras',admin:true,enter:()=>{void loadScanHistory();void loadCameraLiveStatus();void loadStorage();cameraSettings.show('general')},leave:next=>{if(cameraSaving)return false;if(next==='admin/cameras/live')return true;if(next==='admin/cameras/batch')return true;if(!discardCamera()||!cameraSettings.leave())return false;resetCamera();dialog.classList.remove('camera-editing');return true}});
 on('add-first',()=>{navigate('admin/cameras');resetCamera();showCameraEditor()});
 on('mobile-nav-toggle',()=>{const expanded=document.documentElement.classList.toggle('mobile-nav-open');$('mobile-nav-toggle').setAttribute('aria-expanded',String(expanded))});
 document.addEventListener('pageerror',e=>notify((e as CustomEvent<string>).detail));

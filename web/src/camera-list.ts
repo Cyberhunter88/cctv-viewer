@@ -1,4 +1,5 @@
 import {moveCamera} from './view-state';
+import {formatBytes,dailyAverage,type StorageOverview} from './storage';
 import type {Camera,Scan} from './types';
 interface Context {
  api:<T>(url:string,options?:RequestInit)=>Promise<T>;notify:(message:string)=>void;cameras:()=>Camera[];order:()=>string[];setOrder:(order:string[])=>void;
@@ -14,6 +15,24 @@ export function initCameraList(ctx:Context){
  const historySection=element('section','scan-history');historySection.innerHTML='<h4>Letzte Indexierungen</h4><div id="scan-history-list" aria-live="polite"></div>';
  ctx.dialog.querySelector('.camera-maintenance')?.append(historySection);
  type ScanHistoryRow={cameraId:string;cameraName:string;date:string;manual:boolean;finished:number;state:string;inspected:number;added:number;changed:number;skipped:number;warnings:string[]};
+ const storageSection=element('section','scan-history storage-overview');storageSection.innerHTML='<h4 id="storage-title">Speicherbelegung</h4><p class="setting-help">Größe der indexierten Aufnahmen je Kamera. Der Tagesschnitt berücksichtigt nur Tage mit Aufnahmen aus den letzten 30 Tagen.</p><div id="storage-list" class="storage-scroll" aria-live="polite"></div>';
+ ctx.dialog.querySelector('.camera-maintenance')?.append(storageSection);
+ let storageRequest=0;
+ async function loadStorage(){
+  const own=++storageRequest,root=$('storage-list');
+  let data:StorageOverview;
+  try{data=await ctx.api<StorageOverview>('/api/admin/storage')}catch(error){if(own===storageRequest)root.textContent='Speicherbelegung nicht verfügbar: '+(error as Error).message;return}
+  if(own!==storageRequest)return;
+  root.replaceChildren();
+  if(!data.cameras.length){root.textContent='Noch keine Kameras eingerichtet.';return}
+  const date=(seconds:number)=>seconds?new Date(seconds*1000).toLocaleDateString('de-DE',{dateStyle:'medium',timeZone:'Europe/Berlin'}):'–';
+  const table=element('table','storage-table'),head=element('thead'),body=element('tbody'),foot=element('tfoot');table.setAttribute('aria-labelledby','storage-title');
+  const row=(cells:string[],tag:'td'|'th',first:'row'|'col')=>{const tr=element('tr');cells.forEach((text,i)=>{const cell=element(tag==='td'&&i===0?'th':tag,i?'numeric':'',text);if(cell.tagName==='TH')cell.setAttribute('scope',i===0&&tag==='td'?'row':first);tr.append(cell)});return tr};
+  head.append(row(['Kamera','Videos','Belegt','Ø je Aufnahmetag','Älteste Aufnahme'],'th','col'));
+  for(const camera of data.cameras)body.append(row([camera.name,camera.videos.toLocaleString('de-DE'),formatBytes(camera.bytes),formatBytes(dailyAverage(camera.days)),date(camera.oldest)],'td','row'));
+  foot.append(row(['Gesamt',data.videos.toLocaleString('de-DE'),formatBytes(data.bytes),'',''],'td','row'));
+  table.append(head,body,foot);root.append(table);
+ }
  async function loadScanHistory(){
   const rows=await ctx.api<ScanHistoryRow[]>('/api/index/history'),root=$('scan-history-list');root.replaceChildren();
   for(const row of rows){
@@ -81,5 +100,5 @@ export function initCameraList(ctx:Context){
  on('browse-folder',()=>browseFolder());
  // The search field is inserted once the camera editor has arranged the page.
  function mountSearch(){$('camera-list').before(cameraSearch);cameraSearch.addEventListener('input',renderCameraList);}
- return {renderCameraList,loadScanHistory,loadCameraLiveStatus,mountSearch};
+ return {renderCameraList,loadScanHistory,loadCameraLiveStatus,loadStorage,mountSearch};
 }
