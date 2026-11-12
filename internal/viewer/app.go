@@ -198,7 +198,7 @@ func (a *App) Handler() http.Handler {
 			fail(w, 500, "Kameras nicht lesbar")
 			return
 		}
-		rows, e := a.db.QueryContext(r.Context(), `SELECT c.id,COALESCE(s.success,0),COALESCE(v.video_count,0),COALESCE(v.last_recording,0) FROM cameras c LEFT JOIN camera_scans s ON s.camera_id=c.id LEFT JOIN (SELECT camera_id,COUNT(*) AS video_count,MAX(start+duration) AS last_recording FROM recordings WHERE codec!='jpeg' GROUP BY camera_id) v ON v.camera_id=c.id`)
+		rows, e := a.db.reader().QueryContext(r.Context(), `SELECT c.id,COALESCE(s.success,0),COALESCE(v.video_count,0),COALESCE(v.last_recording,0) FROM cameras c LEFT JOIN camera_scans s ON s.camera_id=c.id LEFT JOIN (SELECT camera_id,COUNT(*) AS video_count,MAX(start+duration) AS last_recording FROM recordings WHERE codec!='jpeg' GROUP BY camera_id) v ON v.camera_id=c.id`)
 		if e != nil {
 			fail(w, 500, "Kamerastatus nicht lesbar")
 			return

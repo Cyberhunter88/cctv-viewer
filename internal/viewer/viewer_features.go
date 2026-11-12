@@ -42,7 +42,7 @@ func (a *App) registerViewerRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/playback-sessions/{id}", a.protect(false, a.playbackSession))
 }
 func (a *App) scanHistory(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.QueryContext(r.Context(), `SELECT camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings FROM scan_history ORDER BY finished DESC,id DESC LIMIT 50`)
+	rows, err := a.db.reader().QueryContext(r.Context(), `SELECT camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings FROM scan_history ORDER BY finished DESC,id DESC LIMIT 50`)
 	if err != nil {
 		fail(w, 500, "Scanverlauf nicht lesbar")
 		return
@@ -143,7 +143,7 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 
 	// Keep camera corrections, count and result rows in the same read snapshot.
 	// A camera edit during a search must not invalidate the unadjusted fast path.
-	tx, err := a.db.BeginTx(r.Context(), &sql.TxOptions{ReadOnly: true})
+	tx, err := a.db.reader().BeginTx(r.Context(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		fail(w, 500, "Suche nicht verfügbar")
 		return

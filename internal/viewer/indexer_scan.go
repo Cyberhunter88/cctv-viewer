@@ -220,7 +220,7 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		for _, item := range batch {
 			args = append(args, item.name)
 		}
-		rows, err := a.db.QueryContext(a.ctx, `SELECT path,size,mod,settled FROM recordings WHERE camera_id=? AND path IN (`+placeholders+`)`, args...)
+		rows, err := a.db.reader().QueryContext(a.ctx, `SELECT path,size,mod,settled FROM recordings WHERE camera_id=? AND path IN (`+placeholders+`)`, args...)
 		if err != nil {
 			return err
 		}

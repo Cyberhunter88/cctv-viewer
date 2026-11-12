@@ -152,7 +152,7 @@ func (a *App) session(r *http.Request) (Session, error) {
 	if e != nil {
 		return s, e
 	}
-	e = a.db.QueryRowContext(r.Context(), `SELECT subject,name,role,kind,csrf FROM sessions WHERE hash=? AND expires>?`, digest(c.Value), time.Now().Unix()).Scan(&s.Subject, &s.Name, &s.Role, &s.Kind, &s.CSRF)
+	e = a.db.reader().QueryRowContext(r.Context(), `SELECT subject,name,role,kind,csrf FROM sessions WHERE hash=? AND expires>?`, digest(c.Value), time.Now().Unix()).Scan(&s.Subject, &s.Name, &s.Role, &s.Kind, &s.CSRF)
 	if e != nil {
 		return s, e
 	}

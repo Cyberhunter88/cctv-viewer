@@ -33,7 +33,7 @@ func (a *App) cleanupCandidates(camera string) ([]string, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	rows, err := a.db.QueryContext(a.ctx, `SELECT id,path FROM recordings WHERE camera_id=?`, camera)
+	rows, err := a.db.reader().QueryContext(a.ctx, `SELECT id,path FROM recordings WHERE camera_id=?`, camera)
 	if err != nil {
 		return nil, "", err
 	}

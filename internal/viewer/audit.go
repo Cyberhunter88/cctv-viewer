@@ -75,7 +75,7 @@ func (a *App) auditList(w http.ResponseWriter, r *http.Request) {
 	if v, e := strconv.Atoi(r.URL.Query().Get("offset")); e == nil && v > 0 {
 		offset = v
 	}
-	rows, e := a.db.QueryContext(r.Context(), `SELECT id,ts,actor,action,target,ip,ok FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?`, limit+1, offset)
+	rows, e := a.db.reader().QueryContext(r.Context(), `SELECT id,ts,actor,action,target,ip,ok FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?`, limit+1, offset)
 	if e != nil {
 		fail(w, 500, "Protokoll nicht lesbar")
 		return

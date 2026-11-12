@@ -59,6 +59,54 @@ func TestDayQueryBoundsKeepLongAndMidnightRecordings(t *testing.T) {
 	}
 }
 
+func TestReadPoolSeesCommitsAndRejectsWrites(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.read == nil || store.reader() == store.DB {
+		t.Fatal("read pool missing")
+	}
+	camera := Camera{ID: "cam", Name: "Kamera", Folder: "cam", Pattern: "{YYYY}{MM}{DD}{hh}{mm}{ss}.mp4", Timezone: "Europe/Berlin"}
+	if err = store.SaveCamera(camera); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.Camera("cam"); err != nil || got.Name != "Kamera" {
+		t.Fatal(got, err)
+	}
+	// An open write transaction must not block readers, and readers only see committed rows.
+	tx, err := store.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(`UPDATE cameras SET name='Neu' WHERE id='cam'`); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.Camera("cam"); err != nil || got.Name != "Kamera" {
+		t.Fatal("uncommitted row visible or reader blocked", got, err)
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.Camera("cam"); err != nil || got.Name != "Neu" {
+		t.Fatal(got, err)
+	}
+	if _, err = store.reader().Exec(`DELETE FROM cameras`); err == nil {
+		t.Fatal("read pool accepted a write")
+	}
+	if err = store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.reader().Ping(); err == nil {
+		t.Fatal("read pool still open after Close")
+	}
+	// Without a pool the store falls back to its single connection.
+	if fallback := (&Store{DB: store.DB}); fallback.reader() != store.DB {
+		t.Fatal("fallback reader differs")
+	}
+}
+
 func containsText(text, part string) bool {
 	for i := 0; i+len(part) <= len(text); i++ {
 		if text[i:i+len(part)] == part {
