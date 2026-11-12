@@ -24,7 +24,7 @@ interface Day {recordings:Recording[];from:number;to:number;scan:Scan}
 prepareDialogs();
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 let session:Session, cameras:Camera[]=[],records:Recording[]=[],playableRecords:Recording[]=[],displayedRecords:Recording[]=[],selected=new Set<string>(),from=0,to=0,cursor=0,viewStart=0,viewEnd=0,playing=false,scanRunning=false,loadGeneration=0,dayLoadPending=false;
-let thumbGeneration=0;const thumbURLs:string[]=[];
+let thumbGeneration=0,thumbKey='';const thumbURLs:string[]=[];
 const tiles=new Map<string,Tile>();
 const openZoom=new Set<string>();
 let audioTile:Tile|undefined;
@@ -227,9 +227,12 @@ function scheduleResize(gridChanged=false){
  resizeFrame=requestAnimationFrame(()=>{resizeFrame=0;const rebuild=gridResizePending;gridResizePending=false;if(!session||!from)return;if(rebuild)renderGrid();draw();refreshRange()});
 }
 new ResizeObserver(()=>scheduleResize()).observe(canvas.parentElement!);
-async function thumbnails(){const generation=++thumbGeneration;for(const url of thumbURLs)URL.revokeObjectURL(url);thumbURLs.length=0;const root=$('thumbnails');root.replaceChildren();if(!state.showThumbnails)return;const ids=visible().map(c=>c.id),items=displayedRecords.filter(r=>ids.includes(r.cameraId)).sort((a,b)=>a.start-b.start);const sample=items.filter((_,i)=>i%Math.max(1,Math.ceil(items.length/8))===0).slice(0,8);
+async function thumbnails(){const root=$('thumbnails'),ids=visible().map(c=>c.id),items=state.showThumbnails?displayedRecords.filter(r=>ids.includes(r.cameraId)).sort((a,b)=>a.start-b.start):[];const sample=items.filter((_,i)=>i%Math.max(1,Math.ceil(items.length/8))===0).slice(0,8);
+ // Scan refreshes and layout changes usually keep the same sample; reloading it would only flicker.
+ const key=sample.map(record=>record.id).join(',');if(key===thumbKey&&root.childElementCount===sample.length)return;
+ thumbKey=key;const generation=++thumbGeneration;for(const url of thumbURLs)URL.revokeObjectURL(url);thumbURLs.length=0;root.replaceChildren();
  const pairs=sample.map(record=>{const button=element('button','thumb'),img=element('img'),label=element('span','',clock(record.start));img.alt='Vorschau '+clock(record.start);button.title=clock(record.start);button.append(img,label);button.onclick=()=>seek(record.start);root.append(button);return{record,img}});
- await Promise.allSettled(pairs.map(async({record,img})=>{try{const response=await fetch('/api/recordings/'+record.id+'/thumbnail');if(!response.ok)return;const blob=await response.blob();if(generation!==thumbGeneration)return;const url=URL.createObjectURL(blob);thumbURLs.push(url);img.src=url}catch{}}));
+ await Promise.allSettled(pairs.map(async({record,img})=>{try{const response=await fetch('/api/recordings/'+record.id+'/thumbnail');if(!response.ok)throw new Error('thumbnail');const blob=await response.blob();if(generation!==thumbGeneration)return;const url=URL.createObjectURL(blob);thumbURLs.push(url);img.src=url}catch{if(generation===thumbGeneration)thumbKey=''}}));
 }
 const dialog=$('camera-dialog'),cameraForm=$<HTMLFormElement>('camera-form');
 const historySection=element('section','scan-history');historySection.innerHTML='<h4>Letzte Indexierungen</h4><div id="scan-history-list" aria-live="polite"></div>';

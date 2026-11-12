@@ -1,7 +1,11 @@
 package viewer
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +53,8 @@ type App struct {
 	cacheMu         sync.Mutex
 	thumbSlots      chan struct{}
 	assets          fs.FS
+	assetOnce       sync.Once
+	assetCache      map[string]staticAsset
 }
 
 func New(ctx context.Context, cfg Config, assets fs.FS) (*App, error) {
@@ -67,7 +74,7 @@ func New(ctx context.Context, cfg Config, assets fs.FS) (*App, error) {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	a := &App{cfg: cfg, db: db, root: root, ctx: ctx, cancel: cancel, index: indexer{last: map[string]time.Time{}, status: ScanStatus{Warnings: []string{}}}, limits: limiter{entries: map[string]attempt{}, active: make(chan struct{}, 2)}, streams: map[string]*stream{}, thumbSlots: make(chan struct{}, 1), assets: assets}
+	a := &App{cfg: cfg, db: db, root: root, ctx: ctx, cancel: cancel, index: indexer{last: map[string]time.Time{}, status: ScanStatus{Warnings: []string{}}}, limits: limiter{entries: map[string]attempt{}, active: make(chan struct{}, 2)}, streams: map[string]*stream{}, thumbSlots: make(chan struct{}, 2), assets: assets}
 	a.envCfg = cfg
 	a.overrides = map[string]json.RawMessage{}
 	if e = a.loadSettings(); e != nil {
@@ -131,7 +138,14 @@ func (a *App) background() {
 			}
 			a.pruneStreams()
 			a.enforceStreamBudget()
-			if time.Since(lastCache) >= 2*time.Second {
+			// Streams fill the cache quickly; previews are pruned when they are created.
+			cacheInterval := time.Minute
+			a.mediaMu.Lock()
+			if len(a.streams) > 0 {
+				cacheInterval = 2 * time.Second
+			}
+			a.mediaMu.Unlock()
+			if time.Since(lastCache) >= cacheInterval {
 				a.pruneCache()
 				lastCache = time.Now()
 			}
@@ -245,32 +259,35 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/streams/{id}", a.protect(false, a.deleteStream))
 	mux.HandleFunc("GET /api/streams/{id}/{file}", a.protect(false, a.streamFile))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && r.URL.Path != "/app.js" && r.URL.Path != "/chunks/hls.js" && r.URL.Path != "/theme.js" && r.URL.Path != "/style.css" && r.URL.Path != "/favicon.svg" && r.URL.Path != "/favicon.ico" {
-			http.NotFound(w, r)
-			return
-		}
 		name := strings.TrimPrefix(r.URL.Path, "/")
 		if name == "" {
 			name = "index.html"
 		}
-		b, e := fs.ReadFile(a.assets, name)
-		if e != nil {
+		item, ok := a.staticAssets()[name]
+		if !ok {
 			http.NotFound(w, r)
 			return
 		}
-		switch path.Ext(name) {
-		case ".html":
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		case ".js":
-			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		case ".css":
-			w.Header().Set("Content-Type", "text/css; charset=utf-8")
-		case ".svg":
-			w.Header().Set("Content-Type", "image/svg+xml")
-		case ".ico":
-			w.Header().Set("Content-Type", "image/x-icon")
+		// The bundle has fixed names, so browsers revalidate instead of
+		// downloading it again on every visit.
+		header := w.Header()
+		header.Set("Content-Type", item.contentType)
+		header.Set("Cache-Control", "no-cache")
+		header.Add("Vary", "Accept-Encoding")
+		body, etag := item.body, item.etag
+		if item.gzip != nil && acceptsGzip(r.Header.Get("Accept-Encoding")) {
+			body, etag = item.gzip, item.gzipETag
+			header.Set("Content-Encoding", "gzip")
 		}
-		w.Write(b)
+		header.Set("ETag", etag)
+		if etagMatches(r.Header.Get("If-None-Match"), etag) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		header.Set("Content-Length", strconv.Itoa(len(body)))
+		if r.Method != http.MethodHead {
+			w.Write(body)
+		}
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -296,6 +313,63 @@ func (a *App) Handler() http.Handler {
 		mux.ServeHTTP(w, r)
 	})
 }
+
+type staticAsset struct {
+	body, gzip     []byte
+	etag, gzipETag string
+	contentType    string
+}
+
+var staticAssetTypes = map[string]string{
+	"index.html":    "text/html; charset=utf-8",
+	"app.js":        "text/javascript; charset=utf-8",
+	"chunks/hls.js": "text/javascript; charset=utf-8",
+	"theme.js":      "text/javascript; charset=utf-8",
+	"style.css":     "text/css; charset=utf-8",
+	"favicon.svg":   "image/svg+xml",
+	"favicon.ico":   "image/x-icon",
+}
+
+// staticAssets reads the embedded files once and prepares their compressed
+// variants and validators.
+func (a *App) staticAssets() map[string]staticAsset {
+	a.assetOnce.Do(func() {
+		a.assetCache = map[string]staticAsset{}
+		for name, contentType := range staticAssetTypes {
+			body, e := fs.ReadFile(a.assets, name)
+			if e != nil {
+				continue
+			}
+			sum := sha256.Sum256(body)
+			tag := hex.EncodeToString(sum[:12])
+			item := staticAsset{body: body, etag: `"` + tag + `"`, contentType: contentType}
+			if name != "favicon.ico" {
+				var packed bytes.Buffer
+				writer, _ := gzip.NewWriterLevel(&packed, gzip.BestCompression)
+				writer.Write(body)
+				if writer.Close() == nil && packed.Len() < len(body) {
+					item.gzip, item.gzipETag = packed.Bytes(), `"`+tag+`-gzip"`
+				}
+			}
+			a.assetCache[name] = item
+		}
+	})
+	return a.assetCache
+}
+
+func acceptsGzip(header string) bool {
+	for _, part := range strings.Split(header, ",") {
+		coding, parameters, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if !strings.EqualFold(strings.TrimSpace(coding), "gzip") {
+			continue
+		}
+		quality := strings.TrimPrefix(strings.ReplaceAll(strings.ToLower(parameters), " ", ""), "q=")
+		value, e := strconv.ParseFloat(quality, 64)
+		return parameters == "" || e != nil || value > 0
+	}
+	return false
+}
+
 func (a *App) saveCamera(w http.ResponseWriter, r *http.Request) {
 	var c Camera
 	if !decode(w, r, &c) {
