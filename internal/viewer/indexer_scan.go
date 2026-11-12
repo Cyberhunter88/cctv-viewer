@@ -16,6 +16,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -138,72 +139,104 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		settled   int
 	}
 	batch := make([]mediaEntry, 0, 128)
-	process := func(name string, d fs.DirEntry, old fileState, exists bool) error {
+	// One file of a batch: plan decides without side effects what has to happen,
+	// probes run concurrently, and apply records the outcome in directory order.
+	type pending struct {
+		name, relative, skip string
+		exists, ignore       bool
+		settle, fallback     bool
+		file                 *os.File
+		info                 fs.FileInfo
+		start                time.Time
+		size, mod            int64
+		duration             float64
+		codec                string
+		created              time.Time
+		probeErr, statErr    error
+		after                fs.FileInfo
+	}
+	plan := func(name string, d fs.DirEntry, old fileState, exists bool) *pending {
+		item := &pending{name: name, exists: exists}
+		st, e := d.Info()
+		if e != nil {
+			item.skip = "Datei nicht lesbar"
+			return item
+		}
+		item.info = st
+		item.relative = strings.TrimPrefix(name, c.Folder+"/")
+		start, e := cameraTimestamp(c, item.relative)
+		item.start = start
+		item.fallback = e != nil && cameraFormat(c) == "automatic" && strings.Contains(e.Error(), "Kein Zeitstempel")
+		if e != nil && !item.fallback {
+			item.skip = item.relative + ": " + e.Error()
+			return item
+		}
+		if !item.fallback && (start.Unix() >= to || start.Unix() < from-48*3600) {
+			item.ignore = true
+			return item
+		}
+		item.size, item.mod = st.Size(), st.ModTime().UnixNano()
+		if exists && item.size == old.size && item.mod == old.mod {
+			item.ignore = true
+			item.settle = incremental && old.settled == 0 && time.Since(st.ModTime()) >= 120*time.Second
+			return item
+		}
+		if time.Since(st.ModTime()) < 30*time.Second || item.size == 0 {
+			item.skip = item.relative + ": Aufnahme wird noch geschrieben"
+			return item
+		}
+		file, e := openSource(a.root, name)
+		if e != nil {
+			item.skip = item.relative + ": Datei nicht lesbar"
+			return item
+		}
+		item.file = file
+		return item
+	}
+	apply := func(item *pending) error {
 		inspected++
 		a.progress(c, "inspected")
 		skip := func(message string) { healthy = false; a.progress(c, "skipped"); a.warn(c.Name + ": " + message) }
-		st, e := d.Info()
-		if e != nil {
-			skip("Datei nicht lesbar")
+		if item.skip != "" {
+			skip(item.skip)
 			return nil
 		}
-		relative := strings.TrimPrefix(name, c.Folder+"/")
-		start, e := cameraTimestamp(c, relative)
-		fallback := e != nil && cameraFormat(c) == "automatic" && strings.Contains(e.Error(), "Kein Zeitstempel")
-		if e != nil && !fallback {
-			skip(relative + ": " + e.Error())
-			return nil
-		}
-		if !fallback && (start.Unix() >= to || start.Unix() < from-48*3600) {
-			return nil
-		}
-		size, mod := st.Size(), st.ModTime().UnixNano()
-		if exists && size == old.size && mod == old.mod {
-			if incremental && old.settled == 0 && time.Since(st.ModTime()) >= 120*time.Second {
-				if _, e := a.db.ExecContext(a.ctx, `UPDATE recordings SET settled=1 WHERE camera_id=? AND path=? AND settled=0`, c.ID, name); e != nil {
+		if item.ignore {
+			if item.settle {
+				if _, e := a.db.ExecContext(a.ctx, `UPDATE recordings SET settled=1 WHERE camera_id=? AND path=? AND settled=0`, c.ID, item.name); e != nil {
 					skip("Index konnte nicht gespeichert werden")
 				}
 			}
 			return nil
 		}
-		if time.Since(st.ModTime()) < 30*time.Second || size == 0 {
-			skip(relative + ": Aufnahme wird noch geschrieben")
-			return nil
-		}
-		file, e := openSource(a.root, name)
-		if e != nil {
-			skip(relative + ": Datei nicht lesbar")
-			return nil
-		}
-		duration, codec, created, probeErr := probeMedia(a.ctx, file)
-		if fallback {
+		start := item.start
+		if item.fallback {
+			created := item.created
 			if created.IsZero() {
-				created = st.ModTime()
+				created = item.info.ModTime()
 			}
 			start = created.Add(time.Duration(c.Offset * float64(time.Second)))
 		}
-		after, statErr := file.Stat()
-		file.Close()
 		if a.ctx.Err() != nil {
 			return a.ctx.Err()
 		}
-		if statErr != nil || after.Size() != size || after.ModTime().UnixNano() != mod {
-			skip(relative + ": Aufnahme wird noch geschrieben")
+		if item.statErr != nil || item.after.Size() != item.size || item.after.ModTime().UnixNano() != item.mod {
+			skip(item.relative + ": Aufnahme wird noch geschrieben")
 			return nil
 		}
-		if probeErr != nil {
-			skip(relative + ": Video beschädigt oder nicht lesbar")
+		if item.probeErr != nil {
+			skip(item.relative + ": Video beschädigt oder nicht lesbar")
 			return nil
 		}
-		h := sha256.Sum256([]byte(c.ID + "\x00" + name))
+		h := sha256.Sum256([]byte(c.ID + "\x00" + item.name))
 		id := hex.EncodeToString(h[:16])
-		_, e = a.db.ExecContext(a.ctx, `INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod,filename) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(camera_id,path) DO UPDATE SET start=excluded.start,duration=excluded.duration,codec=excluded.codec,size=excluded.size,mod=excluded.mod,filename=excluded.filename,settled=0`, id, c.ID, name, float64(start.UnixNano())/1e9, duration, codec, size, mod, filepath.Base(name))
+		_, e := a.db.ExecContext(a.ctx, `INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod,filename) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(camera_id,path) DO UPDATE SET start=excluded.start,duration=excluded.duration,codec=excluded.codec,size=excluded.size,mod=excluded.mod,filename=excluded.filename,settled=0`, id, c.ID, item.name, float64(start.UnixNano())/1e9, item.duration, item.codec, item.size, item.mod, filepath.Base(item.name))
 		if e != nil {
 			skip("Index konnte nicht gespeichert werden")
 			return nil
 		}
 		updated++
-		if exists {
+		if item.exists {
 			a.progress(c, "changed")
 		} else {
 			a.progress(c, "added")
@@ -239,13 +272,33 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		if err != nil {
 			return err
 		}
-		for _, item := range batch {
-			state, exists := states[item.name]
-			if err := process(item.name, item.entry, state, exists); err != nil {
+		planned := make([]*pending, 0, len(batch))
+		slots := make(chan struct{}, probeWorkers)
+		var probes sync.WaitGroup
+		for _, entry := range batch {
+			state, exists := states[entry.name]
+			item := plan(entry.name, entry.entry, state, exists)
+			planned = append(planned, item)
+			if item.file == nil {
+				continue
+			}
+			slots <- struct{}{}
+			probes.Add(1)
+			go func() {
+				defer probes.Done()
+				defer func() { <-slots }()
+				item.duration, item.codec, item.created, item.probeErr = scanProbe(a.ctx, item.file)
+				item.after, item.statErr = item.file.Stat()
+				item.file.Close()
+			}()
+		}
+		probes.Wait()
+		batch = batch[:0]
+		for _, item := range planned {
+			if err := apply(item); err != nil {
 				return err
 			}
 		}
-		batch = batch[:0]
 		return nil
 	}
 	err := a.walkMedia(p, 0, func(name string, d fs.DirEntry) error {
@@ -283,6 +336,13 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 }
 
 const formats = "mov,matroska,webm,avi,mpegts,h264,hevc,dhav"
+
+// Media files of one camera are inspected by this many ffprobe processes at once.
+const probeWorkers = 2
+
+// scanProbe inspects one media file during indexing; tests replace it to cover
+// the indexing logic without media tools.
+var scanProbe = probeMedia
 
 // Longer media is rejected while indexing. Time-range queries rely on this
 // bound to limit how far before a range a recording can start.

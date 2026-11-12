@@ -1,8 +1,16 @@
 package viewer
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"sort"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestDayQueryBoundsKeepLongAndMidnightRecordings(t *testing.T) {
@@ -104,6 +112,152 @@ func TestReadPoolSeesCommitsAndRejectsWrites(t *testing.T) {
 	// Without a pool the store falls back to its single connection.
 	if fallback := (&Store{DB: store.DB}); fallback.reader() != store.DB {
 		t.Fatal("fallback reader differs")
+	}
+}
+
+func TestBatchedScanReportsEveryFileOnce(t *testing.T) {
+	a := testApp(t)
+	camera := Camera{ID: "cam", Name: "Kamera", Folder: "cam", Pattern: "{YYYY}{MM}{DD}{hh}{mm}{ss}.mp4", Timezone: "UTC", Format: "custom"}
+	if err := a.db.SaveCamera(camera); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(a.cfg.RecordingsDir, camera.Folder)
+	if err := os.MkdirAll(folder, 0700); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	write := func(name string, data []byte, stamp time.Time) os.FileInfo {
+		path := filepath.Join(folder, name)
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+		st, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	want := []string{}
+	// More unreadable files than probe workers, so several rounds run concurrently.
+	for i := 0; i < 3*probeWorkers; i++ {
+		name := fmt.Sprintf("202603011000%02d.mp4", i)
+		write(name, []byte("not a real video"), old)
+		want = append(want, "Kamera: "+name+": Video beschädigt oder nicht lesbar")
+	}
+	write("20260301110000.mp4", nil, old)
+	write("20260301120000.mp4", []byte("still growing"), time.Now())
+	want = append(want, "Kamera: 20260301110000.mp4: Aufnahme wird noch geschrieben", "Kamera: 20260301120000.mp4: Aufnahme wird noch geschrieben")
+	write("unnamed.mp4", []byte("x"), old)
+	want = append(want, "Kamera: unnamed.mp4: Dateiname passt nicht zum Muster")
+	known := write("20260301130000.mp4", []byte("already indexed"), old)
+	if _, err := a.db.Exec(`INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod,filename) VALUES('known','cam','cam/20260301130000.mp4',1,30,'h264',?,?,'20260301130000.mp4')`, known.Size(), known.ModTime().UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+	write("notes.txt", []byte("ignored"), old)
+	if a.scanPartition(camera, camera.Folder, 0, math.MaxInt64) {
+		t.Fatal("scan with unreadable files reported as complete")
+	}
+	status := a.scanStatus()
+	if status.Inspected != len(want)+1 || status.Skipped != len(want) || status.Added != 0 || status.Changed != 0 {
+		t.Fatal(status.Inspected, status.Skipped, status.Added, status.Changed)
+	}
+	got := append([]string{}, status.Warnings...)
+	sort.Strings(got)
+	sort.Strings(want)
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("warnings\n got %v\nwant %v", got, want)
+	}
+	var rows int
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM recordings`).Scan(&rows); err != nil || rows != 1 {
+		t.Fatal(rows, err)
+	}
+}
+
+func TestParallelProbesIndexEveryFileWithItsOwnResult(t *testing.T) {
+	a := testApp(t)
+	var running, peak atomic.Int32
+	original := scanProbe
+	t.Cleanup(func() { scanProbe = original })
+	// Each file reports its own size as duration, so mixed-up results are detected.
+	scanProbe = func(ctx context.Context, f *os.File) (float64, string, time.Time, error) {
+		now := running.Add(1)
+		for {
+			seen := peak.Load()
+			if now <= seen || peak.CompareAndSwap(seen, now) {
+				break
+			}
+		}
+		defer running.Add(-1)
+		time.Sleep(2 * time.Millisecond)
+		st, err := f.Stat()
+		if err != nil {
+			return 0, "", time.Time{}, err
+		}
+		return float64(st.Size()), "h264", time.Time{}, nil
+	}
+	camera := Camera{ID: "cam", Name: "Kamera", Folder: "cam", Pattern: "{YYYY}{MM}{DD}{hh}{mm}{ss}.mp4", Timezone: "UTC", Format: "custom"}
+	if err := a.db.SaveCamera(camera); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(a.cfg.RecordingsDir, camera.Folder)
+	if err := os.MkdirAll(folder, 0700); err != nil {
+		t.Fatal(err)
+	}
+	const files = 300 // more than two batches
+	old := time.Now().Add(-time.Hour)
+	for i := 0; i < files; i++ {
+		path := filepath.Join(folder, fmt.Sprintf("20260301%02d%02d00.mp4", i/60, i%60))
+		if err := os.WriteFile(path, make([]byte, i+1), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !a.scanPartition(camera, camera.Folder, 0, math.MaxInt64) {
+		t.Fatal("scan failed", a.scanStatus().Warnings)
+	}
+	if status := a.scanStatus(); status.Inspected != files || status.Added != files || status.Skipped != 0 {
+		t.Fatal(status.Inspected, status.Added, status.Skipped)
+	}
+	if got := peak.Load(); got < 2 || got > probeWorkers {
+		t.Fatal("unexpected probe concurrency", got)
+	}
+	var mismatched, total int
+	if err := a.db.QueryRow(`SELECT COUNT(*),COALESCE(SUM(duration!=size),0) FROM recordings WHERE camera_id='cam' AND codec='h264'`).Scan(&total, &mismatched); err != nil || total != files || mismatched != 0 {
+		t.Fatal(total, mismatched, err)
+	}
+	var start float64
+	if err := a.db.QueryRow(`SELECT start FROM recordings WHERE filename='20260301010500.mp4'`).Scan(&start); err != nil || start != float64(time.Date(2026, 3, 1, 1, 5, 0, 0, time.UTC).Unix()) {
+		t.Fatal(start, err)
+	}
+	// Unchanged files are not probed again.
+	peak.Store(0)
+	if !a.scanPartition(camera, camera.Folder, 0, math.MaxInt64) {
+		t.Fatal("rescan failed")
+	}
+	if status := a.scanStatus(); peak.Load() != 0 || status.Inspected != 2*files || status.Added != files || status.Changed != 0 {
+		t.Fatal(peak.Load(), status.Inspected, status.Added, status.Changed)
+	}
+	// A probe failure skips only the affected file.
+	changed := filepath.Join(folder, "20260301000000.mp4")
+	if err := os.WriteFile(changed, make([]byte, 5000), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(changed, old.Add(time.Minute), old.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	scanProbe = func(ctx context.Context, f *os.File) (float64, string, time.Time, error) {
+		return 0, "", time.Time{}, errors.New("unreadable")
+	}
+	if a.scanPartition(camera, camera.Folder, 0, math.MaxInt64) {
+		t.Fatal("failed probe reported as complete")
+	}
+	if status := a.scanStatus(); status.Skipped != 1 || status.Changed != 0 || len(status.Warnings) != 1 {
+		t.Fatal(status.Skipped, status.Changed, status.Warnings)
 	}
 }
 
