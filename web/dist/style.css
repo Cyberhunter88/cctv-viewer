@@ -601,20 +601,6 @@ footer {
   color: var(--subtle);
   padding: 8px 34px 24px
 }
-dialog {
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 28px;
-  width: min(680px,calc(100vw - 24px));
-  max-height: 90dvh;
-  box-shadow: 0 30px 100px #0009
-}
-dialog::backdrop {
-  background: #03070bbd;
-  backdrop-filter: blur(5px)
-}
 .dialog-heading {
   display: flex;
   align-items: start;
@@ -843,21 +829,6 @@ footer span:last-child {
 #management-dialog {
   width: min(720px,94vw)
 }
-dialog label {
-  display: block;
-  margin: 12px 0
-}
-dialog input,dialog select {
-  max-width: 100%
-}
-dialog input[type=checkbox] {
-  width: auto;
-  margin-right: 8px
-}
-dialog pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere
-}
 #folder-browser {
   padding: 12px;
   border: 1px solid var(--line);
@@ -880,10 +851,6 @@ dialog pre {
 }
 #password-button {
   font-size: 12px
-}
-dialog img {
-  display: block;
-  margin: 14px 0
 }
 
 @media(max-width:600px) {
@@ -965,9 +932,6 @@ dialog img {
 .camera-tile.expanded {
     inset: 0;
     border-radius: 0
-  }
-dialog {
-    padding: 18px
   }
 }/* Reference capabilities, using the existing German design. */
 
@@ -1056,8 +1020,6 @@ input[type=checkbox] {
     display: block
   }
 }/* Native WebKit controls may have a wider intrinsic size than Chromium controls. */
-
-
 
 @media(max-width:600px) {
 .topbar {
@@ -1358,9 +1320,6 @@ input[type=checkbox] {
 .tile-audio:focus-visible { outline:2px solid #53d4ab; outline-offset:2px; }
 summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }/* Consistent form labels in both themes and at narrow widths. */
 
-dialog label { display:flex; flex-direction:column; align-items:stretch; gap:7px; margin:10px 0; min-width:0; }
-dialog label:has(>input[type=checkbox]) { flex-direction:row; align-items:center; flex-wrap:wrap; }
-dialog label>input:not([type=checkbox]),dialog label>select { width:100%; }
 #camera-form { gap:16px; }
 #camera-form label { margin:0; }
 .camera-list { margin-bottom:12px; }
@@ -1489,9 +1448,6 @@ button:disabled { cursor:default; }
 @media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
 
 .login-theme { margin-bottom:24px; max-width:180px; }
-
-
-
 
 @media(min-width:701px) and (max-width:1100px) {
  .view-options { flex-basis:100%; justify-content:flex-start; }
@@ -1641,19 +1597,8 @@ button:disabled { cursor:default; }
  .rail-heading,.rail-bottom { flex-shrink:0; }
  .rail nav { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
 }
-html:has(dialog[open]) { overflow:hidden; }
-dialog:where([id]) { padding:0; overflow:hidden; max-height:calc(100dvh - 24px); }
-dialog[open] { display:flex; flex-direction:column; }
-dialog > .dialog-heading,#preferences-dialog > .dialog-heading { position:static; flex:none; margin:0; padding:18px 28px 14px; gap:16px; border-bottom:1px solid var(--line); background:var(--panel); }
-dialog .dialog-heading h2 { min-width:0; overflow-wrap:anywhere; margin:0; }
-dialog .dialog-heading .icon-button { flex-shrink:0; }
-.dialog-body { padding:24px 28px; overflow:auto; overscroll-behavior:contain; min-height:0; min-width:0; scrollbar-gutter:stable; }
+#preferences-dialog > .dialog-heading { position:static; flex:none; margin:0; padding:18px 28px 14px; gap:16px; border-bottom:1px solid var(--line); background:var(--panel); }
 #preferences-dialog { padding:0; }
-#preferences-dialog .dialog-body { padding:24px; }
-dialog > .preferences-footer { position:static; flex:none; margin:0; padding:12px 24px; background:var(--panel); border-top:1px solid var(--line); }
-.diagnostics-controls { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
-.diagnostics-controls label,#trace-status { flex-basis:100%; }
-.preferences-diagnostics { margin-top:24px; border-top:1px solid var(--line); padding-top:12px; }
 .tile-actions { flex-wrap:wrap; max-width:100%; min-width:0; }
 .camera-tile .tile-actions button { display:inline-flex; align-items:center; justify-content:center; flex:none; min-height:44px; height:44px; font-size:13px; border:1px solid var(--line); border-radius:7px; padding:0 12px; background:var(--panel); color:var(--text); }
 .camera-tile .tile-actions .tile-audio,.camera-tile .tile-actions .tile-expand { width:44px; padding:0; }
@@ -1726,10 +1671,8 @@ button:focus-visible,summary:focus-visible { outline:2px solid var(--accent); ou
  #camera-back { display:block; padding-left:0; min-height:44px; margin-bottom:14px; }
 }
 @media(max-width:700px) {
- .dialog-body,#preferences-dialog .dialog-body { padding:18px; }
- dialog > .dialog-heading,#preferences-dialog > .dialog-heading { padding:14px 18px; }
+ #preferences-dialog > .dialog-heading { padding:14px 18px; }
  #preferences-dialog { max-height:calc(100dvh - 24px); }
- dialog > .preferences-footer { padding:12px 18px; }
  .preferences-footer > .button { width:auto; }
  .preferences-save-actions { flex-wrap:wrap; }
  .preferences-save-actions .button { width:auto; }
@@ -1837,32 +1780,7 @@ button:focus-visible,summary:focus-visible { outline:2px solid var(--accent); ou
 #app .icon-button:hover { background:var(--surface); }
 body:has(#app:not([hidden])) #toast { left:auto; right:24px; bottom:calc(24px + env(safe-area-inset-bottom)); transform:none; width:max-content; max-width:min(420px,calc(100vw - 32px)); border-radius:12px; line-height:1.6; pointer-events:none; }
 
-/* Dialog surfaces share the archive's spacing, without affecting login inputs. */
-dialog { border-color:color-mix(in srgb,var(--line) 65%,transparent); }
-dialog > .dialog-heading,#preferences-dialog > .dialog-heading { padding:24px 28px 20px; border-bottom-color:color-mix(in srgb,var(--line) 50%,transparent); }
-dialog .dialog-heading h2 { font-size:24px; line-height:1.25; }
-dialog .dialog-heading .eyebrow { display:block; color:var(--accent); margin-bottom:8px; }
-dialog .dialog-heading .icon-button { display:flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; border-radius:10px; background:var(--surface); }
-dialog .dialog-body { line-height:1.6; }
-dialog :is(input:not([type=checkbox]),select) { min-height:44px; border-radius:9px; background:var(--input); }
-dialog :is(button,.button) { min-height:44px; }
-dialog .button { border-radius:9px; font-size:13px; }
-dialog .secondary { background:var(--surface); border-color:transparent; }
-dialog .preferences-sections { gap:24px; }
-dialog .preferences-sections section { padding-bottom:24px; border-bottom-color:color-mix(in srgb,var(--line) 50%,transparent); }
-dialog .preferences-sections h3 { font-size:15px; margin-bottom:16px; }
-dialog .preferences-checks label { min-height:44px; }
-dialog > .preferences-footer { gap:10px; padding:16px 28px; }
-dialog .settings-tabs { display:flex; flex-wrap:wrap; gap:6px; padding:6px; border:0; border-radius:12px; background:var(--input); }
-dialog .settings-tabs button { flex:1 1 auto; border:0; border-radius:8px; padding:10px 12px; color:var(--muted); font-size:12px; }
-dialog .settings-tabs button[aria-pressed=true] { background:var(--selected); color:var(--accent); }
-dialog .search-result { border-radius:10px; padding:16px; overflow-wrap:anywhere; }
-dialog :is(pre,.source-row span) { overflow-wrap:anywhere; white-space:pre-wrap; }
-dialog .camera-entry { border-radius:10px; }
-dialog :is(.camera-entry button,.batch-row) { overflow-wrap:anywhere; }
-dialog .camera-maintenance { border-top-color:color-mix(in srgb,var(--line) 50%,transparent); }
-dialog .camera-advanced { background:var(--input); border-color:transparent; border-radius:10px; }
-dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
+#preferences-dialog > .dialog-heading { padding:24px 28px 20px; border-bottom-color:color-mix(in srgb,var(--line) 50%,transparent); }
 
 :root[data-density=compact] #app main { padding-top:20px; }
 :root[data-density=compact] #app .page-heading { margin-bottom:16px; }
@@ -1937,17 +1855,7 @@ dialog .camera-advanced summary { min-height:44px; padding-block:10px; }
  #app .timeline-bottom .timeline-help-pointer { display:none; }
  #app .timeline-bottom > span.timeline-help-touch { display:block; }
  #app .thumbnails { padding:0 12px 12px; }
- dialog:where([id]) { max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
- dialog > .dialog-heading,#preferences-dialog > .dialog-heading { padding:18px 16px; gap:12px; }
- dialog .dialog-heading h2 { font-size:21px; }
- dialog .dialog-body,#preferences-dialog .dialog-body { padding:18px 16px; }
- dialog > .preferences-footer { padding:12px 16px; gap:8px; }
- dialog .preferences-footer > .muted { font-size:11px; }
- dialog .preferences-save-actions { gap:8px; }
- dialog .button { padding:10px 12px; }
- dialog :is(input:not([type=checkbox]),select) { font-size:16px; }
- dialog .settings-tabs button { padding:8px; }
- dialog .dialog-actions { gap:8px; }
+ #preferences-dialog > .dialog-heading { padding:18px 16px; gap:12px; }
 }
 @media(pointer:coarse) {
  #app .timeline-help-pointer { display:none; }

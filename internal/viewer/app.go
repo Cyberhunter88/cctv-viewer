@@ -54,9 +54,6 @@ type App struct {
 	cacheMu         sync.Mutex
 	thumbSlots      chan struct{}
 	assets          fs.FS
-	alertMu         sync.Mutex
-	alertState      map[string]alertStatus
-	alertRunning    atomic.Bool
 	hardwareBlocked atomic.Int64
 	assetOnce       sync.Once
 	assetCache      map[string]staticAsset
@@ -132,8 +129,6 @@ func (a *App) background() {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	var lastSchedule, lastCleanup, lastCache time.Time
-	// The first alert check waits a minute so sources can finish mounting.
-	lastAlerts := time.Now().Add(time.Minute - alertInterval)
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -155,10 +150,6 @@ func (a *App) background() {
 			if time.Since(lastCache) >= cacheInterval {
 				a.pruneCache()
 				lastCache = time.Now()
-			}
-			if time.Since(lastAlerts) >= alertInterval {
-				a.startAlertCheck()
-				lastAlerts = time.Now()
 			}
 			if time.Since(lastSchedule) >= 10*time.Second {
 				a.runScheduledScan()
@@ -184,7 +175,6 @@ func (a *App) Handler() http.Handler {
 		}
 		jsonOut(w, 200, map[string]string{"status": "ok"})
 	})
-	mux.HandleFunc("GET /metrics", a.prometheusMetrics)
 	mux.HandleFunc("GET /auth/methods", func(w http.ResponseWriter, r *http.Request) {
 		jsonOut(w, 200, map[string]bool{"local": a.config().LocalAdmin, "oidc": a.oidcEnabled()})
 	})

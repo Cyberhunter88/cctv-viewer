@@ -4,7 +4,6 @@ import {initLivePage} from './live-page';
 import {initLiveAdmin} from './live-admin';
 import {registerPage,navigate,startNavigation,currentPage} from './navigation';
 import {PreferenceWriter} from './preferences';
-import {prepareDialogs} from './dialogs';
 import {Tile,setControlIcon,type TileContext} from './playback-tile';
 import {createPlaybackClock} from './playback-clock';
 import {createPoller} from './poller';
@@ -19,10 +18,8 @@ import {createTimelineView} from './timeline-view';
 import {initCameraList} from './camera-list';
 import {initCameraBatch} from './camera-batch';
 import {initPreferencesDialog} from './preferences-dialog';
-import {log,initDiagnostics} from './diagnostics';
 import type {Camera,ViewDetection,Scan,Day} from './types';
 interface Session {preferenceKey:string;name:string;role:'admin'|'viewer';csrf:string;kind:'local'|'oidc'}
-prepareDialogs();
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 let session:Session, cameras:Camera[]=[],records:Recording[]=[],playableRecords:Recording[]=[],displayedRecords:Recording[]=[],selected=new Set<string>(),from=0,to=0,cursor=0,viewStart=0,viewEnd=0,playing=false,scanRunning=false,loadGeneration=0,dayLoadPending=false;
 let thumbGeneration=0,thumbKey='';const thumbURLs:string[]=[];
@@ -115,14 +112,14 @@ function ordered(){return order.map(id=>cameras.find(c=>c.id===id)).filter((c):c
 function grid(){return gridSize($<HTMLSelectElement>('layout').value,state.columns,state.rows,selected.size,$('video-grid').clientWidth||innerWidth,ordered().some(c=>c.viewMode==='dual'&&openZoom.has(c.id)))}
 function visiblePageCapacity(){const [cols,rows]=grid();return pageCapacity($<HTMLSelectElement>('layout').value,cols,rows)}
 function visible():Camera[]{const all=ordered(),capacity=visiblePageCapacity();page=clamp(page,0,Math.max(0,Math.ceil(all.length/capacity)-1));return all.slice(page*capacity,(page+1)*capacity)}
-function pause(){playing=false;playbackClock.stop();$('play').textContent='▶';$('play').setAttribute('aria-label','Abspielen');tiles.forEach(t=>t.paused());log('pause');renderPosition()}
-function play(){if(!playableRecords.length||!visible().length){notify('Für diese Auswahl sind keine Aufnahmen vorhanden.');return}if(!visible().some(c=>recordingAt(displayedRecords,c.id,cursor))){const next=nextRecording(displayedRecords,visible().map(c=>c.id),cursor);if(next===undefined){notify('Keine weiteren Aufnahmen an diesem Tag.');return}cursor=next}log('play');playing=true;$('play').textContent='Ⅱ';$('play').setAttribute('aria-label','Pause');tiles.forEach(t=>t.retry());update();if(!document.hidden&&currentPage()==='recordings')playbackClock.start()}
-function seek(time:number){playbackClock.reset();lastHotspotCursor=undefined;log('seek',undefined,String(time));cursor=clamp(time,from,to-.001);update()}
+function pause(){playing=false;playbackClock.stop();$('play').textContent='▶';$('play').setAttribute('aria-label','Abspielen');tiles.forEach(t=>t.paused());renderPosition()}
+function play(){if(!playableRecords.length||!visible().length){notify('Für diese Auswahl sind keine Aufnahmen vorhanden.');return}if(!visible().some(c=>recordingAt(displayedRecords,c.id,cursor))){const next=nextRecording(displayedRecords,visible().map(c=>c.id),cursor);if(next===undefined){notify('Keine weiteren Aufnahmen an diesem Tag.');return}cursor=next}playing=true;$('play').textContent='Ⅱ';$('play').setAttribute('aria-label','Pause');tiles.forEach(t=>t.retry());update();if(!document.hidden&&currentPage()==='recordings')playbackClock.start()}
+function seek(time:number){playbackClock.reset();lastHotspotCursor=undefined;cursor=clamp(time,from,to-.001);update()}
 const tileContext:TileContext={
  state,cursor:()=>cursor,playing:()=>playing,speed,quality:()=>$<HTMLSelectElement>('quality').value,
  recordings:()=>records,playableRecordings:()=>playableRecords,audioTile:()=>audioTile,setAudioTile:tile=>{audioTile=tile},
  selectHotspot:id=>{hotspot=id;state.autoHotspot=false;$<HTMLInputElement>('auto-hotspot').checked=false;renderGrid();saveView()},
- toggleFullscreen,notify,log,request:api
+ toggleFullscreen,notify,request:api
 };
 function synchronizeTiles(){
  if(!from)return;
@@ -303,7 +300,7 @@ async function boot(){
  }
  if(!response.ok)throw new Error(`Sitzung konnte nicht geladen werden (${response.status})`);
  session=await response.json();$('password-button').hidden=false;$('password-button').textContent='Mein Konto';accountMenu.open=false;
- if(!managementInitialized){initManagement({api,getSession:()=>session,getCameras:()=>cameras,getCursor:()=>cursor,notify});prepareDialogs();initSettingsLayout();managementInitialized=true}
+ if(!managementInitialized){initManagement({api,getSession:()=>session,getCameras:()=>cameras,getCursor:()=>cursor,notify});initSettingsLayout();managementInitialized=true}
  $('user-name').textContent=session.name;$('avatar').textContent=session.name.slice(0,2).toUpperCase();document.querySelector('#account-menu summary')!.setAttribute('aria-label','Konto: '+session.name);document.querySelector('#account-menu summary')!.setAttribute('title',session.name);$('settings-button').hidden=session.role!=='admin';$('rescan').hidden=session.role!=='admin';dateInput.value=berlinDate(new Date());await refreshCameras();
  let stored:unknown;try{stored=JSON.parse(localStorage.getItem('cctv-view:'+session.preferenceKey)||'null')}catch{}
  let remote=await api<unknown>('/api/preferences');
@@ -363,16 +360,15 @@ initSearchPage({
   const cameraIndex=ordered().findIndex(c=>c.id===r.cameraId);if(cameraIndex>=0)page=Math.floor(cameraIndex/visiblePageCapacity());renderCameras();saveView();
  }
 });
-initDiagnostics({api,notify});
 
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'&&document.fullscreenElement)void document.exitFullscreen().catch(()=>notify('Vollbild konnte nicht geschlossen werden.'));
- if(e.key==='Escape'&&!document.querySelector('dialog[open]'))document.querySelectorAll('.camera-tile.expanded').forEach(t=>{t.classList.remove('expanded');const button=t.querySelector('.tile-expand');if(button){button.setAttribute('aria-label','Ansicht vergrößern');setControlIcon(button,'expand')}});
+ if(e.key==='Escape')document.querySelectorAll('.camera-tile.expanded').forEach(t=>{t.classList.remove('expanded');const button=t.querySelector('.tile-expand');if(button){button.setAttribute('aria-label','Ansicht vergrößern');setControlIcon(button,'expand')}});
  const target=e.target instanceof HTMLElement?e.target:undefined;
  const tag=target?.tagName;
  if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA'||tag==='CANVAS'||target?.isContentEditable)return;
  if(target?.closest('button,a,summary,[role="button"],[role="link"]')&&!(e.key.toLowerCase()==='f'&&target.closest('.camera-tile')))return;
- if(currentPage()!=='recordings'||e.defaultPrevented||e.ctrlKey||e.metaKey||e.altKey||document.querySelector('dialog[open]')||!state.shortcuts||!session)return;
+ if(currentPage()!=='recordings'||e.defaultPrevented||e.ctrlKey||e.metaKey||e.altKey||!state.shortcuts||!session)return;
  if(e.key===' '||e.key==='Spacebar'||e.code==='Space'||e.key==='k'||e.key==='K'){
   e.preventDefault();
   if(playing)pause();else play();
@@ -399,6 +395,6 @@ initCameraBatch({api,notify,cameras:()=>cameras,date:()=>dateInput.value,dialog,
 
 window.addEventListener('themechange',()=>{timelineView.invalidate();draw()});
 
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&!(e.target instanceof Element&&e.target.closest('dialog'))&&!document.querySelector('dialog[open]')&&currentPage()!=='recordings'){e.preventDefault();navigate('recordings')}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&currentPage()!=='recordings'){e.preventDefault();navigate('recordings')}});
 
 initSettingsLayout();

@@ -206,29 +206,13 @@ test('fullscreen survives viewport changes and closes with its control',async({p
  await expect(page.locator('.camera-tile')).toHaveCount(2);
 });
 
-test('diagnostics preserve drafts, keep recording when closed and export events',async({page})=>{
- await login(page);await expect(page.locator('#quality')).toHaveValue('native');
- await expect(page.locator('#recordings #playback-diagnostics')).toHaveCount(0);
- await open(page);await (await preferenceControl(page,'pref-density')).selectOption('compact');
- await (await preferenceControl(page,'diagnostics-open')).click();await expect(page.locator('#diagnostics-dialog')).toBeVisible();
- await page.locator('#trace-enabled').check();await page.keyboard.press('Escape');
- await expect(page.locator('#diagnostics-open')).toBeFocused();await expect(page.locator('#pref-density')).toHaveValue('compact');await expect(page.locator('#preferences-save')).toBeEnabled();
- await (await preferenceControl(page,'diagnostics-open')).click();await expect(page.locator('#trace-enabled')).toBeChecked();await expect(page.locator('#trace-status')).toContainText('Aufzeichnung läuft');
- await page.locator('#trace-stop').click();const downloadPromise=page.waitForEvent('download');await page.locator('#trace-download').click();const download=await downloadPromise;expect(download.suggestedFilename()).toBe('wiedergabediagnose.json');
- const stream=await download.createReadStream();const chunks:Buffer[]=[];for await(const chunk of stream!)chunks.push(Buffer.from(chunk));const report=JSON.parse(Buffer.concat(chunks).toString());expect(report.version).toBe(1);expect(report.events.some((event:{event:string})=>event.event==='start')).toBe(true);
- await page.locator('#diagnostics-close').click();await page.locator('#preferences-save').click();await page.reload();await open(page);await expect(page.locator('#pref-density')).toHaveValue('compact');
-});
-
-test('settings page actions and diagnostic dialog remain reachable in short windows',async({page},info)=>{
+test('settings page actions remain reachable in short windows',async({page},info)=>{
  await login(page);
  for(const theme of ['light','dark'])for(const width of [390,1366]){
   await page.setViewportSize({width,height:500});await open(page);await (await preferenceControl(page,'theme')).selectOption(theme);await save(page);await openPage(page,'settings/playback');
   await page.locator('#preferences-save').scrollIntoViewIfNeeded();await expect(page.locator('#preferences-save')).toBeInViewport();
-  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await (await preferenceControl(page,'diagnostics-open')).click();await expect(page.locator('#diagnostics-close')).toBeInViewport();
-  await page.locator('#diagnostics-dialog .dialog-body').evaluate(el=>el.scrollTop=el.scrollHeight);await expect(page.locator('#diagnostics-close')).toBeInViewport();
-  expect(await page.locator('#diagnostics-dialog .dialog-body').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
-  await page.screenshot({path:info.outputPath(`diagnostics-${theme}-${width}.png`)});await page.locator('#diagnostics-close').click();await expect(page.locator('#diagnostics-open')).toBeFocused();await page.locator('#preferences-close').click();
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await expect(page.locator('#diagnostics-open')).toHaveCount(0);
+  await page.screenshot({path:info.outputPath(`settings-${theme}-${width}.png`)});await page.locator('#preferences-close').click();
  }
 });
 

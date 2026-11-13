@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 )
@@ -106,13 +105,7 @@ func TestGatewayRoutesLingerAccordingToPreloadMode(t *testing.T) {
 func TestLiveGatewayDropCounterIsExported(t *testing.T) {
 	a := testApp(t)
 	a.metrics.liveDrops.Add(3)
-	for _, m := range a.metricValues() {
-		if m.name == "cctv_live_gateway_write_errors_total" {
-			if m.value != 3 || !m.counter || !strings.HasPrefix(m.name, "cctv_") {
-				t.Fatal("unexpected drop metric", m)
-			}
-			return
-		}
+	if drops, ok := a.metricValues()["liveGatewayDrops"]; !ok || drops != 3 {
+		t.Fatal("drop counter is not exported", drops, ok)
 	}
-	t.Fatal("drop counter is not exported")
 }

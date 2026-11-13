@@ -262,10 +262,6 @@ Probe-Lauf mindestens 30 Sekunden alt sein. Die Stabilitätserkennung ist eine H
 
 ## Ansicht, Suche und Wiedergabe
 
-Die Wiedergabediagnose öffnet sich über **Einstellungen → Wiedergabe → Diagnose**.
-Eine gestartete Aufzeichnung läuft beim Schließen des Diagnosedialogs weiter;
-zum Beenden und Herunterladen den Dialog erneut öffnen.
-
 Für zwei Objektive im selben Aufnahmeordner muss pro Kamera **Weitwinkel + Zoom**
 aktiviert sein, auch wenn zunächst nur Weitwinkel angezeigt werden soll. Bei **Eine Ansicht**
 werden alle passenden Dateien gemeinsam abgespielt, einschließlich früher beginnender
@@ -380,7 +376,7 @@ Browserdecoder können geringfügig voneinander abweichen; framegenaue forensisc
 Synchronität wird nicht zugesagt. Bei Aufnahmelücken springt die gemeinsame Uhr
 zur nächsten Aufnahme in den sichtbaren Kameras.
 
-## Ressourcen und Diagnose
+## Ressourcen und Wiedergabestatus
 
 - `CTV_MAX_TRANSCODERS=4`: maximal vier gleichzeitige Encoder. `0` erlaubt unbegrenzt; UI-Bereich 0–64;
   ein kleineres Limit betrifft neue Aufträge, bestehende Encoder laufen weiter.
@@ -399,10 +395,7 @@ MP4-Puffer können weiterverwendet werden. Seitenwechsel/Verbergen gibt Streams 
 und setzt die Wiedergabe nicht automatisch fort. Serverseitige Zeitlimits schützen
 vor verlorenen Abbruchanfragen. Lange Clips werden in bis zu 30-minütigen Teilen abgespielt.
 
-„Wiedergabediagnose“ startet eine begrenzte Aufzeichnung mit maximal 20.000 Einträgen.
-Nach Stopp als JSON herunterladen. Der Bericht enthält Wiedergabeereignisse und
-Ressourcenzähler, keine Aufnahmeordner, Passwörter, Tokens oder Client-Secrets.
-Geschützte APIs: `/api/playback-status` und `/api/playback-sessions/{id}`;
+Geschützte APIs für Wiedergabe- und Ressourcenzähler: `/api/playback-status` und `/api/playback-sessions/{id}`;
 Sitzungsdetails sind nur für den Eigentümer erreichbar.
 
 ## Upgrade und Rückkehr

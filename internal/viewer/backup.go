@@ -42,7 +42,7 @@ func (a *App) backupExport(w http.ResponseWriter, r *http.Request) {
 	}
 	a.settingsMu.Lock()
 	for k, v := range a.overrides {
-		if k != "oidcSecret" && k != "alertWebhookURL" {
+		if k != "oidcSecret" {
 			out.Settings[k] = v
 		}
 	}

@@ -4,6 +4,17 @@ Referenz: [cctv-timeline-viewer-core, Commit 9c3128c756430529dc5c34c52d6bb4e8e5c
 Abgleich von README, Kamera-/Such-/System-APIs, Indexierung, Hotspot und Oberfläche.
 Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht übernommen.
 
+## Änderungen ab 0.16.0
+
+Aufräumversion: weniger genutzte Funktionen wurden entfernt, um Oberfläche und Wartung zu verkleinern.
+
+| Funktion | Änderung | Nachweis |
+|---|---|---|
+| Webhook-Warnungen | Entfernt einschließlich `POST /api/admin/alerts/test`, Hintergrundprüfung und Einstellungsfeldern. Gespeicherte Werte `alertWebhookURL` und `alertStaleHours` werden beim Start ignoriert und beim nächsten Speichern verworfen | Go: RetiredAlertSettingsAreIgnoredOnLoad, EncoderSettingIsValidated |
+| Prometheus-Endpunkt | `GET /metrics` und `CTV_METRICS_TOKEN` entfernt; `GET /api/admin/metrics` bleibt für Administratoren | Go: MetricsAreAdminOnlyAndCountLogins, LiveGatewayDropCounterIsExported |
+| Wiedergabediagnose | Diagnosedialog, Ereignisaufzeichnung und JSON-Download entfernt; `/api/playback-status` bleibt | Browser: preferences, regressions |
+| Ungenutzter Dialogcode | Hilfsmodul und Stilregeln für `<dialog>`-Elemente entfernt, da alle Einstellungen feste Seiten sind | TypeScript: typecheck; Browser: preferences, settings-ux |
+
 ## Ergänzungen ab 0.15.0
 
 | Funktion | Umsetzung | Nachweis |
@@ -12,7 +23,7 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Ruhigeres Livebild | Rückstand wird durch Wiedergabe mit bis zu 1,25-facher Geschwindigkeit aufgeholt, Sprung erst ab 2,5 s; kleiner WebRTC-Jitterpuffer; Kacheln starten im Abstand von 60 ms | TypeScript: live catch-up |
 | Weniger Datenbanklast beim Livebetrieb | Sitzungsprüfung alle 2 s, Kamera- und Livekonfiguration 2 s zwischengespeichert und bei Änderungen verworfen, Freigabezugang 5 s zwischengespeichert | Go: LiveConfigurationCacheIsShortAndInvalidated, GatewayShareSettingsAreCachedBriefly |
 | Schnelleres Wiederverbinden von Home Assistant | RTSP-Routen bleiben nach dem letzten Leser 60 s bestehen (nur bei „Bei Bedarf“ 10 s) | Go: GatewayRoutesLingerAccordingToPreloadMode |
-| Messbare Paketverluste | Zähler `cctv_live_gateway_write_errors_total` in `/api/admin/metrics` und `/metrics` | Go: LiveGatewayDropCounterIsExported |
+| Messbare Paketverluste | Zähler `liveGatewayDrops` in `/api/admin/metrics` | Go: LiveGatewayDropCounterIsExported |
 
 Die Latenz wurde nicht mit einer realen Kamera gemessen.
 
@@ -26,9 +37,7 @@ Die Latenz wurde nicht mit einer realen Kamera gemessen.
 | Vorschau auf der Zeitleiste | Beim Überfahren zeigt die Zeitmarke ein Bild der Aufnahme an dieser Stelle (10-Sekunden-Raster, nur mit aktivierten Vorschaubildern) | Go: ThumbnailCacheRevalidationAndPosition; TypeScript: timeline rows |
 | Gespeicherte Ansichten | Bis zu 20 benannte Kombinationen aus Kameraauswahl und Raster je Konto, neben der Kameraauswahl anwendbar | Go: SavedViewsValidationAndReplacement; TypeScript: saved views |
 | Speicherbelegung | Videos, Größe, Tagesschnitt und älteste Aufnahme je Kamera unter „Kameras“ | Go: StorageOverviewPerCameraAndDay; TypeScript: storage |
-| Warnungen | Webhook bei nicht erreichbarer Aufnahmequelle und optional nach Stunden ohne neue Aufnahme; eine Meldung je Zustandswechsel, Wiederholung nach fehlgeschlagener Zustellung | Go: AlertsReportEachStateChangeOnce, AlertSettingsStaySecretAndValidated, AlertRedirectsAreNotFollowed |
 | Hardware-Encoding | VAAPI oder Intel Quick Sync für die reduzierte Wiedergabe wählbar; automatischer Rückfall auf Software für zehn Minuten | Go: StreamArgumentsPerEncoder, PlaybackEncoderSkipsHardwareAfterFailure, UnavailableHardwareEncoderFallsBackToSoftware |
-| Prometheus-Metriken | `GET /metrics` im Textformat, nur mit `CTV_METRICS_TOKEN` | Go: PrometheusMetricsRequireConfiguredToken, MetricsTokenConfiguration |
 | Zweiter Faktor | TOTP für lokale Konten unter „Mein Konto“; verschlüsselt gespeichert, Codes nicht wiederverwendbar, Zurücksetzen durch Administratoren; Datenbankschema 7 | Go: TOTPCodesFollowRFC6238, TOTPSetupLoginAndRemoval, TOTPAdministratorResetAndPermissions, SchemaVersionSevenAddsSecondFactorColumns |
 
 Hardware-Encoding ist nur über Argument- und Rückfalltests geprüft; eine Messung
@@ -94,7 +103,6 @@ mit realer Grafikhardware liegt nicht vor.
 | Timeline-Zoom, Verschieben, Vorschaubilder | Erhalten; Touch, Tastatur (Space, Pfeile, J/K/L, F), Umschalt+Ziehen, Hover-Uhrzeit, paralleles Laden | Browser: viewer, archive |
 | Übersichtstimeline und verstellbare Höhe | Ergänzt | Browser: archive |
 | Automatische/feste/eigene Raster und Kameraseiten | Ergänzt, eigene Raster bis 8 × 8 | Frontend: view-state; Browser: viewer, archive |
-| Wiedergabediagnose | Eigener Dialog über persönliche Einstellungen; Aufzeichnung läuft beim Schließen weiter | Browser: preferences |
 | Persönliche Einstellungen auf allen Geräten | Kontospeicherung einschließlich Farbschema; Laden beim Anmelden/Neuladen; einmalige Browserübernahme | Go: Preferences; Browser: preferences |
 | Kameraauswahl und Zieh-Sortierung | Ergänzt; dauerhaft je Benutzerkonto gespeichert | Browser: archive; Frontend: view-state |
 | Bildverhältnisse 4:3, 16:9, Auto, Ausfüllen | Ergänzt | Browser: archive |
@@ -121,7 +129,7 @@ mit realer Grafikhardware liegt nicht vor.
 | Gemeinsame Encoderlimits/temporärer Speicher | 0 = unbegrenzt; Budget-Watchdog alle 500 ms | Go: ProfilesSpeedTransport, ResourceBudget |
 | Fehler pro Kamera und begrenzte Wiederherstellung | Drei Versuche; 30 Sekunden Wiederherstellungsfrist | Browser: recovery |
 | Pause-Puffer, Streamfreigabe beim Verlassen | Unvollständige Streams nach 2 s; fertige Puffer bleiben | Browser: regressions |
-| Wiedergabestatus, Sitzungsdiagnose, Diagnose-Download | Geschützt, Eigentümerprüfung, begrenztes JSON ohne Secrets/Pfade | Go: ProfilesSpeedTransport; Browser: regressions |
+| Wiedergabestatus und Sitzungsdetails | Geschützt, Eigentümerprüfung, ohne Secrets/Pfade | Go: ProfilesSpeedTransport; Browser: regressions |
 | Geordnetes Beenden/Neustart | Bestehender Shutdown, persistenter Scanplan | Go: OIDC-/Persistenztests; Container-CI |
 | Datenbanksicherung | Eigenständige Sicherung vor Migration mit committed WAL-Daten | Go: ReplacementMigrationBackupAndDormantData |
 | Docker, AMD64/ARM64, lesende Aufnahme-Mounts | Getrennte GHCR-Build-/Release-Pakete; Multiarch-Promotion ohne Neubau | Container-Smoke/Release-CI und Registry-Simulation |
@@ -142,6 +150,7 @@ mit realer Grafikhardware liegt nicht vor.
 | Clip-Export und Timeline-Exportauswahl | Entfernt einschließlich APIs und Hintergrundaufträgen |
 | JPG/JPEG-Einzelbilder und zugehörige Originalansicht | Entfernt; Originaldateien unverändert |
 | Digitaler Zoom, separate Vollbildbedienung | Entfernt |
+| Webhook-Warnungen, Prometheus-Endpunkt, Wiedergabediagnose | Entfernt in 0.16.0; gespeicherte Warnungseinstellungen werden ignoriert |
 
 ## GHCR-Veröffentlichung
 
@@ -166,7 +175,7 @@ Bei geschlossenem Zoom verwendet die Zeitleiste ausschließlich die Weitwinkelan
 - Kameraverwaltung mit separater Liste und Editor, mobil als eigener Bearbeitungsschritt; Status, Scan und Sortierung pro Kamera.
 - Persönliche Einstellungen einschließlich Farbschema werden erst mit „Speichern“ übernommen. Ungespeicherte Änderungen können nach Rückfrage verworfen werden.
 - Abmelden ist direkt in der Seitenleiste erreichbar. Die schmale Symbolleiste hält alle Menüziele mit Beschriftungen für Tastatur und Screenreader erreichbar; ihr Zustand bleibt pro Konto gespeichert.
-- Einstellungen sind feste Seiten mit passenden Überschriften und Rückweg zu den Aufnahmen; der Diagnosedialog behält einen eigenen Scrollbereich.
+- Einstellungen sind feste Seiten mit passenden Überschriften und Rückweg zu den Aufnahmen.
 
 ## Seitennavigation und Sitzungen
 
