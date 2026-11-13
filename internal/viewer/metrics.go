@@ -21,6 +21,7 @@ type counters struct {
 	alertsSent       atomic.Int64
 	alertFailures    atomic.Int64
 	encoderFallbacks atomic.Int64
+	liveDrops        atomic.Int64
 }
 
 // metric describes one value for both the JSON and the Prometheus view.
@@ -54,6 +55,7 @@ func (a *App) metricValues() []metric {
 		{"loginFailures", "cctv_login_failures_total", "Fehlgeschlagene Anmeldungen", true, a.metrics.loginFailures.Load()},
 		{"alertsSent", "cctv_alerts_sent_total", "Zugestellte Warnmeldungen", true, a.metrics.alertsSent.Load()},
 		{"alertFailures", "cctv_alert_failures_total", "Nicht zugestellte Warnmeldungen", true, a.metrics.alertFailures.Load()},
+		{"liveGatewayDrops", "cctv_live_gateway_write_errors_total", "Nicht an Leser der RTSP-Freigabe übertragene Livepakete", true, a.metrics.liveDrops.Load()},
 		{"scanWarnings", "cctv_scan_warnings", "Warnungen des letzten Indexlaufs", false, int64(warnings)},
 	}
 }

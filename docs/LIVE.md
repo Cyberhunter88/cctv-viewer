@@ -24,10 +24,20 @@ bereitsteht, bestimmt ihre Vorladeeinstellung. Kameras ohne Livequelle zeigen ei
 ## Kurze Verzögerung
 
 Der Viewer bevorzugt WebRTC, wenn dessen direkter Medienweg erreichbar ist.
-Andernfalls wechselt er nach zwei Sekunden zu MSE über WebSocket und die
-vorhandene HTTPS-Adresse. In Docker ohne zusätzliche Medienports ist MSE der
-übliche Weg. Es ist kein öffentlicher RTSP-Port und kein TURN-Dienst nötig.
+Die mitgelieferte Konfiguration öffnet keinen WebRTC-Medienport. Der Server meldet
+das in `GET /api/live` (`webrtc: false`), und die Oberfläche startet dann sofort
+mit MSE über WebSocket und die vorhandene HTTPS-Adresse, ohne vorher zwei Sekunden
+auf einen WebRTC-Versuch zu warten. Scheitert WebRTC dennoch, merkt sich die Seite das
+bis zum Neuladen. Es ist kein öffentlicher RTSP-Port und kein TURN-Dienst nötig.
 WebRTC-Signalisierung und HTTPS-Stream laufen durch die Viewer-Anmeldung.
+
+Wächst der Rückstand des MSE-Bildes, holt der Player ihn zunächst durch leicht
+beschleunigte Wiedergabe (bis 1,25-fach) auf und springt nur bei mehr als
+2,5 Sekunden Rückstand. Kacheln eines neuen Rasters verbinden sich im Abstand von
+60 ms, um Kamera und Restreamer nicht gleichzeitig zu belasten. Laufende
+Livestreams prüfen die Anmeldung alle zwei Sekunden; Kamera- und Livekonfiguration
+werden beim Verbindungsaufbau kurz zwischengespeichert und bei Änderungen sofort
+verworfen.
 
 **Schnell** verwendet den Nebenstream ohne Videotranscodierung. Hohe Qualität
 ist manuell wählbar; nicht unterstützte Codecs führen zurück zum schnellen
@@ -91,7 +101,10 @@ Die Kamera-ID hält Adressen bei Umbenennungen stabil. Weitere Profile sind
 Die Freigabe ist ausschließlich lesend und unabhängig von Browseranmeldungen
 und der persönlichen Liveauswahl. Kamera und Qualitätsprofil werden zwischen
 Betrachtern geteilt. Home Assistant kann den Stream weiter verwenden, wenn im
-Viewer keine Kamera geöffnet ist. Erst der letzte Betrachter beendet die Quelle.
+Viewer keine Kamera geöffnet ist. Nach dem Trennen bleibt die Route
+bei „Bei Bedarf“ zehn Sekunden, bei Nachlauf und „Dauerhaft bereit“ 60 Sekunden
+bestehen, sodass ein erneuter Abruf ohne neuen Verbindungsaufbau startet.
+Nicht übertragene Pakete zählt `cctv_live_gateway_write_errors_total`. Erst der letzte Betrachter beendet die Quelle.
 Das Zurücksetzen des Freigabepassworts beendet bestehende Freigabeverbindungen.
 RTSP ist unverschlüsselt und für das Heimnetz/VPN bestimmt; Port 8554 nicht ins
 Internet weiterleiten. Die go2rtc-Verwaltungsoberfläche wird nicht veröffentlicht.

@@ -20,6 +20,26 @@ import (
 	"github.com/coder/websocket"
 )
 
+// liveWebRTCListen is go2rtc's WebRTC media listener. It stays empty because the
+// shipped setups expose no media port; browsers then start with MSE immediately
+// instead of waiting for a WebRTC attempt that cannot connect.
+const liveWebRTCListen = ""
+
+func webrtcAvailable() bool { return liveWebRTCListen != "" }
+
+// liveConfigTTL bounds how long camera and live settings are reused. invalidate
+// drops them immediately when settings change.
+const liveConfigTTL = 2 * time.Second
+
+// liveSessionCheck is how often an open live stream re-validates its login.
+const liveSessionCheck = 2 * time.Second
+
+type cachedLiveConfig struct {
+	camera Camera
+	live   liveCamera
+	at     time.Time
+}
+
 type probeSlot chan struct{}
 
 func (s probeSlot) TryAcquire() bool {
@@ -52,6 +72,7 @@ type liveService struct {
 	sources            map[string]bool
 	probes             probeSlot
 	gateway            *liveGateway
+	configs            map[string]cachedLiveConfig
 }
 type liveConnection struct {
 	camera string
@@ -65,6 +86,7 @@ func newLiveService(a *App) *liveService {
 	s.warmWake = make(chan struct{}, 1)
 	s.warmDone = make(chan struct{})
 	s.relays = map[string]func(){}
+	s.configs = map[string]cachedLiveConfig{}
 	go s.runWarm(ctx)
 	go s.run(ctx)
 	return s
@@ -121,7 +143,7 @@ func (s *liveService) runProcess(ctx context.Context, binary string) error {
 	}
 	// Only control and local restream listeners are exposed by the child. No defaults
 	// for discovery, RTMP or public management listeners are inherited.
-	config := map[string]any{"modules": []string{"api", "ws", "http", "rtsp", "webrtc", "mp4", "exec", "ffmpeg"}, "api": map[string]any{"listen": api, "username": "viewer", "password": s.secret, "local_auth": true}, "rtsp": map[string]any{"listen": rtsp}, "webrtc": map[string]any{"listen": "", "ice_servers": []any{}}, "log": map[string]any{"level": "error"}}
+	config := map[string]any{"modules": []string{"api", "ws", "http", "rtsp", "webrtc", "mp4", "exec", "ffmpeg"}, "api": map[string]any{"listen": api, "username": "viewer", "password": s.secret, "local_auth": true}, "rtsp": map[string]any{"listen": rtsp}, "webrtc": map[string]any{"listen": liveWebRTCListen, "ice_servers": []any{}}, "log": map[string]any{"level": "error"}}
 	b, _ := json.Marshal(config)
 	file, e := os.CreateTemp(filepath.Join(s.app.cfg.DataDir, "cache"), "live-runtime-*.json")
 	if e != nil {
@@ -221,16 +243,12 @@ func (s *liveService) ensureSource(ctx context.Context, id, view, quality string
 	lock, _ := s.sourceLocks.LoadOrStore(name, &sync.Mutex{})
 	lock.(*sync.Mutex).Lock()
 	defer lock.(*sync.Mutex).Unlock()
-	camera, e := s.app.db.Camera(id)
+	camera, c, e := s.cameraConfig(id)
 	if e != nil {
 		return "", e
 	}
 	if view == "zoom" && camera.ViewMode != "dual" {
 		return "", errors.New("Zoom ist für diese Kamera deaktiviert")
-	}
-	c, e := s.app.db.liveCamera(id)
-	if e != nil {
-		return "", e
 	}
 	raw, e := c.source(view, quality)
 	if e != nil {
@@ -290,9 +308,36 @@ func (s *liveService) ensureSource(ctx context.Context, id, view, quality string
 	}
 	return name, nil
 }
+// cameraConfig returns the camera and its decrypted live settings from a short
+// cache so each stream start does not repeat two queries and a decryption.
+func (s *liveService) cameraConfig(id string) (Camera, liveCamera, error) {
+	s.mu.Lock()
+	entry, ok := s.configs[id]
+	s.mu.Unlock()
+	if ok && time.Since(entry.at) < liveConfigTTL {
+		return entry.camera, entry.live, nil
+	}
+	camera, e := s.app.db.Camera(id)
+	if e != nil {
+		return Camera{}, liveCamera{}, e
+	}
+	c, e := s.app.db.liveCamera(id)
+	if e != nil {
+		return Camera{}, liveCamera{}, e
+	}
+	s.mu.Lock()
+	s.configs[id] = cachedLiveConfig{camera, c, time.Now()}
+	s.mu.Unlock()
+	return camera, c, nil
+}
 func (s *liveService) invalidate(id string) {
 	s.sourceMu.Lock()
 	s.mu.Lock()
+	if id == "" {
+		s.configs = map[string]cachedLiveConfig{}
+	} else {
+		delete(s.configs, id)
+	}
 	for name, e := range s.warm {
 		if id == "" || e.camera == id {
 			if e.cancel != nil {
@@ -349,7 +394,7 @@ func (a *App) liveWebSocket(w http.ResponseWriter, r *http.Request) {
 	if quality == "" {
 		quality = "fast"
 	}
-	if mode != "webrtc" && mode != "mse" {
+	if mode != "webrtc" && mode != "mse" || mode == "webrtc" && !webrtcAvailable() {
 		fail(w, 400, "Ungültige Übertragung")
 		return
 	}
@@ -393,7 +438,7 @@ func (a *App) liveWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer downstream.CloseNow()
 	downstream.SetReadLimit(65536)
 	go func() {
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(liveSessionCheck)
 		defer ticker.Stop()
 		for {
 			select {

@@ -1,5 +1,8 @@
-import {liveBufferTarget} from './live-state';
+import {liveBufferTarget,liveCatchUp} from './live-state';
 const codecs=['avc1.640029','avc1.64002A','avc1.640033','avc1.42E01F','hvc1.1.6.L153.B0','mp4a.40.2','opus'];
+// WebRTC cannot connect without a reachable media port. After one failure every
+// later player in this page session starts with MSE directly.
+let webrtcFailed=false;
 export class LivePlayer {
  private socket?:WebSocket;
  private peer?:RTCPeerConnection;
@@ -17,7 +20,8 @@ export class LivePlayer {
  private watchdog:ReturnType<typeof setInterval>;
  private progress=Date.now();
  private position=-1;
- constructor(readonly video:HTMLVideoElement,private camera:string,private view:string,private quality:string,private status:(message:string)=>void,private unsupported:()=>void){
+ constructor(readonly video:HTMLVideoElement,private camera:string,private view:string,private quality:string,private status:(message:string)=>void,private unsupported:()=>void,webrtc=false){
+  this.mode=webrtc&&!webrtcFailed?'webrtc':'mse';
   video.autoplay=true;video.muted=true;video.playsInline=true;
   this.watchdog=setInterval(()=>{if(this.disposed||document.hidden)return;if(this.video.currentTime!==this.position){this.position=this.video.currentTime;this.progress=Date.now()}else if(Date.now()-this.progress>12000){this.progress=Date.now();if(this.mode==='webrtc')this.useMSE();else this.retry()}},2000);
   this.connect();
@@ -47,7 +51,7 @@ export class LivePlayer {
  private async startRTC(socket:WebSocket,generation:number){
   const peer=new RTCPeerConnection({iceServers:[],bundlePolicy:'max-bundle'});this.peer=peer;
   peer.addTransceiver('video',{direction:'recvonly'});peer.addTransceiver('audio',{direction:'recvonly'});
-  peer.ontrack=event=>{if(generation!==this.generation)return;this.video.srcObject=event.streams[0]||new MediaStream(peer.getReceivers().map(r=>r.track));void this.video.play().catch(()=>this.status('Zum Starten auf das Bild tippen'))};
+  peer.ontrack=event=>{if(generation!==this.generation)return;try{const receiver=event.receiver as RTCRtpReceiver&{jitterBufferTarget?:number|null;playoutDelayHint?:number};receiver.jitterBufferTarget=50;receiver.playoutDelayHint=0}catch{}this.video.srcObject=event.streams[0]||new MediaStream(peer.getReceivers().map(r=>r.track));void this.video.play().catch(()=>this.status('Zum Starten auf das Bild tippen'))};
   peer.onicecandidate=event=>{if(generation===this.generation&&event.candidate&&socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'webrtc/candidate',value:event.candidate.candidate}))};
   peer.onconnectionstatechange=()=>{if(generation===this.generation&&['failed','disconnected'].includes(peer.connectionState))this.useMSE()};
   await peer.setLocalDescription(await peer.createOffer());
@@ -82,12 +86,19 @@ export class LivePlayer {
    buffer.appendBuffer(this.queue.shift()!);
   }catch{this.retry()}
  }
- private catchUp(){const ranges=this.video.buffered;if(!ranges.length)return;const end=ranges.end(ranges.length-1);if(end-this.video.currentTime>1.25||this.video.currentTime<ranges.start(0))this.video.currentTime=Math.max(ranges.start(0),liveBufferTarget(end))}
+ private catchUp(){
+  const ranges=this.video.buffered;if(!ranges.length)return;
+  const end=ranges.end(ranges.length-1),position=this.video.currentTime;
+  if(position<ranges.start(0)){this.video.currentTime=Math.max(ranges.start(0),liveBufferTarget(end));this.video.playbackRate=1;return}
+  const step=liveCatchUp(end-position,this.video.playbackRate);
+  if(step.seek)this.video.currentTime=liveBufferTarget(end);
+  if(this.video.playbackRate!==step.rate)this.video.playbackRate=step.rate;
+ }
  private incompatible(){if(this.quality==='high'){this.dispose();this.unsupported()}else this.retry()}
- private useMSE(){if(this.disposed)return;this.mode='mse';this.connect()}
+ private useMSE(){if(this.disposed)return;if(this.mode==='webrtc')webrtcFailed=true;this.mode='mse';this.connect()}
  private retry(){if(this.disposed)return;this.clear();this.status('Verbindung unterbrochen · neuer Versuch …');this.timer=setTimeout(()=>this.connect(),Math.min(15000,1000*2**Math.min(this.attempt++,4)))}
  private clear(){
-  this.generation++;clearTimeout(this.timer);clearTimeout(this.fallback);this.video.onplaying=null;this.video.onerror=null;
+  this.generation++;this.video.playbackRate=1;clearTimeout(this.timer);clearTimeout(this.fallback);this.video.onplaying=null;this.video.onerror=null;
   if(this.socket){this.socket.onclose=null;this.socket.close();this.socket=undefined}
   this.peer?.close();this.peer=undefined;this.video.pause();this.video.srcObject=null;this.video.removeAttribute('src');this.video.load();
   if(this.objectURL)URL.revokeObjectURL(this.objectURL);this.objectURL=undefined;this.source=undefined;this.buffer=undefined;this.queue=[];this.candidates=[];
