@@ -177,7 +177,7 @@ func (a *App) liveInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	ready, message := a.live.status()
 	w.Header().Set("Cache-Control", "no-store")
-	jsonOut(w, 200, map[string]any{"ready": ready, "message": message, "cameras": capabilities})
+	jsonOut(w, 200, map[string]any{"ready": ready, "message": message, "webrtc": webrtcAvailable(), "cameras": capabilities})
 }
 func decodeLive(w http.ResponseWriter, r *http.Request, old liveCamera) (liveCamera, error) {
 	var in liveInput

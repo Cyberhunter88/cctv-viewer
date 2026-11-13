@@ -123,6 +123,7 @@ type gatewayRoute struct {
 	used    time.Time
 	readers map[*gortsplib.ServerSession]bool
 	failed  chan struct{}
+	linger  time.Duration
 }
 
 type gatewayBuild struct {
@@ -144,6 +145,10 @@ type liveGateway struct {
 	cancel   context.CancelFunc
 	ctx      context.Context
 	done     chan struct{}
+	shareMu  sync.Mutex
+	share    liveShareSettings
+	shareErr error
+	shareAt  time.Time
 }
 
 func startLiveGateway(s *liveService, address string) (*liveGateway, error) {
@@ -196,7 +201,7 @@ func (g *liveGateway) prune() {
 			failed = true
 		default:
 		}
-		if failed || len(r.readers) == 0 && time.Since(r.used) > 10*time.Second {
+		if failed || len(r.readers) == 0 && time.Since(r.used) > r.idleLimit() {
 			delete(g.routes, name)
 			expired = append(expired, r)
 		}
@@ -206,8 +211,41 @@ func (g *liveGateway) prune() {
 		r.close()
 	}
 }
+// Reconnecting readers (Home Assistant) reuse a retained route and skip the
+// Describe/Setup/Play round trip and the wait for the next keyframe.
+const (
+	gatewayLingerIdle = 60 * time.Second
+	gatewayLingerOff  = 10 * time.Second
+	gatewayShareTTL   = 5 * time.Second
+)
+
+func (r *gatewayRoute) idleLimit() time.Duration {
+	if r.linger > 0 {
+		return r.linger
+	}
+	return gatewayLingerOff
+}
+func gatewayLinger(mode string) time.Duration {
+	if mode == "off" {
+		return gatewayLingerOff
+	}
+	return gatewayLingerIdle
+}
+
+// shareSettings caches the decrypted share settings. Enabling, disabling or
+// resetting the password replaces the whole gateway, which drops this cache.
+func (g *liveGateway) shareSettings() (liveShareSettings, error) {
+	g.shareMu.Lock()
+	defer g.shareMu.Unlock()
+	if !g.shareAt.IsZero() && time.Since(g.shareAt) < gatewayShareTTL {
+		return g.share, g.shareErr
+	}
+	g.share, g.shareErr = g.live.app.db.liveShare()
+	g.shareAt = time.Now()
+	return g.share, g.shareErr
+}
 func (g *liveGateway) authorize(conn *gortsplib.ServerConn, request *base.Request) bool {
-	share, e := g.live.app.db.liveShare()
+	share, e := g.shareSettings()
 	return e == nil && share.Enabled && share.Password != "" && conn.VerifyCredentials(request, share.Username, share.Password)
 }
 func parseLivePath(path string) (id, view, quality string, ok bool) {
@@ -228,7 +266,8 @@ func (g *liveGateway) getRoute(path string) (*gatewayRoute, error) {
 	if e != nil || !c.Shared {
 		return nil, errors.New("not shared")
 	}
-	return g.route(path, func() (*gatewayRoute, error) { return g.buildRoute(id, view, quality) })
+	linger := gatewayLinger(c.preloadMode(liveKey(view, quality)))
+	return g.route(path, func() (*gatewayRoute, error) { return g.buildRoute(id, view, quality, linger) })
 }
 
 func (g *liveGateway) route(path string, create func() (*gatewayRoute, error)) (*gatewayRoute, error) {
@@ -274,7 +313,7 @@ func (g *liveGateway) route(path string, create func() (*gatewayRoute, error)) (
 	return route, err
 }
 
-func (g *liveGateway) buildRoute(id, view, quality string) (*gatewayRoute, error) {
+func (g *liveGateway) buildRoute(id, view, quality string, linger time.Duration) (*gatewayRoute, error) {
 	name, e := g.live.ensureSource(g.ctx, id, view, quality, false)
 	if e != nil {
 		return nil, e
@@ -305,9 +344,11 @@ func (g *liveGateway) buildRoute(id, view, quality string) (*gatewayRoute, error
 	if e = stream.Initialize(); e != nil {
 		return nil, e
 	}
-	r := &gatewayRoute{client: client, stream: stream, used: time.Now(), readers: map[*gortsplib.ServerSession]bool{}, failed: make(chan struct{})}
+	r := &gatewayRoute{client: client, stream: stream, used: time.Now(), readers: map[*gortsplib.ServerSession]bool{}, failed: make(chan struct{}), linger: linger}
 	client.OnPacketRTPAny(func(media *description.Media, _ format.Format, packet *rtp.Packet) {
-		_ = stream.WritePacketRTP(media, packet)
+		if stream.WritePacketRTP(media, packet) != nil {
+			g.live.app.metrics.liveDrops.Add(1)
+		}
 	})
 	if _, e = client.Play(nil); e != nil {
 		stream.Close()
