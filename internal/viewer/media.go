@@ -70,19 +70,67 @@ func (a *App) thumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
-	name := filepath.Join(a.config().DataDir, "cache", record.ID+"-"+strconv.FormatInt(record.Mod, 10)+".jpg")
-	if b, e := os.ReadFile(name); e == nil {
+	// Optional position inside the recording, rounded down to ten-second steps
+	// so hovering a timeline reuses a bounded number of cached images.
+	offset := 0
+	if raw := r.URL.Query().Get("t"); raw != "" {
+		position, e := strconv.ParseFloat(raw, 64)
+		if e != nil || math.IsNaN(position) || math.IsInf(position, 0) || position < 0 || position >= record.Duration {
+			fail(w, 400, "Vorschauposition ungültig")
+			return
+		}
+		offset = int(position/10) * 10
+	}
+	key := record.ID + "-" + strconv.FormatInt(record.Mod, 10)
+	if offset > 0 {
+		key += "-" + strconv.Itoa(offset)
+	}
+	name := filepath.Join(a.config().DataDir, "cache", key+".jpg")
+	etag := `"` + key + `"`
+	// The session is checked on every request; the browser may only reuse its
+	// private copy after revalidating it here.
+	serveCached := func() bool {
+		if _, e := os.Stat(name); e != nil {
+			return false
+		}
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Cache-Control", "private, no-cache")
 		now := time.Now()
 		os.Chtimes(name, now, now)
+		if etagMatches(r.Header.Get("If-None-Match"), etag) {
+			w.WriteHeader(http.StatusNotModified)
+			return true
+		}
+		b, e := os.ReadFile(name)
+		if e != nil {
+			w.Header().Del("ETag")
+			w.Header().Set("Cache-Control", "no-store")
+			return false
+		}
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.Write(b)
+		return true
+	}
+	if serveCached() {
 		return
 	}
+	// Browsers request several previews at once. Queue them instead of failing
+	// all but the first.
+	wait := time.NewTimer(15 * time.Second)
+	defer wait.Stop()
 	select {
 	case a.thumbSlots <- struct{}{}:
 		defer func() { <-a.thumbSlots }()
-	default:
+	case <-r.Context().Done():
+		return
+	case <-a.ctx.Done():
 		fail(w, 503, "Vorschau wird vorbereitet")
+		return
+	case <-wait.C:
+		fail(w, 503, "Vorschau wird vorbereitet")
+		return
+	}
+	if serveCached() {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -94,7 +142,12 @@ func (a *App) thumbnail(w http.ResponseWriter, r *http.Request) {
 	}
 	tmp.Close()
 	defer os.Remove(tmp.Name())
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-threads", "1", "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats, "-i", "/proc/self/fd/3", "-frames:v", "1", "-vf", "scale=320:-2", "-threads", "1", "-y", tmp.Name())
+	args := []string{"-nostdin", "-v", "error", "-threads", "1"}
+	if offset > 0 {
+		args = append(args, "-ss", strconv.Itoa(offset))
+	}
+	args = append(args, "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats, "-i", "/proc/self/fd/3", "-frames:v", "1", "-vf", "scale=320:-2", "-threads", "1", "-y", tmp.Name())
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	cmd.ExtraFiles = []*os.File{f}
 	if e = cmd.Run(); e != nil {
 		fail(w, 422, "Vorschau nicht lesbar")
@@ -105,13 +158,20 @@ func (a *App) thumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.pruneCache()
-	b, e := os.ReadFile(name)
-	if e != nil {
+	if !serveCached() {
 		fail(w, 503, "Vorschaucache ausgelastet")
-		return
 	}
-	w.Header().Set("Content-Type", "image/jpeg")
-	w.Write(b)
+}
+
+// etagMatches implements the weak comparison used by If-None-Match.
+func etagMatches(header, etag string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimPrefix(strings.TrimSpace(candidate), "W/")
+		if candidate == "*" || candidate == etag {
+			return true
+		}
+	}
+	return false
 }
 
 // Use factors no greater than two to preserve pitch and avoid dropping samples.
@@ -177,137 +237,201 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "Temporärer Videospeicher ausgelastet")
 		return
 	}
-	if !a.acquireEncoder() {
-		fail(w, 429, "Alle Umwandlungsplätze sind belegt. Weniger Kameras oder Originalwiedergabe wählen.")
-		return
-	}
-	id := token()[:24]
-	dir := filepath.Join(a.config().DataDir, "cache", "hls-"+id)
-	if e = os.Mkdir(dir, 0700); e != nil {
-		a.releaseEncoder()
-		fail(w, 500, "Streaming konnte nicht gestartet werden")
-		return
-	}
-	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Minute)
-	s := &stream{id: id, owner: a.streamOwner(r), dir: dir, cancel: cancel, done: make(chan struct{}), last: time.Now(), created: time.Now()}
 	duration := math.Min(1800, record.Duration-input.Offset)
 	profile := a.config().Balanced
 	if input.Profile == "fast" {
 		profile = a.config().Fast
 	}
 	factor := math.Max(1, input.Speed)
+	// attempt runs one encoder and answers the request. It reports true without
+	// answering when a hardware encoder failed before the stream became playable.
+	attempt := func(encoder string) bool {
+		if !a.acquireEncoder() {
+			fail(w, 429, "Alle Umwandlungsplätze sind belegt. Weniger Kameras oder Originalwiedergabe wählen.")
+			return false
+		}
+		id := token()[:24]
+		dir := filepath.Join(a.config().DataDir, "cache", "hls-"+id)
+		if e := os.Mkdir(dir, 0700); e != nil {
+			a.releaseEncoder()
+			fail(w, 500, "Streaming konnte nicht gestartet werden")
+			return false
+		}
+		ctx, cancel := context.WithTimeout(a.ctx, 30*time.Minute)
+		s := &stream{id: id, owner: a.streamOwner(r), dir: dir, cancel: cancel, done: make(chan struct{}), last: time.Now(), created: time.Now()}
+		args, output := streamArgs(encoder, a.config().VAAPIDevice, profile, input.Offset, duration, input.Speed, input.Transport, dir)
+		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+
+		cmd.ExtraFiles = []*os.File{f}
+		if e := cmd.Start(); e != nil {
+			cancel()
+			os.RemoveAll(dir)
+			a.releaseEncoder()
+			a.metrics.streamFailures.Add(1)
+			slog.Error("ffmpeg konnte nicht gestartet werden", "error", e)
+			fail(w, 500, "Video-Umwandlung konnte nicht gestartet werden")
+			return false
+		}
+		a.mediaMu.Lock()
+		a.streams[id] = s
+		a.mediaMu.Unlock()
+		a.metrics.streamsStarted.Add(1)
+		a.work.Add(1)
+		go func() {
+			defer a.work.Done()
+			e := cmd.Wait()
+			if e != nil && ctx.Err() == nil {
+				a.metrics.streamFailures.Add(1)
+				slog.Warn("ffmpeg beendet mit Fehler", "stream", id, "encoder", encoder, "error", e)
+			}
+			cancel()
+			a.mediaMu.Lock()
+			s.err = e
+			a.mediaMu.Unlock()
+			a.releaseEncoder()
+			close(s.done)
+		}()
+		// failed removes the stream after an encoder error and decides whether
+		// the software encoder should take over.
+		failed := func() bool {
+			a.removeStream(id)
+			if encoder != "software" {
+				return true
+			}
+			fail(w, 422, "Aufnahme konnte nicht umgewandelt werden")
+			return false
+		}
+		// Wait for the first complete HLS segment, so clients never receive an empty playlist.
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		timeout := time.NewTimer(20 * time.Second)
+		defer timeout.Stop()
+		for {
+			select {
+			case <-r.Context().Done():
+				a.removeStream(id)
+				return false
+			case <-timeout.C:
+				a.removeStream(id)
+				fail(w, 504, "Video-Umwandlung dauert zu lange")
+				return false
+			case <-ticker.C:
+				ready := false
+				if input.Transport == "hls" {
+					if b, e := os.ReadFile(filepath.Join(dir, output)); e == nil {
+						ready = strings.Count(string(b), "#EXTINF:") >= neededSegments(input.Speed)
+					}
+				} else {
+					if st, e := os.Stat(filepath.Join(dir, output)); e == nil {
+						ready = st.Size() > 4096
+					}
+				}
+				select {
+				case <-s.done:
+					a.mediaMu.Lock()
+					encodeErr := s.err
+					a.mediaMu.Unlock()
+					if encodeErr != nil {
+						return failed()
+					}
+					if input.Transport == "hls" {
+						if b, e := os.ReadFile(filepath.Join(dir, output)); e == nil {
+							ready = strings.Contains(string(b), "#EXTINF:")
+						}
+					} else if st, e := os.Stat(filepath.Join(dir, output)); e == nil && st.Size() > 0 {
+						ready = true
+					}
+				default:
+				}
+				if ready {
+					jsonOut(w, 201, map[string]any{"id": id, "url": "/api/streams/" + id + "/" + output, "offset": input.Offset, "duration": duration, "factor": factor})
+					return false
+				}
+				select {
+				case <-s.done:
+					a.mediaMu.Lock()
+					err := s.err
+					a.mediaMu.Unlock()
+					if err != nil {
+						return failed()
+					}
+				default:
+				}
+			}
+		}
+	}
+	encoder := a.playbackEncoder()
+	if attempt(encoder) {
+		// Missing devices or drivers fail immediately. Skip the hardware encoder
+		// for a while instead of paying for a failed start with every stream.
+		a.metrics.encoderFallbacks.Add(1)
+		a.hardwareBlocked.Store(time.Now().Add(hardwareRetry).Unix())
+		slog.Warn("Hardware-Encoding fehlgeschlagen; Software-Encoding übernimmt", "encoder", encoder)
+		attempt("software")
+	}
+}
+
+var encoders = []string{"software", "vaapi", "qsv"}
+
+const hardwareRetry = 10 * time.Minute
+
+// playbackEncoder returns the configured encoder unless it failed recently.
+func (a *App) playbackEncoder() string {
+	encoder := a.config().Encoder
+	if encoder == "" || time.Now().Unix() < a.hardwareBlocked.Load() {
+		return "software"
+	}
+	return encoder
+}
+
+// streamArgs builds the ffmpeg command line of one compatible playback stream
+// and returns it with the name of the output file inside dir. Hardware encoders
+// decode in software and upload the scaled frames, which works for every
+// source codec the software path accepts.
+func streamArgs(encoder, device string, profile StreamProfile, offset, duration, speed float64, transport, dir string) ([]string, string) {
+	factor := math.Max(1, speed)
+	args := []string{"-nostdin", "-v", "error", "-threads", "1"}
+	switch encoder {
+	case "vaapi":
+		args = append(args, "-vaapi_device", device)
+	case "qsv":
+		args = append(args, "-init_hw_device", "qsv=hw", "-filter_hw_device", "hw")
+	}
+	args = append(args, "-ss", fmt.Sprintf("%.3f", offset), "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats)
+	if speed >= 8 && offset == 0 {
+		args = append(args, "-skip_frame", "nokey")
+	}
 	vf := fmt.Sprintf("setpts=(PTS-STARTPTS)/%.3f,scale=trunc(iw*%d/100/2)*2:trunc(ih*%d/100/2)*2,fps=%d", factor, profile.Scale, profile.Scale, profile.FPS)
+	switch encoder {
+	case "vaapi":
+		vf += ",format=nv12,hwupload"
+	case "qsv":
+		vf += ",format=nv12,hwupload=extra_hw_frames=64,format=qsv"
+	}
+	args = append(args, "-i", "/proc/self/fd/3", "-t", fmt.Sprintf("%.3f", duration/factor), "-map", "0:v:0", "-map", "0:a:0?", "-af", audioTempo(factor), "-c:a", "aac", "-b:a", "96k", "-vf", vf)
+	rate := []string{"-maxrate", fmt.Sprintf("%dk", profile.Bitrate), "-bufsize", fmt.Sprintf("%dk", profile.Bitrate*2)}
 	// B-frame reordering shifts the presentation origin in fragmented MP4 away from AAC.
-	args := []string{"-nostdin", "-v", "error", "-threads", "1", "-ss", fmt.Sprintf("%.3f", input.Offset), "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats, "-i", "/proc/self/fd/3", "-t", fmt.Sprintf("%.3f", duration/factor), "-map", "0:v:0", "-map", "0:a:0?", "-af", audioTempo(factor), "-c:a", "aac", "-b:a", "96k", "-vf", vf, "-c:v", "libx264", "-bf", "0", "-preset", "veryfast", "-threads", "1", "-crf", "25", "-maxrate", fmt.Sprintf("%dk", profile.Bitrate), "-bufsize", fmt.Sprintf("%dk", profile.Bitrate*2), "-pix_fmt", "yuv420p", "-force_key_frames", "expr:gte(t,n_forced*1)"}
+	switch encoder {
+	case "vaapi":
+		args = append(args, "-c:v", "h264_vaapi", "-bf", "0", "-b:v", fmt.Sprintf("%dk", profile.Bitrate))
+		args = append(args, rate...)
+	case "qsv":
+		args = append(args, "-c:v", "h264_qsv", "-bf", "0", "-preset", "veryfast", "-b:v", fmt.Sprintf("%dk", profile.Bitrate))
+		args = append(args, rate...)
+	default:
+		args = append(args, "-c:v", "libx264", "-bf", "0", "-preset", "veryfast", "-threads", "1", "-crf", "25")
+		args = append(args, rate...)
+		args = append(args, "-pix_fmt", "yuv420p")
+	}
+	args = append(args, "-force_key_frames", "expr:gte(t,n_forced*1)")
 	output := "index.m3u8"
-	if input.Transport == "hls" {
+	if transport == "hls" {
 		args = append(args, "-f", "hls", "-hls_time", "1", "-hls_list_size", "0", "-hls_playlist_type", "event", "-hls_segment_filename", filepath.Join(dir, "segment-%06d.ts"))
 	} else {
 		output = "video.mp4"
 		args = append(args, "-f", "mp4", "-movflags", "+frag_keyframe+empty_moov+default_base_moof")
 	}
-	if input.Speed >= 8 && input.Offset == 0 {
-		for i, arg := range args {
-			if arg == "-i" {
-				args = append(args[:i], append([]string{"-skip_frame", "nokey"}, args[i:]...)...)
-				break
-			}
-		}
-	}
-	args = append(args, filepath.Join(dir, output))
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-
-	cmd.ExtraFiles = []*os.File{f}
-	if e = cmd.Start(); e != nil {
-		cancel()
-		os.RemoveAll(dir)
-		a.releaseEncoder()
-		a.metrics.streamFailures.Add(1)
-		slog.Error("ffmpeg konnte nicht gestartet werden", "error", e)
-		fail(w, 500, "Video-Umwandlung konnte nicht gestartet werden")
-		return
-	}
-	a.mediaMu.Lock()
-	a.streams[id] = s
-	a.mediaMu.Unlock()
-	a.metrics.streamsStarted.Add(1)
-	a.work.Add(1)
-	go func() {
-		defer a.work.Done()
-		e := cmd.Wait()
-		if e != nil && ctx.Err() == nil {
-			a.metrics.streamFailures.Add(1)
-			slog.Warn("ffmpeg beendet mit Fehler", "stream", id, "error", e)
-		}
-		cancel()
-		a.mediaMu.Lock()
-		s.err = e
-		a.mediaMu.Unlock()
-		a.releaseEncoder()
-		close(s.done)
-	}()
-	// Wait for the first complete HLS segment, so clients never receive an empty playlist.
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	timeout := time.NewTimer(20 * time.Second)
-	defer timeout.Stop()
-	for {
-		select {
-		case <-r.Context().Done():
-			a.removeStream(id)
-			return
-		case <-timeout.C:
-			a.removeStream(id)
-			fail(w, 504, "Video-Umwandlung dauert zu lange")
-			return
-		case <-ticker.C:
-			ready := false
-			if input.Transport == "hls" {
-				if b, e := os.ReadFile(filepath.Join(dir, output)); e == nil {
-					ready = strings.Count(string(b), "#EXTINF:") >= neededSegments(input.Speed)
-				}
-			} else {
-				if st, e := os.Stat(filepath.Join(dir, output)); e == nil {
-					ready = st.Size() > 4096
-				}
-			}
-			select {
-			case <-s.done:
-				a.mediaMu.Lock()
-				encodeErr := s.err
-				a.mediaMu.Unlock()
-				if encodeErr != nil {
-					a.removeStream(id)
-					fail(w, 422, "Aufnahme konnte nicht umgewandelt werden")
-					return
-				}
-				if input.Transport == "hls" {
-					if b, e := os.ReadFile(filepath.Join(dir, output)); e == nil {
-						ready = strings.Contains(string(b), "#EXTINF:")
-					}
-				} else if st, e := os.Stat(filepath.Join(dir, output)); e == nil && st.Size() > 0 {
-					ready = true
-				}
-			default:
-			}
-			if ready {
-				jsonOut(w, 201, map[string]any{"id": id, "url": "/api/streams/" + id + "/" + output, "offset": input.Offset, "duration": duration, "factor": factor})
-				return
-			}
-			select {
-			case <-s.done:
-				a.mediaMu.Lock()
-				err := s.err
-				a.mediaMu.Unlock()
-				if err != nil {
-					a.removeStream(id)
-					fail(w, 422, "Aufnahme konnte nicht umgewandelt werden")
-					return
-				}
-			default:
-			}
-		}
-	}
+	return append(args, filepath.Join(dir, output)), output
 }
 
 var hlsFile = regexp.MustCompile(`^(index\.m3u8|segment-[0-9]{6}\.ts|video\.mp4)$`)
@@ -425,18 +549,9 @@ func (a *App) pruneStreams() {
 		a.removeStream(id)
 	}
 }
-func (a *App) cacheUsage() int64 {
-	var total int64
-	filepath.WalkDir(filepath.Join(a.config().DataDir, "cache"), func(p string, d fs.DirEntry, e error) error {
-		if e == nil && !d.IsDir() {
-			if s, e := d.Info(); e == nil {
-				total += s.Size()
-			}
-		}
-		return nil
-	})
-	return total
-}
+
+// pruneCache removes the least recently used previews once the cache directory,
+// including temporary streams, exceeds three quarters of its budget.
 func (a *App) pruneCache() {
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
@@ -446,25 +561,34 @@ func (a *App) pruneCache() {
 		size int64
 	}
 	entries := []entry{}
+	var used int64
 	filepath.WalkDir(filepath.Join(a.config().DataDir, "cache"), func(p string, d fs.DirEntry, e error) error {
-		if e == nil && !d.IsDir() && strings.HasSuffix(p, ".jpg") {
-			if st, e := d.Info(); e == nil {
-				entries = append(entries, entry{p, st.ModTime(), st.Size()})
-			}
+		if e != nil || d.IsDir() {
+			return nil
+		}
+		st, e := d.Info()
+		if e != nil {
+			return nil
+		}
+		used += st.Size()
+		if strings.HasSuffix(p, ".jpg") {
+			entries = append(entries, entry{p, st.ModTime(), st.Size()})
 		}
 		return nil
 	})
+	limit := a.config().CacheBytes * 3 / 4
+	if used < limit {
+		return
+	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].time.Before(entries[j].time) })
-	used := a.cacheUsage()
 	for _, entry := range entries {
-		if used < a.config().CacheBytes*3/4 {
+		if used < limit {
 			break
 		}
 		if os.Remove(entry.path) == nil {
 			used -= entry.size
 		}
 	}
-
 }
 
 func (a *App) streamUsage() int64 {

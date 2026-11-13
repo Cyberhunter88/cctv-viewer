@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {gaps,recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline.ts';
+import {timelineRowAt,gaps,recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,type Recording} from './timeline.ts';
 const records:Recording[]=[{id:'a',cameraId:'1',start:100,duration:60,codec:'h264'},{id:'b',cameraId:'1',start:150,duration:30,codec:'h264'},{id:'c',cameraId:'2',start:200,duration:50,codec:'hevc'}];
 test('intervals are half-open and overlaps use latest clip',()=>{assert.equal(recordingAt(records,'1',99),undefined);assert.equal(recordingAt(records,'1',100)?.id,'a');assert.equal(recordingAt(records,'1',150)?.id,'b');assert.equal(recordingAt(records,'1',180),undefined)});
 test('gap skipping respects visible cameras',()=>{assert.equal(nextRecording(records,['1'],160),undefined);assert.equal(nextRecording(records,['2'],160),200);assert.equal(nextRecording(records,['1'],99),100)});
@@ -75,3 +75,4 @@ test('gaps are only reported between recordings, clipped to the window and above
  assert.deepEqual(gaps(items,'2',0,1000),[]);
  assert.deepEqual(gaps([{id:'x',cameraId:'1',start:0,duration:500,codec:'h264'},{id:'y',cameraId:'1',start:100,duration:10,codec:'h264'}],'1',0,1000),[]);
 });
+test('timeline rows map pointer positions to cameras and ignore the gaps between rows',()=>{assert.equal(timelineRowAt(38,3),-1);assert.equal(timelineRowAt(39,3),0);assert.equal(timelineRowAt(61.9,3),0);assert.equal(timelineRowAt(62,3),-1);assert.equal(timelineRowAt(73,3),1);assert.equal(timelineRowAt(107,3),2);assert.equal(timelineRowAt(141,3),-1);assert.equal(timelineRowAt(50,0),-1);assert.equal(timelineRowAt(-5,3),-1)});

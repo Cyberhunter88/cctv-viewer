@@ -55,6 +55,8 @@ zurückgesetzt werden. Ohne gesetzte Variable gilt dann der Programmstandard.
 | `CTV_OIDC_ALLOWED_SUBJECTS`, `CTV_OIDC_ADMIN_SUBJECTS` | Exakte Subject-Freigaben und Administrator-Subjects |
 | `CTV_MAX_TRANSCODERS`, `CTV_HLS_TEMP_MB`, `CTV_CACHE_MB` | Ressourcenlimits |
 | `CTV_LOG_LEVEL` | Protokollstufe (`debug`, `info`, `warn`, `error`; Standard `info`), nur per Umgebung |
+| `CTV_METRICS_TOKEN`, `CTV_METRICS_TOKEN_FILE` | Bearer-Token für `GET /metrics` (mindestens 24 Zeichen); ohne Token existiert der Endpunkt nicht, nur per Umgebung |
+| `CTV_VAAPI_DEVICE` | Render-Gerät für VAAPI (Standard `/dev/dri/renderD128`), nur per Umgebung |
 | `CTV_SCAN_INTERVAL_SECONDS` | Bestehender technischer Scanintervall-Ausgangswert; die automatische tägliche Indexierung wird separat unter Betrieb konfiguriert |
 
 Optional bleibt `CTV_OIDC_CLIENT_SECRET_FILE` mit zusätzlich schreibgeschützt
@@ -137,3 +139,11 @@ erforderlich; die verschlüsselten Konfigurationen sind dort nicht lesbar.
 - **Metriken:** `GET /api/admin/metrics` (nur Administratoren) liefert Laufzeit, Umwandlungs- und Anmeldezähler als JSON.
 - **Anmeldeschutz:** Zusätzlich zur Begrenzung je IP wird ein Konto nach 10 Fehlversuchen in 15 Minuten vorübergehend gesperrt. Erfolgreiche Anmeldungen verbrauchen keinen IP-Versuch.
 - **Konfigurationssicherung:** `GET /api/admin/backup` exportiert Kameras, Einstellungs-Überschreibungen (ohne OIDC-Secret) und Benutzerrollen. `POST /api/admin/backup` stellt nur Kameradefinitionen wieder her; Einstellungen und Benutzer werden bewusst nicht importiert, um Aussperrungen zu vermeiden. Aufnahmen, Passwort-Hashes und Live-Zugangsdaten sind nicht enthalten.
+
+## Warnungen, Hardware-Encoding und zweiter Faktor (ab 0.14.0)
+
+- **Warnungen:** Unter „Betrieb“ kann eine Webhook-Adresse (`http`/`https`) gespeichert werden. Der Viewer prüft alle fünf Minuten jede Kamera und sendet je Zustandswechsel eine JSON-Meldung per `POST`: `source_offline`, `source_online`, `recordings_stale`, `recordings_resumed` sowie `test`. Felder: `event`, `message`, `cameraId`, `camera`, `time`, `lastRecording`. Weiterleitungen werden nicht verfolgt. Die Adresse wird verschlüsselt gespeichert, nie angezeigt und nicht in die Konfigurationssicherung übernommen; entfernt wird sie über „Herkunft und Umgebungswerte“.
+- **Hardware-Encoding:** „Video-Encoder“ unter „Betrieb“ wählt Software (Vorgabe), VAAPI oder Intel Quick Sync für die reduzierte Wiedergabe. Voraussetzung sind ein in den Container durchgereichtes Gerät (`devices: ["/dev/dri:/dev/dri"]`), Zugriff des Containerbenutzers auf dessen Gruppe und ein FFmpeg mit passendem Treiber; das mitgelieferte Image enthält keine zusätzlichen Treiberpakete. Schlägt der Start fehl, übernimmt für zehn Minuten der Software-Encoder; der Zähler `encoderFallbacks` in den Metriken zeigt das an.
+- **Prometheus:** Mit `CTV_METRICS_TOKEN` liefert `GET /metrics` dieselben Werte wie `/api/admin/metrics` im Textformat. Abruf mit `Authorization: Bearer <Token>`.
+- **Zweiter Faktor:** Lokale Konten richten unter „Mein Konto“ einen zeitbasierten Einmalcode (TOTP, 6 Stellen, 30 Sekunden) ein. Geht die Authenticator-App verloren, setzt ein Administrator den Faktor in der Benutzerverwaltung zurück; ist kein Administrator mehr anmeldbar, legt `cctv admin --recover` ein neues Administratorkonto an. Die Datenbank wechselt dabei auf Schema 7; ältere Programmversionen starten mit dieser Datenbank nicht mehr.
+- **Speicherbelegung:** `GET /api/admin/storage` (nur Administratoren) liefert Anzahl und Größe der indexierten Aufnahmen je Kamera sowie die letzten 30 Tage.

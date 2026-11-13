@@ -18,6 +18,9 @@ type StreamProfile struct {
 }
 type Config struct {
 	Go2RTCPath, LiveRTSPAddress                          string
+	MetricsToken                                         string
+	AlertWebhookURL, Encoder, VAAPIDevice                string
+	AlertStaleHours                                      int
 	AutoScan                                             bool
 	AutoScanMinutes                                      int
 	HLSTempBytes                                         int64
@@ -68,6 +71,17 @@ func LoadConfig() (Config, error) {
 	c.OIDCSecret, err = Secret("CTV_OIDC_CLIENT_SECRET")
 	if err != nil {
 		return c, err
+	}
+	c.VAAPIDevice = env("CTV_VAAPI_DEVICE", "/dev/dri/renderD128")
+	if !strings.HasPrefix(c.VAAPIDevice, "/dev/dri/") || strings.Contains(c.VAAPIDevice, "..") {
+		return c, errors.New("CTV_VAAPI_DEVICE muss ein Gerät unter /dev/dri/ sein")
+	}
+	c.MetricsToken, err = Secret("CTV_METRICS_TOKEN")
+	if err != nil {
+		return c, err
+	}
+	if c.MetricsToken != "" && len(c.MetricsToken) < 24 {
+		return c, errors.New("CTV_METRICS_TOKEN muss mindestens 24 Zeichen lang sein")
 	}
 	for _, p := range list(os.Getenv("CTV_TRUSTED_PROXIES")) {
 		n, e := netip.ParsePrefix(p)

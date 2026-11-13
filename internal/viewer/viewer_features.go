@@ -28,6 +28,12 @@ func viewerDefaults(c Config) Config {
 	if c.HLSTempBytes == 0 {
 		c.HLSTempBytes = 256 << 20
 	}
+	if c.Encoder == "" {
+		c.Encoder = "software"
+	}
+	if c.VAAPIDevice == "" {
+		c.VAAPIDevice = "/dev/dri/renderD128"
+	}
 	return c
 }
 func preferenceOwner(s Session) string { return digest(s.Kind + "\x00" + s.Subject) }
@@ -42,7 +48,7 @@ func (a *App) registerViewerRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/playback-sessions/{id}", a.protect(false, a.playbackSession))
 }
 func (a *App) scanHistory(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.QueryContext(r.Context(), `SELECT camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings FROM scan_history ORDER BY finished DESC,id DESC LIMIT 50`)
+	rows, err := a.db.reader().QueryContext(r.Context(), `SELECT camera_id,camera_name,scan_date,manual,finished,state,inspected,added,changed,skipped,warnings FROM scan_history ORDER BY finished DESC,id DESC LIMIT 50`)
 	if err != nil {
 		fail(w, 500, "Scanverlauf nicht lesbar")
 		return
@@ -99,7 +105,7 @@ func (a *App) requestScan(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonOut(w, 202, a.scanStatus())
 }
-func mustBerlin() *time.Location { l, _ := time.LoadLocation("Europe/Berlin"); return l }
+func mustBerlin() *time.Location { l, _ := cachedLocation("Europe/Berlin"); return l }
 func (a *App) rebuildIndex(w http.ResponseWriter, r *http.Request) {
 	a.index.mu.Lock()
 	defer a.index.mu.Unlock()
@@ -143,7 +149,7 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 
 	// Keep camera corrections, count and result rows in the same read snapshot.
 	// A camera edit during a search must not invalidate the unadjusted fast path.
-	tx, err := a.db.BeginTx(r.Context(), &sql.TxOptions{ReadOnly: true})
+	tx, err := a.db.reader().BeginTx(r.Context(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		fail(w, 500, "Suche nicht verfügbar")
 		return
@@ -192,6 +198,12 @@ func (a *App) searchRecordings(w http.ResponseWriter, r *http.Request) {
 			expr := map[string]string{"from": effectiveStart + "+r.duration>=?", "to": effectiveStart + "<=?", "minDuration": "r.duration>=?"}[key]
 			conditions = append(conditions, expr)
 			args = append(args, n)
+			if key == "from" {
+				// Recordings are at most maxRecordingSeconds long, so the start
+				// index can discard everything that ended before the lower bound.
+				conditions = append(conditions, "r.start>=?-(SELECT COALESCE(MAX(ABS(zoom_offset)),0) FROM cameras)")
+				args = append(args, n-maxRecordingSeconds)
+			}
 			if key == "to" {
 				// Keep the original zoom-adjusted predicate, but let the start index
 				// discard recordings that cannot possibly precede the upper bound.

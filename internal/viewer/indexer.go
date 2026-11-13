@@ -251,8 +251,7 @@ func (a *App) startDayScan(date string, cameras []Camera) bool {
 }
 
 func dayBounds(date string) (time.Time, time.Time, error) {
-	loc, _ := time.LoadLocation("Europe/Berlin")
-	from, e := time.ParseInLocation("2006-01-02", date, loc)
+	from, e := time.ParseInLocation("2006-01-02", date, mustBerlin())
 	if e != nil || from.Year() < 1970 || from.Year() > 2200 {
 		return time.Time{}, time.Time{}, errors.New("Datum ungültig")
 	}

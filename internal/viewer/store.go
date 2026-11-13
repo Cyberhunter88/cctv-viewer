@@ -7,16 +7,58 @@ import (
 	"errors"
 	"math"
 	_ "modernc.org/sqlite"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
+// Store writes through a single connection. Reads that do not depend on an open
+// write transaction use a separate read-only pool, so playback, search and
+// session checks are not queued behind index updates.
 type Store struct {
 	*sql.DB
+	read    *sql.DB
 	secrets cipher.AEAD
 }
+
+func (s *Store) reader() *sql.DB {
+	if s.read != nil {
+		return s.read
+	}
+	return s.DB
+}
+
+func (s *Store) Close() error {
+	var readErr error
+	if s.read != nil {
+		readErr = s.read.Close()
+	}
+	if err := s.DB.Close(); err != nil {
+		return err
+	}
+	return readErr
+}
+
+func openReadPool(file string) (*sql.DB, error) {
+	name := filepath.ToSlash(file)
+	if !strings.HasPrefix(name, "/") {
+		name = "/" + name
+	}
+	source := "file://" + (&url.URL{Path: name}).EscapedPath() + "?mode=ro&_pragma=busy_timeout(5000)&_pragma=query_only(1)"
+	db, err := sql.Open("sqlite", source)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(4)
+	if err = db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
 type Camera struct {
 	ViewMode         string         `json:"viewMode"`
 	WideMarker       string         `json:"wideMarker"`
@@ -83,7 +125,7 @@ func OpenStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if version > 6 {
+	if version > 7 {
 		db.Close()
 		return nil, errors.New("Datenbankschema neuer als diese Anwendung")
 	}
@@ -118,7 +160,9 @@ func OpenStore(dir string) (*Store, error) {
 			return nil, statErr
 		}
 	}
-	_, err = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
+	// WAL with synchronous=NORMAL stays consistent after a crash; only the most
+	// recent commits can be lost, and the index is rebuilt from the recordings.
+	_, err = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS cameras(id TEXT PRIMARY KEY,name TEXT NOT NULL,folder TEXT NOT NULL,pattern TEXT NOT NULL,timezone TEXT NOT NULL,offset INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS recordings(id TEXT PRIMARY KEY,camera_id TEXT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,path TEXT NOT NULL,start REAL NOT NULL,duration REAL NOT NULL,codec TEXT NOT NULL,size INTEGER NOT NULL,mod INTEGER NOT NULL,UNIQUE(camera_id,path));
  CREATE INDEX IF NOT EXISTS recordings_time ON recordings(camera_id,start);
@@ -148,6 +192,9 @@ func OpenStore(dir string) (*Store, error) {
 		{"recordings", "settled", "ALTER TABLE recordings ADD COLUMN settled INTEGER NOT NULL DEFAULT 0"},
 		{"admins", "role", "ALTER TABLE admins ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'"},
 		{"admins", "disabled", "ALTER TABLE admins ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0"},
+		{"admins", "totp_secret", "ALTER TABLE admins ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''"},
+		{"admins", "totp_enabled", "ALTER TABLE admins ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0"},
+		{"admins", "totp_step", "ALTER TABLE admins ADD COLUMN totp_step INTEGER NOT NULL DEFAULT 0"},
 	} {
 		rows, e := db.Query("PRAGMA table_info(" + migration.table + ")")
 		if e != nil {
@@ -243,7 +290,7 @@ CREATE TABLE IF NOT EXISTS scan_schedule(camera_id TEXT PRIMARY KEY REFERENCES c
 	 CREATE TABLE IF NOT EXISTS live_share(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL);
 	 CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT,ts INTEGER NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL,ip TEXT NOT NULL,ok INTEGER NOT NULL);
 	 CREATE INDEX IF NOT EXISTS audit_log_ts ON audit_log(ts);
-	 PRAGMA user_version=6; COMMIT;`); err != nil {
+	 PRAGMA user_version=7; COMMIT;`); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -252,10 +299,19 @@ CREATE TABLE IF NOT EXISTS scan_schedule(camera_id TEXT PRIMARY KEY REFERENCES c
 		db.Close()
 		return nil, err
 	}
+	absolute, pathErr := filepath.Abs(filepath.Join(dir, "viewer.db"))
+	if pathErr != nil {
+		db.Close()
+		return nil, pathErr
+	}
+	if s.read, err = openReadPool(absolute); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return s, nil
 }
 func (s *Store) Cameras() ([]Camera, error) {
-	rows, e := s.Query(`SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset,supports_zoom FROM cameras ORDER BY name`)
+	rows, e := s.reader().Query(`SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset,supports_zoom FROM cameras ORDER BY name`)
 	if e != nil {
 		return nil, e
 	}
@@ -272,7 +328,7 @@ func (s *Store) Cameras() ([]Camera, error) {
 }
 func (s *Store) Camera(id string) (Camera, error) {
 	var c Camera
-	e := s.QueryRow(`SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset,supports_zoom FROM cameras WHERE id=?`, id).Scan(&c.ID, &c.Name, &c.Folder, &c.Pattern, &c.Timezone, &c.Offset, &c.Format, &c.Prefix, &c.IndexingMode, &c.DirectoryPattern, &c.ViewMode, &c.WideMarker, &c.ZoomMarker, &c.ZoomOffset, &c.SupportsZoom)
+	e := s.reader().QueryRow(`SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset,supports_zoom FROM cameras WHERE id=?`, id).Scan(&c.ID, &c.Name, &c.Folder, &c.Pattern, &c.Timezone, &c.Offset, &c.Format, &c.Prefix, &c.IndexingMode, &c.DirectoryPattern, &c.ViewMode, &c.WideMarker, &c.ZoomMarker, &c.ZoomOffset, &c.SupportsZoom)
 	return c, e
 }
 func (s *Store) SaveCamera(c Camera) error {
@@ -319,7 +375,7 @@ func (s *Store) Recordings(camera string, from, to float64) ([]Recording, error)
 		return nil, err
 	}
 	margin := math.Abs(c.ZoomOffset)
-	rows, e := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE camera_id=? AND start<? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, camera, to+margin, from-margin)
+	rows, e := s.reader().Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE camera_id=? AND start<? AND start>? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, camera, to+margin, from-margin-maxRecordingSeconds, from-margin)
 	if e != nil {
 		return nil, e
 	}
@@ -355,7 +411,9 @@ func (s *Store) DayRecordings(cameras []Camera, from, to float64) ([]Recording, 
 		byID[camera.ID] = camera
 		margin = math.Max(margin, math.Abs(camera.ZoomOffset))
 	}
-	rows, err := s.Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE start<? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, to+margin, from-margin)
+	// No indexed recording is longer than maxRecordingSeconds, so the start index
+	// can skip the entire history before the requested day.
+	rows, err := s.reader().Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE start<? AND start>? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, to+margin, from-margin-maxRecordingSeconds, from-margin)
 	if err != nil {
 		return nil, err
 	}
@@ -395,7 +453,7 @@ func (s *Store) DayRecordings(cameras []Camera, from, to float64) ([]Recording, 
 }
 func (s *Store) Recording(id string) (Recording, error) {
 	var r Recording
-	e := s.QueryRow(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE id=? AND codec!='jpeg'`, id).Scan(&r.ID, &r.CameraID, &r.Path, &r.Start, &r.Duration, &r.Codec, &r.Size, &r.Mod)
+	e := s.reader().QueryRow(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE id=? AND codec!='jpeg'`, id).Scan(&r.ID, &r.CameraID, &r.Path, &r.Start, &r.Duration, &r.Codec, &r.Size, &r.Mod)
 	r.Container = strings.ToLower(filepath.Ext(r.Path))
 	r.Kind = "video"
 	if r.Codec == "jpeg" {

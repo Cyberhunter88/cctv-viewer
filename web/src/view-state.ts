@@ -1,6 +1,8 @@
 import {clamp,recordingAt,latestStartBetween,type Recording} from './timeline.ts';
 export const layouts=['auto','1x1','2x1','2x2','3x2','3x3','4x3','4x4','hotspot','custom'];
-export interface ViewState {liveCameras?:string[];liveOrder?:string[];liveLayout?:string;theme?:'system'|'light'|'dark';cameras:string[];order:string[];layout:string;quality:string;speed:string;preload:string;aspect:string;columns:number;rows:number;autoHotspot:boolean;collapsed:boolean;railCollapsed?:boolean;originalQualityVersion?:number;timelineHeight:number;hotspot?:string;density:'comfortable'|'compact';showNames:boolean;showTimestamps:boolean;showCodec:boolean;showOverview:boolean;showThumbnails:boolean;shortcuts:boolean;seekStep:number}
+export interface SavedView {name:string;cameras:string[];layout:string;columns:number;rows:number}
+export const maxSavedViews=20;
+export interface ViewState {views?:SavedView[];liveCameras?:string[];liveOrder?:string[];liveLayout?:string;theme?:'system'|'light'|'dark';cameras:string[];order:string[];layout:string;quality:string;speed:string;preload:string;aspect:string;columns:number;rows:number;autoHotspot:boolean;collapsed:boolean;railCollapsed?:boolean;originalQualityVersion?:number;timelineHeight:number;hotspot?:string;density:'comfortable'|'compact';showNames:boolean;showTimestamps:boolean;showCodec:boolean;showOverview:boolean;showThumbnails:boolean;shortcuts:boolean;seekStep:number}
 export function validView(value:unknown,ids:string[]):Partial<ViewState>{
  if(!value||typeof value!=='object')return {};
  const v=value as Partial<ViewState>,out:Partial<ViewState>={};
@@ -22,7 +24,31 @@ export function validView(value:unknown,ids:string[]):Partial<ViewState>{
  if(v.density==='comfortable'||v.density==='compact')out.density=v.density;
  if([5,10,30].includes(v.seekStep!))out.seekStep=v.seekStep;
  if(Number.isFinite(v.timelineHeight))out.timelineHeight=clamp(v.timelineHeight!,100,650);
+ if(Array.isArray(v.views))out.views=validSavedViews(v.views,ids);
  return out;
+}
+const gridCount=(value:unknown):value is number=>Number.isInteger(value)&&(value as number)>=1&&(value as number)<=8;
+/** Keeps well-formed views with unique names and drops cameras that no longer exist. */
+export function validSavedViews(value:unknown[],ids:string[]):SavedView[]{
+ const out:SavedView[]=[];
+ for(const entry of value){
+  if(!entry||typeof entry!=='object')continue;
+  const view=entry as Partial<SavedView>,name=typeof view.name==='string'?view.name.trim():'';
+  if(!name||[...name].length>60||out.some(existing=>existing.name===name)||out.length>=maxSavedViews)continue;
+  if(!Array.isArray(view.cameras)||!view.cameras.every(id=>typeof id==='string')||!layouts.includes(view.layout||'')||!gridCount(view.columns)||!gridCount(view.rows))continue;
+  out.push({name,cameras:[...new Set(view.cameras.filter(id=>ids.includes(id)))],layout:view.layout!,columns:view.columns,rows:view.rows});
+ }
+ return out;
+}
+/** Adds a view or replaces the one with the same name; returns undefined when the list is full. */
+export function upsertSavedView(views:SavedView[],view:SavedView):SavedView[]|undefined{
+ const index=views.findIndex(existing=>existing.name===view.name);
+ if(index>=0)return views.map((existing,i)=>i===index?view:existing);
+ return views.length>=maxSavedViews?undefined:[...views,view];
+}
+/** Name of the saved view that equals the current selection and grid, if any. */
+export function matchingSavedView(views:SavedView[],selected:ReadonlySet<string>,layout:string,columns:number,rows:number):string{
+ return views.find(view=>view.layout===layout&&(layout!=='custom'||view.columns===columns&&view.rows===rows)&&view.cameras.length===selected.size&&view.cameras.every(id=>selected.has(id)))?.name||'';
 }
 export function gridSize(layout:string,columns:number,rows:number,count:number,width:number,dual=false):[number,number]{
  const narrow=width<600,minimum=dual?488:260;

@@ -232,7 +232,7 @@ func (a *App) runScheduledScan() {
 		if next > time.Now().Unix() {
 			continue
 		}
-		loc, e := time.LoadLocation(c.Timezone)
+		loc, e := cachedLocation(c.Timezone)
 		if e != nil {
 			continue
 		}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -24,10 +25,12 @@ type localUser struct {
 	Username string `json:"username"`
 	Role     string `json:"role"`
 	Disabled bool   `json:"disabled"`
+	TOTP     bool   `json:"totp"`
 }
 
 func (a *App) registerManagement(m *http.ServeMux) {
 	a.registerSessions(m)
+	a.registerTOTP(m)
 	m.HandleFunc("GET /api/admin/users", a.protect(true, a.users))
 	m.HandleFunc("POST /api/admin/users", a.protect(true, a.audit("user.save", a.saveUser)))
 	m.HandleFunc("DELETE /api/admin/users/{name}", a.protect(true, a.audit("user.delete", a.deleteUser)))
@@ -35,6 +38,8 @@ func (a *App) registerManagement(m *http.ServeMux) {
 	m.HandleFunc("GET /api/admin/backup", a.protect(true, a.audit("backup.export", a.backupExport)))
 	m.HandleFunc("POST /api/admin/backup", a.protect(true, a.audit("backup.import", a.backupImport)))
 	m.HandleFunc("GET /api/admin/metrics", a.protect(true, a.metricsHandler))
+	m.HandleFunc("GET /api/admin/storage", a.protect(true, a.storageOverview))
+	m.HandleFunc("POST /api/admin/alerts/test", a.protect(true, a.audit("alert.test", a.testAlert)))
 	m.HandleFunc("POST /api/password", a.protect(false, a.audit("password.change", a.changePassword)))
 	m.HandleFunc("GET /api/admin/settings", a.protect(true, a.getSettings))
 	m.HandleFunc("PUT /api/admin/settings", a.protect(true, a.audit("settings.save", a.saveSettings)))
@@ -42,7 +47,7 @@ func (a *App) registerManagement(m *http.ServeMux) {
 	m.HandleFunc("GET /auth/oidc/test/callback", a.protect(true, a.finishOIDCTest))
 }
 func (a *App) users(w http.ResponseWriter, r *http.Request) {
-	rows, e := a.db.QueryContext(r.Context(), `SELECT username,role,disabled FROM admins ORDER BY username`)
+	rows, e := a.db.QueryContext(r.Context(), `SELECT username,role,disabled,totp_enabled FROM admins ORDER BY username`)
 	if e != nil {
 		fail(w, 500, "Benutzer nicht lesbar")
 		return
@@ -51,7 +56,7 @@ func (a *App) users(w http.ResponseWriter, r *http.Request) {
 	out := []localUser{}
 	for rows.Next() {
 		var u localUser
-		if e = rows.Scan(&u.Username, &u.Role, &u.Disabled); e != nil {
+		if e = rows.Scan(&u.Username, &u.Role, &u.Disabled, &u.TOTP); e != nil {
 			fail(w, 500, "Benutzer nicht lesbar")
 			return
 		}
@@ -286,7 +291,7 @@ type settingsInput struct {
 }
 
 func settingsValues(c Config) map[string]any {
-	return map[string]any{"autoScan": c.AutoScan, "autoScanMinutes": c.AutoScanMinutes, "hlsTempMB": c.HLSTempBytes >> 20, "balanced": c.Balanced, "fast": c.Fast, "localLogin": c.LocalAdmin, "oidcIssuer": c.OIDCIssuer, "oidcClientId": c.OIDCClientID, "oidcGroupClaim": c.OIDCGroupClaim, "allowedSubjects": append([]string{}, c.AllowedUsers...), "allowedGroups": append([]string{}, c.AllowedGroups...), "adminSubjects": append([]string{}, c.AdminUsers...), "adminGroups": append([]string{}, c.AdminGroups...), "scanInterval": int(c.ScanInterval.Seconds()), "cacheMB": c.CacheBytes >> 20, "maxTranscoders": c.MaxTranscoders, "sessionMinutes": int(c.SessionTTL.Minutes())}
+	return map[string]any{"autoScan": c.AutoScan, "autoScanMinutes": c.AutoScanMinutes, "hlsTempMB": c.HLSTempBytes >> 20, "balanced": c.Balanced, "fast": c.Fast, "localLogin": c.LocalAdmin, "oidcIssuer": c.OIDCIssuer, "oidcClientId": c.OIDCClientID, "oidcGroupClaim": c.OIDCGroupClaim, "allowedSubjects": append([]string{}, c.AllowedUsers...), "allowedGroups": append([]string{}, c.AllowedGroups...), "adminSubjects": append([]string{}, c.AdminUsers...), "adminGroups": append([]string{}, c.AdminGroups...), "scanInterval": int(c.ScanInterval.Seconds()), "cacheMB": c.CacheBytes >> 20, "maxTranscoders": c.MaxTranscoders, "sessionMinutes": int(c.SessionTTL.Minutes()), "alertStaleHours": c.AlertStaleHours, "encoder": c.Encoder}
 }
 func configWithValues(c Config, v map[string]json.RawMessage) (Config, error) {
 	c = viewerDefaults(c)
@@ -326,7 +331,11 @@ func configWithValues(c Config, v map[string]json.RawMessage) (Config, error) {
 			target = &c.AdminUsers
 		case "adminGroups":
 			target = &c.AdminGroups
-		case "autoScanMinutes", "hlsTempMB", "scanInterval", "cacheMB", "maxTranscoders", "sessionMinutes":
+		case "alertWebhookURL":
+			target = &c.AlertWebhookURL
+		case "encoder":
+			target = &c.Encoder
+		case "autoScanMinutes", "hlsTempMB", "scanInterval", "cacheMB", "maxTranscoders", "sessionMinutes", "alertStaleHours":
 			var n int64
 			if e := json.Unmarshal(b, &n); e != nil {
 				return c, errors.New("Zahlenwert ungültig")
@@ -362,6 +371,11 @@ func configWithValues(c Config, v map[string]json.RawMessage) (Config, error) {
 					return c, errors.New("Sitzungsdauer: 15–1440 Minuten")
 				}
 				c.SessionTTL = time.Duration(n) * time.Minute
+			case "alertStaleHours":
+				if n < 0 || n > 168 {
+					return c, errors.New("Warnung ohne neue Aufnahmen: 0–168 Stunden")
+				}
+				c.AlertStaleHours = int(n)
 			}
 			continue
 		default:
@@ -375,6 +389,12 @@ func configWithValues(c Config, v map[string]json.RawMessage) (Config, error) {
 		if p.Scale < 20 || p.Scale > 100 || p.FPS < 2 || p.FPS > 30 || p.Bitrate < 100 || p.Bitrate > 8000 {
 			return c, errors.New("Streamingprofil: Skalierung 20–100 %, FPS 2–30, Bitrate 100–8000 kbit/s")
 		}
+	}
+	if e := validAlertURL(c.AlertWebhookURL); e != nil {
+		return c, e
+	}
+	if !slices.Contains(encoders, c.Encoder) {
+		return c, errors.New("Encoder: software, vaapi oder qsv")
 	}
 	if !c.LocalAdmin && c.OIDCIssuer == "" {
 		return c, errors.New("Mindestens eine Anmeldung erforderlich")
@@ -420,7 +440,11 @@ func (a *App) getSettings(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.overrides["oidcSecret"]; ok {
 		source["oidcSecret"] = "Weboberfläche"
 	}
-	jsonOut(w, 200, map[string]any{"version": a.settingsVersion, "values": settingsValues(c), "sources": source, "secretSet": c.OIDCSecret != "", "external": map[string]any{"baseURL": c.BaseURL, "recordingsDir": c.RecordingsDir, "dataDir": c.DataDir, "address": c.Address, "trustedProxies": c.TrustedProxies}})
+	// The webhook address may contain a token and is never returned.
+	if _, ok := a.overrides["alertWebhookURL"]; ok {
+		source["alertWebhookURL"] = "Weboberfläche"
+	}
+	jsonOut(w, 200, map[string]any{"version": a.settingsVersion, "values": settingsValues(c), "sources": source, "secretSet": c.OIDCSecret != "", "alertWebhookSet": c.AlertWebhookURL != "", "external": map[string]any{"baseURL": c.BaseURL, "recordingsDir": c.RecordingsDir, "dataDir": c.DataDir, "address": c.Address, "trustedProxies": c.TrustedProxies}})
 }
 func (a *App) saveSettings(w http.ResponseWriter, r *http.Request) {
 	var in settingsInput
@@ -438,7 +462,7 @@ func (a *App) saveSettings(w http.ResponseWriter, r *http.Request) {
 		v[k] = b
 	}
 	for _, k := range in.Reset {
-		if k != "oidcSecret" {
+		if k != "oidcSecret" && k != "alertWebhookURL" {
 			if _, ok := settingsValues(a.envCfg)[k]; !ok {
 				fail(w, 400, "Unbekannte Einstellung")
 				return
