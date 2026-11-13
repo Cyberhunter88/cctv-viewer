@@ -4,6 +4,18 @@ Referenz: [cctv-timeline-viewer-core, Commit 9c3128c756430529dc5c34c52d6bb4e8e5c
 Abgleich von README, Kamera-/Such-/System-APIs, Indexierung, Hotspot und Oberfläche.
 Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht übernommen.
 
+## Ergänzungen ab 0.15.0
+
+| Funktion | Umsetzung | Nachweis |
+|---|---|---|
+| Schneller Livestart | `GET /api/live` meldet `webrtc`; ohne WebRTC-Medienweg startet der Player direkt mit MSE statt nach zwei Sekunden umzuschalten; `mode=webrtc` wird dann abgelehnt | Go: LiveInfoReportsWebRTCAvailabilityAndRejectsUnusableMode |
+| Ruhigeres Livebild | Rückstand wird durch Wiedergabe mit bis zu 1,25-facher Geschwindigkeit aufgeholt, Sprung erst ab 2,5 s; kleiner WebRTC-Jitterpuffer; Kacheln starten im Abstand von 60 ms | TypeScript: live catch-up |
+| Weniger Datenbanklast beim Livebetrieb | Sitzungsprüfung alle 2 s, Kamera- und Livekonfiguration 2 s zwischengespeichert und bei Änderungen verworfen, Freigabezugang 5 s zwischengespeichert | Go: LiveConfigurationCacheIsShortAndInvalidated, GatewayShareSettingsAreCachedBriefly |
+| Schnelleres Wiederverbinden von Home Assistant | RTSP-Routen bleiben nach dem letzten Leser 60 s bestehen (nur bei „Bei Bedarf“ 10 s) | Go: GatewayRoutesLingerAccordingToPreloadMode |
+| Messbare Paketverluste | Zähler `cctv_live_gateway_write_errors_total` in `/api/admin/metrics` und `/metrics` | Go: LiveGatewayDropCounterIsExported |
+
+Die Latenz wurde nicht mit einer realen Kamera gemessen.
+
 ## Ergänzungen ab 0.14.0
 
 | Funktion | Umsetzung | Nachweis |
