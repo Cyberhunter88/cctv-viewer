@@ -1,7 +1,7 @@
 {
   "name": "cctv-viewer",
   "private": true,
-  "version": "0.15.0",
+  "version": "0.16.0",
   "scripts": {
     "build": "esbuild web/src/app.ts --bundle --minify --target=es2022 --format=esm --splitting --outdir=web/dist --entry-names=app --chunk-names=chunks/[name]",
     "typecheck": "tsc --noEmit",

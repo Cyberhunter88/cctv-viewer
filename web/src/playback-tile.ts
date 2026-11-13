@@ -23,7 +23,6 @@ export interface TileContext {
   selectHotspot: (id: string) => void;
   toggleFullscreen: (tile: HTMLElement) => Promise<void>;
   notify: (message: string) => void;
-  log: (event: string, camera?: string, detail?: string) => void;
   request: <T>(url: string, options?: RequestInit) => Promise<T>;
 }
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] { const e = document.createElement(tag); e.className = className; e.textContent = text; return e; }
@@ -144,7 +143,6 @@ export class Tile {
         clearTimeout(this.recoveryTimer);
         this.align();
         this.reveal();
-        this.context.log('ready', camera.id);
       }
     });
     this.video.addEventListener('seeked', () => this.reveal());
@@ -152,12 +150,11 @@ export class Tile {
     this.video.addEventListener('waiting', () => {
       if (this.context.playing() && !this.loading) {
         this.setMessage('Wird gepuffert …');
-        this.context.log('buffering', camera.id);
         clearTimeout(this.stallTimer);
         this.stallTimer = setTimeout(() => this.recover('Pufferung dauert zu lange'), 10000);
       }
     });
-    this.video.addEventListener('playing', () => { clearTimeout(this.stallTimer); this.context.log('playing', camera.id); });
+    this.video.addEventListener('playing', () => { clearTimeout(this.stallTimer); });
     // WebKit/GStreamer may clear muted when changing playback speed.
     this.video.addEventListener('volumechange', () => {
       if (this.context.audioTile() !== this && !this.video.muted) {
@@ -194,7 +191,7 @@ export class Tile {
     });
   }
   applyAspect() { this.container.style.aspectRatio = this.context.state.aspect === 'auto' ? `${this.video.videoWidth || 16} / ${this.video.videoHeight || 9}` : this.context.state.aspect === 'fill' ? '16 / 9' : this.context.state.aspect; this.video.style.objectFit = this.context.state.aspect === 'fill' ? 'cover' : 'contain'; }
-  fail(message: string) { const record = this.record; this.release(); this.record = record; this.failed = true; this.setMessage(message + ' · Bitte erneut versuchen.', true); this.context.log('failed', this.camera.id, message); }
+  fail(message: string) { const record = this.record; this.release(); this.record = record; this.failed = true; this.setMessage(message + ' · Bitte erneut versuchen.', true); }
   recover(message: string) {
     if (this.failed) {
       return;
@@ -211,7 +208,6 @@ export class Tile {
       return;
     }
     this.attempts++;
-    this.context.log('retry', this.camera.id, String(this.attempts));
     void this.load(record, true);
   }
   conceal() {
@@ -297,7 +293,6 @@ export class Tile {
       this.recoveryTimer = setTimeout(() => this.fail('Wiederherstellung nach 30 Sekunden beendet'), Math.max(1, 30000 - (performance.now() - this.recoveryStart)));
     }
     const quality = this.context.quality();
-    this.context.log('load', this.camera.id, quality);
     try {
       if (quality === 'native') {
         this.video.src = '/api/recordings/' + record.id + '/file';
