@@ -4,7 +4,7 @@ import {liveSelection,type LivePreferences} from './live-state';
 import {gridSize,moveCamera} from './view-state';
 interface Camera{id:string;name:string;viewMode?:string}
 interface Capability{enabled:boolean;high:boolean;zoom:boolean;zoomHigh:boolean}
-interface LiveInfo{ready:boolean;message:string;cameras:Record<string,Capability>}
+interface LiveInfo{ready:boolean;message:string;webrtc?:boolean;cameras:Record<string,Capability>}
 type Context={api:<T>(url:string,options?:RequestInit)=>Promise<T>;cameras:()=>Camera[];preferences:()=>LivePreferences;save:()=>Promise<void>;admin:()=>boolean;notify:(message:string)=>void};
 export function initLivePage(c:Context){
  const root=document.createElement('section');root.id='live-page';root.className='content-page';root.setAttribute('role','main');root.hidden=true;
@@ -20,6 +20,7 @@ export function initLivePage(c:Context){
  function setSelected(ids:string[]){c.preferences().liveCameras=ids;page=0;persist();render()}
  function render(){
   if(!active||document.hidden)return;
+  let staggered=0;
   const prefs=c.preferences(),cameras=c.cameras(),ids=cameras.map(camera=>camera.id),{order,selected}=liveSelection(prefs,ids);
   if(prefs.liveCameras===undefined){selected.clear();for(const id of ids)if(info.cameras[id]?.enabled)selected.add(id)}
   const focused=document.activeElement instanceof HTMLElement?document.activeElement.id:'';
@@ -59,8 +60,11 @@ export function initLivePage(c:Context){
     button('Vergrößern',()=>{if(document.fullscreenElement)void document.exitFullscreen();else if(tile.requestFullscreen)void tile.requestFullscreen().catch(()=>tile.classList.toggle('expanded'));else tile.classList.toggle('expanded')});
     if(view==='wide'&&zoomAvailable(id)){const zoom=button(openZoom.has(id)?'Zoom schließen':'Zoom anzeigen',()=>{if(openZoom.has(id))openZoom.delete(id);else openZoom.add(id);render();document.getElementById('live-zoom-'+id)?.focus()});zoom.id='live-zoom-'+id;zoom.setAttribute('aria-expanded',String(openZoom.has(id)))}
     nodes.set(key,tile);
-    const start=()=>{players.get(key)?.dispose();if(!info.ready||!capability?.enabled||document.hidden){status.textContent=!capability?.enabled?'Livequelle nicht eingerichtet':info.message||'Livebild angehalten';return}players.set(key,new LivePlayer(video,id,view,quality.value,message=>{status.textContent=message},()=>{quality.value='fast';qualityHint.textContent='Hohe Qualität nicht verfügbar · schneller Stream aktiv';qualityHint.hidden=false;start()}))};
-    quality.onchange=()=>{qualityHint.hidden=true;start()};button('Erneut verbinden',start);tile.append(heading,video,status,qualityHint,controls);group.append(tile);start();
+    // Tiles of a new grid connect 60 ms apart so camera and restreamer do not take all starts at once.
+    const start=(delay=0)=>{players.get(key)?.dispose();players.delete(key);if(!info.ready||!capability?.enabled||document.hidden){status.textContent=!capability?.enabled?'Livequelle nicht eingerichtet':info.message||'Livebild angehalten';return}
+     const launch=()=>{if(nodes.get(key)!==tile||document.hidden)return;players.get(key)?.dispose();players.set(key,new LivePlayer(video,id,view,quality.value,message=>{status.textContent=message},()=>{quality.value='fast';qualityHint.textContent='Hohe Qualität nicht verfügbar · schneller Stream aktiv';qualityHint.hidden=false;start()},info.webrtc===true))};
+     if(delay>0){status.textContent='Verbindung wird aufgebaut …';setTimeout(launch,delay)}else launch()};
+    quality.onchange=()=>{qualityHint.hidden=true;start()};button('Erneut verbinden',()=>start());tile.append(heading,video,status,qualityHint,controls);group.append(tile);start(Math.min(staggered++*60,900));
    }
   }
   $<HTMLButtonElement>('live-prev').disabled=page===0;$<HTMLButtonElement>('live-next').disabled=(page+1)*capacity>=chosen.length;
