@@ -1,6 +1,7 @@
 import type Hls from 'hls.js';
 import { recordingAt, clock, type Recording } from './timeline';
 import type { ViewState } from './view-state';
+import { WRITING_RETRY_MS, classifyLoadIssue, nextWritingStep, stallTimeoutMs } from './playback-state';
 // Linux WebKit's GStreamer MediaSource can fail with multiple HLS audio streams.
 // Fragmented MP4 avoids that backend path and still supports compressed playback.
 const useProgressiveOnLinuxWebKit = navigator.platform.startsWith('Linux') && navigator.vendor === 'Apple Computer, Inc.';
@@ -43,7 +44,7 @@ export function setControlIcon(button: Element, name: ControlIcon) {
   button.replaceChildren(svg);
 }
 export class Tile {
-  setMessage(message: string, error = false) {
+  setMessage(message: string, error = false, busy = true) {
     if (this.messageState === message && this.messageError === error) {
       return;
     }
@@ -51,9 +52,12 @@ export class Tile {
     this.messageError = error;
     this.message.replaceChildren();
     if (message) {
-      this.message.append(element('span', 'symbol', error ? '⚠' : '▧'), element('span', '', message));
+      const symbol = element('span', error ? 'symbol' : busy ? 'symbol spinner' : 'symbol', error ? '⚠' : busy ? '' : '▧');
+      symbol.setAttribute('aria-hidden', 'true');
+      this.message.append(symbol, element('span', 'tile-message-text', message));
     }
     this.message.hidden = !message;
+    this.message.setAttribute('role', error ? 'alert' : 'status');
     this.message.classList.toggle('error', error);
     if (error) {
       const retry = element('button', 'tile-retry', 'Erneut versuchen');
@@ -87,6 +91,7 @@ export class Tile {
   recoveryTimer?: ReturnType<typeof setTimeout>;
   writingTimer?: ReturnType<typeof setTimeout>;
   writingRetries = 0;
+  verifiedRecord?: string;
   stallTimer?: ReturnType<typeof setTimeout>;
   pauseTimer?: ReturnType<typeof setTimeout>;
   constructor(public camera: PlaybackCamera, public view: string | undefined, private context: TileContext) {
@@ -153,7 +158,7 @@ export class Tile {
       if (this.context.playing() && !this.loading) {
         this.setMessage('Wird gepuffert …');
         clearTimeout(this.stallTimer);
-        this.stallTimer = setTimeout(() => this.recover('Pufferung dauert zu lange'), 10000);
+        this.stallTimer = setTimeout(() => this.recover('Pufferung dauert zu lange'), stallTimeoutMs(this.context.speed()));
       }
     });
     this.video.addEventListener('playing', () => { clearTimeout(this.stallTimer); });
@@ -285,6 +290,7 @@ export class Tile {
       this.attempts = 0;
       this.recoveryStart = 0;
       this.writingRetries = 0;
+      this.verifiedRecord = undefined;
     }
     this.record = record;
     const epoch = this.epoch;
@@ -301,10 +307,15 @@ export class Tile {
       if (quality === 'native') {
         // A HEAD request reveals a recording that is still being written before
         // the video element turns the HTTP error into a misleading codec error.
-        this.abort = new AbortController();
-        await this.context.request('/api/recordings/' + record.id + '/file', { method: 'HEAD', signal: this.abort.signal });
-        if (epoch !== this.epoch) {
-          return;
+        // The result is remembered, so seeks and recoveries do not repeat it.
+        if (this.verifiedRecord !== record.id) {
+          this.abort = new AbortController();
+          await this.context.request('/api/recordings/' + record.id + '/file', { method: 'HEAD', signal: this.abort.signal });
+          if (epoch !== this.epoch) {
+            return;
+          }
+          this.verifiedRecord = record.id;
+          this.writingRetries = 0;
         }
         this.video.src = '/api/recordings/' + record.id + '/file';
         this.offset = 0;
@@ -361,17 +372,27 @@ export class Tile {
       if (epoch !== this.epoch) {
         return;
       }
-      if ((e as { status?: number }).status === 409 && this.writingRetries < 24) {
+      if ((e as Error).name === 'AbortError') {
+        this.loading = false;
+        return;
+      }
+      const issue = classifyLoadIssue((e as { status?: number }).status, (e as Error).message);
+      if (issue.kind === 'writing') {
         // The recorder still writes this file. Wait for it instead of burning recovery attempts.
-        this.writingRetries++;
-        this.setMessage('Aufnahme wird noch geschrieben …');
-        this.writingTimer = setTimeout(() => { if (epoch === this.epoch && this.record) { void this.load(this.record, true); } }, 5000);
+        const step = nextWritingStep(this.writingRetries);
+        if (step.retry) {
+          this.writingRetries = step.attempt;
+          this.loading = false;
+          this.setMessage(step.message);
+          this.writingTimer = setTimeout(() => { if (epoch === this.epoch && this.record) { void this.load(this.record, true); } }, WRITING_RETRY_MS);
+        }
+        else {
+          this.fail(step.message);
+        }
         return;
       }
       this.loading = false;
-      if ((e as Error).name !== 'AbortError') {
-        this.recover((e as Error).message);
-      }
+      this.recover(issue.message);
     }
   }
   align() {
@@ -414,7 +435,7 @@ export class Tile {
       if (this.record) {
         this.release();
       }
-      this.setMessage(this.view && recordingAt(this.context.recordings(), this.camera.id, this.context.cursor(), 'unknown') ? 'Kennung unklar · Erkennung in Kameraeinstellungen prüfen' : 'Keine Aufnahme zu diesem Zeitpunkt');
+      this.setMessage(this.view && recordingAt(this.context.recordings(), this.camera.id, this.context.cursor(), 'unknown') ? 'Kennung unklar · Erkennung in Kameraeinstellungen prüfen' : 'Keine Aufnahme zu diesem Zeitpunkt', false, false);
       return;
     }
     if (this.record?.id !== record.id) {
@@ -429,6 +450,8 @@ export class Tile {
       const record = this.record;
       this.attempts = 0;
       this.recoveryStart = 0;
+      this.writingRetries = 0;
+      this.verifiedRecord = undefined;
       this.release();
       if (record) {
         void this.load(record);

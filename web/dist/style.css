@@ -2024,3 +2024,16 @@ body:has(#app:not([hidden])) #toast { left:auto; right:24px; bottom:calc(24px + 
  .settings-tabs button { padding-inline:8px; }
  .share-url-row { flex-wrap:wrap; }
 }
+
+/* Playback tile states: theme-aware message colours, spinner, focus */
+.tile-message { color:var(--muted); }
+.tile-message .symbol { color:var(--subtle); }
+.tile-message.error { color:var(--warn, #ffc8a6); }
+:root[data-theme=light] .tile-message.error { color:#8a3b0f; }
+.tile-message .tile-message-text { max-width:32ch; line-height:1.4; }
+.tile-message .symbol.spinner { width:22px; height:22px; border:2px solid var(--accent-line); border-top-color:var(--accent); border-radius:50%; animation:tile-spin .9s linear infinite; }
+@keyframes tile-spin { to { transform:rotate(360deg); } }
+.tile-retry:focus-visible, .tile-title:focus-visible, .tile-audio:focus-visible, .tile-expand:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+@media (prefers-reduced-motion: reduce) {
+  .tile-message .symbol.spinner { animation:none; border-top-color:var(--accent-line); }
+}
