@@ -91,7 +91,6 @@ export class Tile {
   recoveryTimer?: ReturnType<typeof setTimeout>;
   writingTimer?: ReturnType<typeof setTimeout>;
   writingRetries = 0;
-  verifiedRecord?: string;
   prefetched = new Set<string>();
   stallTimer?: ReturnType<typeof setTimeout>;
   reloadTimer?: ReturnType<typeof setTimeout>;
@@ -297,7 +296,6 @@ export class Tile {
       this.attempts = 0;
       this.recoveryStart = 0;
       this.writingRetries = 0;
-      this.verifiedRecord = undefined;
     }
     this.record = record;
     const epoch = this.epoch;
@@ -314,16 +312,14 @@ export class Tile {
       if (quality === 'native') {
         // A HEAD request reveals a recording that is still being written before
         // the video element turns the HTTP error into a misleading codec error.
-        // The result is remembered, so seeks and recoveries do not repeat it.
-        if (this.verifiedRecord !== record.id) {
-          this.abort = new AbortController();
-          await this.context.request('/api/recordings/' + record.id + '/file', { method: 'HEAD', signal: this.abort.signal });
-          if (epoch !== this.epoch) {
-            return;
-          }
-          this.verifiedRecord = record.id;
-          this.writingRetries = 0;
+        // Checked on every load: the file can start growing at any time, and the
+        // video element would report that as a codec error.
+        this.abort = new AbortController();
+        await this.context.request('/api/recordings/' + record.id + '/file', { method: 'HEAD', signal: this.abort.signal });
+        if (epoch !== this.epoch) {
+          return;
         }
+        this.writingRetries = 0;
         this.video.src = '/api/recordings/' + record.id + '/file';
         this.offset = 0;
       }
@@ -389,7 +385,7 @@ export class Tile {
         const step = nextWritingStep(this.writingRetries);
         if (step.retry) {
           this.writingRetries = step.attempt;
-          this.loading = false;
+          // Stays loading while waiting, so video events cannot replace this message.
           this.setMessage(step.message);
           this.writingTimer = setTimeout(() => { if (epoch === this.epoch && this.record) { void this.load(this.record, true); } }, WRITING_RETRY_MS);
         }
@@ -512,7 +508,6 @@ export class Tile {
       this.attempts = 0;
       this.recoveryStart = 0;
       this.writingRetries = 0;
-      this.verifiedRecord = undefined;
       this.release();
       if (record) {
         void this.load(record);
