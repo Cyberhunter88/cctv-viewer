@@ -57,9 +57,10 @@
  }
  :root[data-density=compact] { --shell-space:var(--space-4); --page-gap:var(--space-3); --grid-gap:var(--space-2); }
  :root.rail-collapsed { --nav-width:72px; }
+ @media (max-width:1100px) { :root.rail-auto { --nav-width:72px; } }
  @media (max-width:1100px) { :root { --shell-space:var(--space-5); } }
  @media (max-width:700px) {
-  :root,:root.rail-collapsed { --nav-width:0px; --shell-space:var(--space-3); --page-gap:var(--space-4); }
+  :root,:root:is(.rail-collapsed,.rail-auto) { --nav-width:0px; --shell-space:var(--space-3); --page-gap:var(--space-4); }
  }
 }
 
@@ -149,20 +150,38 @@
  .rail-bottom { margin-top:auto; flex-shrink:0; display:flex; align-items:center; gap:var(--space-1); padding-top:var(--space-3); border-top:1px solid var(--line); }
  .rail-bottom .account-menu { flex:1; min-width:0; }
 
- /* Collapsed rail (desktop and tablet) */
- :root.rail-collapsed .rail { padding-inline:10px; }
- :root.rail-collapsed .rail-heading { flex-direction:column; gap:var(--space-2); }
- :root.rail-collapsed .rail-logo { flex:none; justify-content:center; padding:0 10px; }
- :root.rail-collapsed .rail-collapse svg { transform:rotate(180deg); }
- :root.rail-collapsed :is(.rail-logo > span,.rail-label,.nav-section-label) { display:none; }
- :root.rail-collapsed #user-name,:root.rail-collapsed .account-chevron { display:none; }
- :root.rail-collapsed :is(.rail-item,.nav-group > summary) { justify-content:center; gap:0; padding:10px 4px; }
- :root.rail-collapsed .nav-group > summary::after { display:none; }
- :root.rail-collapsed .nav-group { margin-top:var(--space-1); }
- :root.rail-collapsed .nav-group .nav-submenu { display:none; }
- :root.rail-collapsed .rail-bottom { flex-direction:column; }
- :root.rail-collapsed .rail-bottom .account-menu { width:100%; flex:none; }
- :root.rail-collapsed .account-menu summary { justify-content:center; }
+ /* Collapsed rail (tablet and desktop only). An explicit choice uses .rail-collapsed;
+    without one (.rail-auto) the media query decides, so CSS never lags behind a resize. */
+ @media (min-width:701px) {
+  :root.rail-collapsed .rail { padding-inline:10px; }
+  :root.rail-collapsed .rail-heading { flex-direction:column; gap:var(--space-2); }
+  :root.rail-collapsed .rail-logo { flex:none; justify-content:center; padding:0 10px; }
+  :root.rail-collapsed .rail-collapse svg { transform:rotate(180deg); }
+  :root.rail-collapsed :is(.rail-logo > span,.rail-label,.nav-section-label) { display:none; }
+  :root.rail-collapsed #user-name,:root.rail-collapsed .account-chevron { display:none; }
+  :root.rail-collapsed :is(.rail-item,.nav-group > summary) { justify-content:center; gap:0; padding:10px 4px; }
+  :root.rail-collapsed .nav-group > summary::after { display:none; }
+  :root.rail-collapsed .nav-group { margin-top:var(--space-1); }
+  :root.rail-collapsed .nav-group .nav-submenu { display:none; }
+  :root.rail-collapsed .rail-bottom { flex-direction:column; }
+  :root.rail-collapsed .rail-bottom .account-menu { width:100%; flex:none; }
+  :root.rail-collapsed .account-menu summary { justify-content:center; }
+ }
+ @media (min-width:701px) and (max-width:1100px) {
+  :root.rail-auto .rail { padding-inline:10px; }
+  :root.rail-auto .rail-heading { flex-direction:column; gap:var(--space-2); }
+  :root.rail-auto .rail-logo { flex:none; justify-content:center; padding:0 10px; }
+  :root.rail-auto .rail-collapse svg { transform:rotate(180deg); }
+  :root.rail-auto :is(.rail-logo > span,.rail-label,.nav-section-label) { display:none; }
+  :root.rail-auto #user-name,:root.rail-auto .account-chevron { display:none; }
+  :root.rail-auto :is(.rail-item,.nav-group > summary) { justify-content:center; gap:0; padding:10px 4px; }
+  :root.rail-auto .nav-group > summary::after { display:none; }
+  :root.rail-auto .nav-group { margin-top:var(--space-1); }
+  :root.rail-auto .nav-group .nav-submenu { display:none; }
+  :root.rail-auto .rail-bottom { flex-direction:column; }
+  :root.rail-auto .rail-bottom .account-menu { width:100%; flex:none; }
+  :root.rail-auto .account-menu summary { justify-content:center; }
+ }
 
  /* Workspace */
  .workspace { margin-left:var(--nav-width); min-width:0; }
@@ -172,21 +191,16 @@
 
  /* Phone: top bar with menu; navigation opens below it. */
  @media (max-width:700px) {
-  .rail,:root.rail-collapsed .rail { position:static; width:auto; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:var(--space-2);
+  .rail { position:static; width:auto; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:var(--space-2);
    padding:calc(var(--space-2) + env(safe-area-inset-top)) max(var(--space-3),env(safe-area-inset-right)) var(--space-2) max(var(--space-3),env(safe-area-inset-left)); border-right:0; border-bottom:1px solid var(--line); }
-  .rail-heading,:root.rail-collapsed .rail-heading { flex-direction:row; grid-column:1; grid-row:1; }
+  .rail-heading { flex-direction:row; grid-column:1; grid-row:1; }
   .rail-collapse { display:none; }
-  .rail-logo,:root.rail-collapsed .rail-logo { padding:0; justify-content:flex-start; }
-  .rail-bottom,:root.rail-collapsed .rail-bottom { grid-column:3; grid-row:1; flex-direction:row; margin:0; padding:0; border:0; }
-  .rail-bottom .account-menu,:root.rail-collapsed .rail-bottom .account-menu { width:auto; flex:none; }
+  .rail-logo { padding:0; justify-content:flex-start; }
+  .rail-bottom { grid-column:3; grid-row:1; flex-direction:row; margin:0; padding:0; border:0; }
+  .rail-bottom .account-menu { width:auto; flex:none; }
   #user-name,.account-chevron { display:none; }
   .rail nav { display:none; grid-column:1/-1; grid-row:2; max-height:65dvh; margin:0; padding:var(--space-1) 0 var(--space-2); }
   .mobile-nav-open .rail nav { display:flex; }
-  :root.rail-collapsed :is(.rail-logo > span,.rail-label) { display:inline; }
-  :root.rail-collapsed .rail .nav-section-label { display:block; }
-  :root.rail-collapsed :is(.rail-item,.nav-group > summary) { justify-content:flex-start; gap:var(--space-3); padding:10px var(--space-3); }
-  :root.rail-collapsed .nav-group > summary::after { display:block; }
-  :root.rail-collapsed .nav-group[open] .nav-submenu { display:flex; }
   .workspace { margin-left:0; }
   #app main { padding:var(--space-5) max(var(--space-3),env(safe-area-inset-right)) calc(var(--space-6) + env(safe-area-inset-bottom)) max(var(--space-3),env(safe-area-inset-left)); }
  }
