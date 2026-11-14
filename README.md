@@ -20,8 +20,6 @@ Kein NVR: Der Viewer verwendet vorhandene Videodateien. Optional bietet die
 [Liveansicht](docs/LIVE.md) Reolink-Livebilder und eine Streamfreigabe für Home Assistant. Videoanalyse ist ausgeschlossen. Bilder, Clip-Export, Lesezeichen, Zeitlinks,
 digitaler Zoom und separate Vollbildbedienung wurden entfernt.
 
-Die vollständige Zuordnung zur Referenz steht in [FEATURE_MATRIX.md](FEATURE_MATRIX.md).
-
 ## Mit Docker Compose starten
 
 Voraussetzungen: Docker mit Compose, ein vorhandener HTTPS-Reverse-Proxy und ein
@@ -497,8 +495,6 @@ Weitwinkel und Zoom untereinander; weitere Kameras sind über Kameraseiten errei
 Unter „Indexierung · Details“ erscheinen Dateizähler und Status pro Kamera sowie die
 Warteschlange. Automatische Scans berücksichtigen auch rekursive Quellen und bei
 Tagesordnern die beiden vorherigen lokalen Tage.
-
-Funktionsumfang und technische Prüfgrenzen: [Funktionsabgleich](FEATURE_MATRIX.md).
 
 ## Liveansicht und Home Assistant
 

@@ -34,6 +34,6 @@ Use repo-relative paths and UTF-8 text with LF for shell scripts. Keep commands 
 
 ## Security, Artifacts & Releases
 
-Keep `.env` credentials out of output and commits; `.env.example` must contain placeholders only. Store local reports and screenshots under `.local-reports/` or outside the repository. Do not commit root-level `TEST_REPORT.md` or `UI_REVIEW.md`; update `FEATURE_MATRIX.md` for public feature documentation. If a local artifact was tracked, remove it from Git while preserving the local file.
+Keep `.env` credentials out of output and commits; `.env.example` must contain placeholders only. Store local reports and screenshots under `.local-reports/` or outside the repository. Do not commit root-level `TEST_REPORT.md` or `UI_REVIEW.md`. Document public features in `README.md`. If a local artifact was tracked, remove it from Git while preserving the local file.
 
 Read [docs/CI-CD.md](docs/CI-CD.md) and the affected workflows/scripts before changing CI or releases. Preserve the required **Anwendung prüfen** check, PR read-only GHCR access, pinned Actions, and manual `workflow_dispatch` release flow. Main CI publishes commit images only; official version tags and `latest` are not agent test targets. `package.json` is the version source; synchronize both lockfile project versions and fixed UI version strings for requested version changes. Report local tests separately from GitHub and Docker verification.
