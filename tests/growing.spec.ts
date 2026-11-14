@@ -2,10 +2,11 @@ import {test,expect} from './fixtures';
 // A recording the camera still writes answers 409; the tile waits and starts by itself once the file settles.
 test('a recording that is still being written shows a waiting state and then plays',async({page})=>{
  let conflicts=0;
+ const growing=new Set<string>();
+ // Any recording of the camera may be the one under the cursor, so all of them answer 409 at first.
  await page.route('**/api/recordings/*/file',async route=>{
-  const records=await(await page.request.get('/api/day?date=2026-10-14')).json();
-  const first=records.recordings.find((r:{cameraId:string})=>r.cameraId==='Testkamera-A');
-  if(first&&route.request().url().includes(first.id)&&conflicts<2){conflicts++;await route.fulfill({status:409,headers:{'Retry-After':'5'},contentType:'application/json',body:'{"error":"Aufnahme wird gerade geschrieben oder wurde geändert"}'});return}
+  const id=route.request().url().split('/api/recordings/')[1].split('/')[0];
+  if(growing.has(id)&&conflicts<2){conflicts++;await route.fulfill({status:409,headers:{'Retry-After':'5'},contentType:'application/json',body:'{"error":"Aufnahme wird gerade geschrieben oder wurde geändert"}'});return}
   await route.continue();
  });
  await page.goto('/');
@@ -15,6 +16,9 @@ test('a recording that is still being written shows a waiting state and then pla
  await expect(page.locator('#app')).toBeVisible();
  await page.locator('#date').fill('2026-10-14');
  await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:20000});
+ const day=await(await page.request.get('/api/day?date=2026-10-14')).json();
+ for(const r of day.recordings)if(r.cameraId==='Testkamera-A')growing.add(r.id);
+ expect(growing.size).toBeGreaterThan(0);
  await page.locator('#layout').selectOption('2x2');
  await page.locator('#quality').selectOption('native');
  await page.locator('#play').click();
