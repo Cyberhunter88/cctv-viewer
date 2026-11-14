@@ -1699,8 +1699,6 @@ button:focus-visible,summary:focus-visible { outline:2px solid var(--accent); ou
 
 /* SSO accounts have no local password action; do not render an empty popover. */
 .account-actions:not(:has(> button:not([hidden]))) { display:none; }
-.account-menu:has(summary[aria-disabled=true]) .account-chevron { display:none; }
-.account-menu summary[aria-disabled=true] { cursor:default; }
 
 /* Archive workspace. Keep these rules scoped so the login retains its design. */
 #app {
@@ -2032,3 +2030,57 @@ body:has(#app:not([hidden])) #toast { left:auto; right:24px; bottom:calc(24px + 
 /* Camera chips keep their text on one line and move to their own row when the heading is wide. */
 .camera-filters { flex:1 1 280px; min-width:0; }
 .camera-filters .filter { white-space:nowrap; }
+
+/* Accessibility (WCAG 2.2 AA): control borders, focus visibility, target sizes and motion. */
+:root { --control-line:#6f808c; }
+:root[data-theme=light] { --control-line:#6b7f8c; }
+.skip-link { position:fixed; top:8px; left:8px; z-index:2000; padding:12px 18px; border-radius:8px; background:var(--accent); color:var(--accent-ink); font-weight:650; transform:translateY(-200%); }
+.skip-link:focus,.skip-link:focus-visible { transform:none; outline:2px solid var(--text); outline-offset:2px; }
+/* Accent-filled controls need an outer ring: an inner accent ring on accent would be invisible. */
+:is(.primary,.play-button,#app .play-button,.settings-submit,[aria-pressed=true]):focus-visible { outline:2px solid var(--accent); outline-offset:2px; box-shadow:0 0 0 2px var(--background); }
+#timeline:focus-visible { outline:none; }
+/* Outlines paint above the canvas content, unlike an inset shadow. */
+#app .timeline-viewport:has(#timeline:focus-visible),#overview:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+#app #timeline-resize:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+/* Form controls keep a visible edge of at least 3:1 against their surroundings. */
+input:not([type=checkbox]):not([type=radio]):not([type=hidden]),select,#app .compact-label select,#app .transport select { border:1px solid var(--control-line); }
+#app .date-control input[type=date] { border:1px solid var(--control-line); border-radius:9px; padding:8px 10px; background:var(--input); }
+input[type=date]::-webkit-calendar-picker-indicator { opacity:1; }
+#app .camera-filters .filter { border:1px solid var(--control-line); }
+#app .camera-filters .filter.selected { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
+/* The check mark is decoration; aria-pressed already conveys the state. */
+#app .camera-filters .filter.selected::before { content:'✓ '; content:'✓ ' / ''; font-weight:700; }
+.filter i { background:#8a98a3; }
+:root[data-theme=light] .filter i { background:#6b7f8c; }
+/* Timeline legend matches the canvas colours and stays visible on small screens. */
+.legend i,#app .legend i { width:12px; height:8px; background:var(--timeline-record); }
+.legend .legend-gap { height:4px; background:var(--timeline-gap); }
+#app .timeline-tools .legend { display:flex; gap:6px; flex-wrap:wrap; }
+@media(max-width:1000px) { #app .timeline-tools .legend { display:flex; margin-right:4px; font-size:12px; } }
+@media(max-width:700px) { #app .timeline-tools { flex-wrap:wrap; } #app .timeline-tools .legend { flex-basis:100%; justify-content:flex-start; } }
+/* WCAG 2.5.8: the resize handle offers at least a 24 px tall target. */
+#app #timeline-resize { height:24px; }
+#app #timeline-resize::after { top:10px; }
+/* Minimum readable sizes for secondary labels. */
+.eyebrow,#app .page-heading .eyebrow { font-size:11px; }
+.timezone,.version,.login-art small,.tile-header small,.camera-group.dual .tile-header small { font-size:11px; }
+.tile-footer,.camera-group.dual .tile-footer,#app .tile-footer > span:nth-child(2) { font-size:11px; }
+.camera-group.dual .tile-title { font-size:12px; }
+#app .page-heading .index-state,.timeline-bottom { font-size:12px; }
+/* WCAG 1.4.12: fixed-height buttons grow with larger text spacing. */
+.camera-tile .tile-actions button { height:auto; }
+/* The toast stays above the transport bar and never hides focused controls for long. */
+body:has(#app:not([hidden])) #toast { bottom:calc(96px + env(safe-area-inset-bottom)); pointer-events:auto; display:flex; align-items:flex-start; gap:12px; }
+#toast .toast-close { flex:none; min-width:32px; min-height:32px; border:0; border-radius:6px; background:transparent; color:inherit; font-size:18px; line-height:1; }
+#toast.toast-error { background:var(--warning-bg); color:var(--warning-text); border-color:var(--warning-border); }
+.live-start { margin:8px 14px 0; align-self:flex-start; }
+.chip-move { display:inline-flex; align-items:center; gap:4px; }
+#app .chip-move .chip-move-button { min-width:32px; padding:4px; font-size:18px; }
+#app .chip-move .chip-move-button { min-height:44px; }
+@media (prefers-reduced-motion: reduce) {
+ *,*::before,*::after { transition-duration:.01ms!important; animation-duration:.01ms!important; animation-iteration-count:1!important; scroll-behavior:auto!important; }
+ .secure-dot.busy { animation:none; }
+}
+/* The camera folder field keeps its label separate from the folder browser. */
+.folder-field { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.folder-field > label { display:flex; flex-direction:column; gap:8px; }

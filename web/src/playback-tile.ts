@@ -57,7 +57,9 @@ export class Tile {
       this.message.append(symbol, element('span', 'tile-message-text', message));
     }
     this.message.hidden = !message;
-    this.message.setAttribute('role', error ? 'alert' : 'status');
+    // Only errors are announced: loading states of every tile would flood screen readers.
+    if (error) this.message.setAttribute('role', 'alert');
+    else this.message.removeAttribute('role');
     this.message.classList.toggle('error', error);
     if (error) {
       const retry = element('button', 'tile-retry', 'Erneut versuchen');

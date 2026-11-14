@@ -1,5 +1,5 @@
-import {clamp,clock} from './timeline.ts';
-type Context={shortcuts:()=>boolean;seekStep:()=>number;bounds:()=>{from:number;to:number;cursor:number;viewStart:number;viewEnd:number};preview?:(time:number,y:number)=>string|undefined;seek:(time:number)=>void;zoom:(factor:number,anchor?:number)=>void;pan:(start:number,end:number)=>void};
+import {clamp,clock,keyboardSeekTarget} from './timeline.ts';
+type Context={seekStep:()=>number;bounds:()=>{from:number;to:number;cursor:number;viewStart:number;viewEnd:number};preview?:(time:number,y:number)=>string|undefined;seek:(time:number)=>void;zoom:(factor:number,anchor?:number)=>void;pan:(start:number,end:number)=>void};
 export function attachTimelineControls(canvas:HTMLCanvasElement,c:Context){
  const timeAt=(x:number)=>{const rect=canvas.getBoundingClientRect(),b=c.bounds();return b.viewStart+clamp((x-rect.left-85)/Math.max(1,rect.width-100),0,1)*(b.viewEnd-b.viewStart)};
  const tooltip=document.getElementById('timeline-tooltip');
@@ -25,6 +25,7 @@ export function attachTimelineControls(canvas:HTMLCanvasElement,c:Context){
  for(const event of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(event,e=>finish(e as PointerEvent));
  canvas.addEventListener('pointerleave',()=>{hideTooltip()});
  canvas.addEventListener('wheel',e=>{e.preventDefault();hideTooltip();c.zoom(e.deltaY>0?1.5:1/1.5,timeAt(e.clientX))},{passive:false});
- canvas.addEventListener('keydown',e=>{if(!c.shortcuts()||e.ctrlKey||e.metaKey||e.altKey)return;if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();c.seek(c.bounds().cursor+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?60:c.seekStep()))}if(e.key==='+'||e.key==='='){e.preventDefault();c.zoom(.5)}if(e.key==='-'){e.preventDefault();c.zoom(2)}});
+ // The focused timeline is a slider: its keys always work, independent of the global shortcuts.
+ canvas.addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey)return;const b=c.bounds(),target=keyboardSeekTarget(e.key,e.shiftKey,b.cursor,b.from,b.to,c.seekStep());if(target!==undefined){e.preventDefault();c.seek(target);return}if(e.key==='+'||e.key==='='){e.preventDefault();c.zoom(.5)}if(e.key==='-'){e.preventDefault();c.zoom(2)}});
  return ()=>{};
 }

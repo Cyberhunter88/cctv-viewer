@@ -10,7 +10,7 @@ import {createPoller} from './poller';
 import {validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveCamera,defaultView,type ViewState} from './view-state';
 import {attachTimelineControls} from './timeline-controls';
 import {initManagement} from './management';
-import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,timelineRowAt,type Recording} from './timeline';
+import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,timelineRowAt,keyboardSeekTarget,type Recording} from './timeline';
 import {initSearchPage,type SearchPage} from './search-page';
 import {initSavedViews} from './saved-views';
 import {initCameraEditor} from './camera-editor';
@@ -18,6 +18,8 @@ import {createTimelineView} from './timeline-view';
 import {initCameraList} from './camera-list';
 import {initCameraBatch} from './camera-batch';
 import {initPreferencesDialog} from './preferences-dialog';
+import {expandTile,collapseTile,expandedTile} from './expanded-tile';
+import {wrapChipWithMoveButtons,createReorderToggle} from './chip-order';
 import type {Camera,ViewDetection,Scan,Day} from './types';
 interface Session {preferenceKey:string;name:string;role:'admin'|'viewer';csrf:string;kind:'local'|'oidc'}
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -29,7 +31,7 @@ let audioTile:Tile|undefined;
 const dateInput=$<HTMLInputElement>('date'),canvas=$<HTMLCanvasElement>('timeline'),overview=$<HTMLCanvasElement>('overview');
 const timelineView=createTimelineView(canvas,overview);
 const speed=()=>Number($<HTMLSelectElement>('speed').value);
-let refreshRange=()=>{};let page=0,order:string[]=[],hotspot:string|undefined,lastHotspotCursor:number|undefined;
+let refreshRange=()=>{};let reorderMode=false,page=0,order:string[]=[],hotspot:string|undefined,lastHotspotCursor:number|undefined;
 // A completion observed during a day request may be newer than its recording snapshot.
 let scanCompletion=0,loadedScanCompletion=0;
 let toastTimer:ReturnType<typeof setTimeout>|undefined;
@@ -40,9 +42,12 @@ async function toggleFullscreen(tile:HTMLElement){
  try{
   if(document.fullscreenElement){await document.exitFullscreen();return}
   if(document.fullscreenEnabled&&tile.requestFullscreen)await tile.requestFullscreen();
-  else {tile.classList.toggle('expanded');const button=tile.querySelector('.tile-expand');if(button){button.setAttribute('aria-label',tile.classList.contains('expanded')?'Vergrößerte Ansicht schließen':'Ansicht vergrößern');setControlIcon(button,tile.classList.contains('expanded')?'collapse':'expand')}}
+  else if(expandedTile()===tile)collapseTile();
+  else expandTile(tile,tile.querySelector<HTMLElement>('.tile-expand')||undefined);
  }catch{notify('Vollbild konnte nicht geöffnet werden. Bitte erneut versuchen.')}
 }
+// Keeps the expand buttons of the overlay fallback in sync with the expanded tile.
+document.addEventListener('tileexpandchange',()=>{for(const button of document.querySelectorAll<HTMLElement>('#video-grid .tile-expand')){const open=button.closest('.camera-tile')===expandedTile();button.setAttribute('aria-label',open?'Vergrößerte Ansicht schließen':'Ansicht vergrößern');setControlIcon(button,open?'collapse':'expand')}});
 document.addEventListener('fullscreenchange',()=>{
  if(!document.fullscreenElement&&fullscreenGridPending){fullscreenGridPending=false;renderGrid();update()}
  for(const tile of tiles.values()){const active=document.fullscreenElement===tile.container;const button=tile.container.querySelector('.tile-expand');if(button){button.setAttribute('aria-label',active?'Vollbild schließen':document.fullscreenEnabled?'Vollbild öffnen':'Ansicht vergrößern');setControlIcon(button,active?'collapse':'expand')}tile.applyAspect()}
@@ -79,7 +84,7 @@ function preferenceSnapshot():Record<string,unknown>{
 }
 function preferenceStatus(saving:boolean,error?:unknown){
  $('preference-status').textContent=saving?'Einstellungen werden gespeichert …':error?'Einstellungen nicht gespeichert. Bitte erneut versuchen.':'';
- $('preference-status').hidden=!saving&&!error;$('preferences-retry').hidden=!error;
+ $('preferences-retry').hidden=!error;
  if(error)notify('Persönliche Einstellungen nicht gespeichert. Erneut versuchen unter Persönliche Einstellungen.');
 }
 function saveView():Promise<void>{
@@ -99,14 +104,33 @@ function cameraViewMode(id:string){
 const liveAdmin=initLiveAdmin({api,cameras:()=>cameras,viewMode:cameraViewMode,notify,changed:()=>{livePage.refresh();void loadCameraLiveStatus()}});
 on('preferences-retry',async()=>{try{await preferenceWriter?.flush()}catch{}});
 
-function notify(message:string){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,6000)}
+// Messages are announced through permanent live regions (a region revealed together
+// with its text is often skipped by screen readers). Errors stay until closed or replaced;
+// other messages close after six seconds unless pointer or focus rests on them.
+function hideToast(){clearTimeout(toastTimer);$('toast').hidden=true}
+function scheduleToastHide(){clearTimeout(toastTimer);if(!$('toast').classList.contains('toast-error'))toastTimer=setTimeout(hideToast,6000)}
+function notify(message:string,kind:'info'|'error'='info'){
+ const error=kind==='error',region=$(error?'toast-alert':'toast-region'),other=$(error?'toast-region':'toast-alert');
+ $('toast-text').textContent=message;$('toast').classList.toggle('toast-error',error);$('toast').hidden=false;
+ other.textContent='';region.textContent='';setTimeout(()=>{region.textContent=message},50);
+ scheduleToastHide();
+}
+const notifyError=(message:string)=>notify(message,'error');
+$('toast-close').addEventListener('click',hideToast);
+$('toast').addEventListener('pointerenter',()=>clearTimeout(toastTimer));$('toast').addEventListener('pointerleave',scheduleToastHide);
+$('toast').addEventListener('focusin',()=>clearTimeout(toastTimer));$('toast').addEventListener('focusout',scheduleToastHide);
+// Skip link: moves focus past the navigation to the heading of the visible page.
+$('skip-link').addEventListener('click',()=>{
+ const main=[...document.querySelectorAll<HTMLElement>('main,[role=main]')].find(node=>!node.hidden&&node.offsetParent!==null);if(!main)return;
+ const target=main.querySelector<HTMLElement>('h1,h2')||main;target.tabIndex=-1;target.focus();target.scrollIntoView({block:'start'});
+});
 async function api<T>(url:string,options:RequestInit={}):Promise<T>{
  const headers=new Headers(options.headers);if(options.body)headers.set('Content-Type','application/json');if(session)headers.set('X-CSRF-Token',session.csrf);
  const response=await fetch(url,{...options,headers});if(response.status===401){livePage.stop();pause();location.reload();throw new Error('Anmeldung abgelaufen')}
  const text=await response.text();let body:any={};try{body=text?JSON.parse(text):{}}catch{body={error:text||`Serverfehler (${response.status})`}}
  if(!response.ok)throw Object.assign(new Error((body.error||`Anfrage fehlgeschlagen (${response.status})`)+(body.gaps?'\n'+body.gaps.map((g:number[])=>clock(g[0])+' – '+clock(g[1])).join('\n'):'')),{indexing:body.indexing===true,status:response.status});return body as T;
 }
-function on(id:string,fn:()=>void|Promise<void>){$(id).addEventListener('click',()=>{Promise.resolve(fn()).catch(e=>notify(e.message))})}
+function on(id:string,fn:()=>void|Promise<void>){$(id).addEventListener('click',()=>{Promise.resolve(fn()).catch(e=>notifyError(e.message))})}
 function element<K extends keyof HTMLElementTagNameMap>(tag:K,className='',text=''):HTMLElementTagNameMap[K]{const e=document.createElement(tag);e.className=className;e.textContent=text;return e}
 function ordered(){return order.map(id=>cameras.find(c=>c.id===id)).filter((c):c is Camera=>!!c&&selected.has(c.id))}
 function grid(){return gridSize($<HTMLSelectElement>('layout').value,state.columns,state.rows,selected.size,$('video-grid').clientWidth||innerWidth,ordered().some(c=>c.viewMode==='dual'&&openZoom.has(c.id)))}
@@ -114,7 +138,7 @@ function visiblePageCapacity(){const [cols,rows]=grid();return pageCapacity($<HT
 function visible():Camera[]{const all=ordered(),capacity=visiblePageCapacity();page=clamp(page,0,Math.max(0,Math.ceil(all.length/capacity)-1));return all.slice(page*capacity,(page+1)*capacity)}
 function pause(){playing=false;playbackClock.stop();$('play').textContent='▶';$('play').setAttribute('aria-label','Abspielen');tiles.forEach(t=>t.paused());renderPosition()}
 function play(){if(!playableRecords.length||!visible().length){notify('Für diese Auswahl sind keine Aufnahmen vorhanden.');return}if(!visible().some(c=>recordingAt(displayedRecords,c.id,cursor))){const next=nextRecording(displayedRecords,visible().map(c=>c.id),cursor);if(next===undefined){notify('Keine weiteren Aufnahmen an diesem Tag.');return}cursor=next}playing=true;$('play').textContent='Ⅱ';$('play').setAttribute('aria-label','Pause');tiles.forEach(t=>t.retry());update();if(!document.hidden&&currentPage()==='recordings')playbackClock.start()}
-function seek(time:number){playbackClock.reset();lastHotspotCursor=undefined;cursor=clamp(time,from,to-.001);update()}
+function seek(time:number){playbackClock.reset();lastHotspotCursor=undefined;cursor=clamp(time,from,to-.001);update();updateSliders(true)}
 const tileContext:TileContext={
  state,cursor:()=>cursor,playing:()=>playing,speed,quality:()=>$<HTMLSelectElement>('quality').value,
  recordings:()=>records,playableRecordings:()=>playableRecords,audioTile:()=>audioTile,setAudioTile:tile=>{audioTile=tile},
@@ -129,7 +153,14 @@ function synchronizeTiles(){
  }
  lastHotspotCursor=cursor;const timestamp=clock(cursor);tiles.forEach(t=>t.update(timestamp));
 }
-function renderPosition(){if(!from)return;const timestamp=clock(cursor);if($('clock').textContent!==timestamp)$('clock').textContent=timestamp;draw();refreshRange()}
+// The timeline canvases are sliders. Their value is not updated while playing,
+// otherwise screen readers would announce every second of a focused slider.
+let sliderText='';
+function updateSliders(force=false){
+ if(!from||playing&&!force)return;const text=clock(cursor)+' Uhr';if(text===sliderText&&!force)return;sliderText=text;
+ for(const slider of [canvas,overview]){slider.setAttribute('aria-valuemin',String(Math.floor(from)));slider.setAttribute('aria-valuemax',String(Math.ceil(to)));slider.setAttribute('aria-valuenow',String(Math.round(cursor)));slider.setAttribute('aria-valuetext',text)}
+}
+function renderPosition(){if(!from)return;const timestamp=clock(cursor);if($('clock').textContent!==timestamp)$('clock').textContent=timestamp;draw();refreshRange();updateSliders()}
 function update(){synchronizeTiles();renderPosition()}
 const playbackClock=createPlaybackClock({
  advance:seconds=>{
@@ -153,7 +184,7 @@ const scanPoller=createPoller({
    await loadDay(false,signal);if(signal.aborted)return;
    if(currentPage()==='admin/cameras'){await loadScanHistory();void loadStorage()}
   }
- },onError:error=>notify((error as Error).message)
+ },onError:error=>notifyError((error as Error).message)
 });
 let pollingReady=false;
 function stopBackground(){pollingReady=false;scanPoller.stop();pause();tiles.forEach(t=>t.release())}
@@ -187,7 +218,8 @@ function renderGrid(){
  restored?.focus({preventScroll:true});
 }
 function renderCameras(){
- lastHotspotCursor=undefined;playableRecords=playbackRecordings(records,cameras); const filters=$('camera-filters');filters.replaceChildren();for(const id of order){const camera=cameras.find(c=>c.id===id);if(!camera)continue;const b=element('button','filter'+(selected.has(id)?' selected':''),camera.name);b.setAttribute('aria-pressed',String(selected.has(id)));b.draggable=true;b.ondragstart=e=>e.dataTransfer?.setData('text/plain',id);b.ondragover=e=>e.preventDefault();b.ondrop=e=>{e.preventDefault();const source=e.dataTransfer?.getData('text/plain');if(!source||!order.includes(source))return;order=moveCamera(order,source,id);renderCameras();saveView()};b.id='recording-filter-'+id;b.title='Reihenfolge mit Alt + Pfeil links/rechts ändern';b.setAttribute('aria-keyshortcuts','Alt+ArrowLeft Alt+ArrowRight');b.onkeydown=e=>{if(!e.altKey||!['ArrowLeft','ArrowRight'].includes(e.key))return;const target=order.indexOf(id)+(e.key==='ArrowLeft'?-1:1);if(target<0||target>=order.length)return;e.preventDefault();order=moveCamera(order,id,order[target]);renderCameras();document.getElementById('recording-filter-'+id)?.focus({preventScroll:true});saveView()};b.onclick=()=>{if(selected.has(id))selected.delete(id);else selected.add(id);page=0;renderCameras();saveView()};filters.append(b)}
+ lastHotspotCursor=undefined;playableRecords=playbackRecordings(records,cameras); const filters=$('camera-filters');filters.replaceChildren();for(const id of order){const camera=cameras.find(c=>c.id===id);if(!camera)continue;const b=element('button','filter'+(selected.has(id)?' selected':''),camera.name);b.setAttribute('aria-pressed',String(selected.has(id)));b.draggable=true;b.ondragstart=e=>e.dataTransfer?.setData('text/plain',id);b.ondragover=e=>e.preventDefault();b.ondrop=e=>{e.preventDefault();const source=e.dataTransfer?.getData('text/plain');if(!source||!order.includes(source))return;order=moveCamera(order,source,id);renderCameras();saveView()};b.id='recording-filter-'+id;b.title='Reihenfolge mit Alt + Pfeil links/rechts ändern';b.setAttribute('aria-keyshortcuts','Alt+ArrowLeft Alt+ArrowRight');b.onkeydown=e=>{if(!e.altKey||!['ArrowLeft','ArrowRight'].includes(e.key))return;const target=order.indexOf(id)+(e.key==='ArrowLeft'?-1:1);if(target<0||target>=order.length)return;e.preventDefault();order=moveCamera(order,id,order[target]);renderCameras();document.getElementById('recording-filter-'+id)?.focus({preventScroll:true});saveView()};b.onclick=()=>{if(selected.has(id))selected.delete(id);else selected.add(id);page=0;renderCameras();saveView()};
+  const index=order.indexOf(id);filters.append(reorderMode?wrapChipWithMoveButtons(b,camera.name,index,order.length,delta=>{const focusId=`${b.id}-move-${delta<0?'left':'right'}`;order=moveCamera(order,id,order[index+delta]);renderCameras();saveView();const next=document.getElementById(focusId) as HTMLButtonElement|null;(next&&!next.disabled?next:document.getElementById(b.id))?.focus({preventScroll:true})}):b)}
  renderGrid();savedViews.sync();$('empty').hidden=cameras.length!==0;$('timeline-section').hidden=cameras.length===0;$('playback-controls').hidden=cameras.length===0;$('add-first').hidden=session.role!=='admin';update();void thumbnails();
 }
 function setScan(scan:Scan){
@@ -195,7 +227,9 @@ function setScan(scan:Scan){
  const labels:Record<string,string>={queued:'Wartet',running:'Wird geprüft',complete:'Abgeschlossen',partial:'Teilweise abgeschlossen',failed:'Fehlgeschlagen',cancelled:'Abgebrochen'};
  $('scan-status').textContent=scan.running?`Indexierung · ${scan.completed||0}/${scan.total||0} Kameras · ${scan.indexed} neue/geänderte Videos`:(scan.state==='partial'?'Indexierung teilweise abgeschlossen':scan.state==='cancelled'?'Indexierung abgebrochen':scan.state==='failed'?'Indexierung fehlgeschlagen':'Index bereit');
  $('index-dot').classList.toggle('busy',scan.running);for(const id of ['rescan','scan-all','rebuild-index'])$<HTMLButtonElement>(id).disabled=scan.running;
- const root=$('scan-cameras');root.replaceChildren();for(const c of scan.cameras||[])root.append(element('div','scan-camera-status',`${c.name}: ${labels[c.state]||c.state} · ${c.inspected} geprüft · ${c.added} neu · ${c.changed} geändert · ${c.skipped} übersprungen`));
+ const root=$('scan-cameras'),lines=(scan.cameras||[]).map(c=>`${c.name}: ${labels[c.state]||c.state} · ${c.inspected} geprüft · ${c.added} neu · ${c.changed} geändert · ${c.skipped} übersprungen`);
+ // Rebuilding unchanged rows on every poll would reset the reading position of assistive technology.
+ if(root.dataset.lines!==lines.join('\n')){root.dataset.lines=lines.join('\n');root.replaceChildren(...lines.map(line=>element('div','scan-camera-status',line)))}
  $('scan-queue').textContent=`${scan.queue?.length||0} Aufträge warten${scan.queue?.length?' · '+scan.queue.map(q=>`${cameras.find(c=>c.id===q.camera)?.name||'Alle Kameras'} (${q.date})`).join(', '):''}`;
  $('warnings').hidden=!scan.warnings?.length;$('warnings').textContent=(scan.warnings||[]).join('\n');
 }
@@ -279,7 +313,7 @@ on('mobile-nav-toggle',()=>{const expanded=document.documentElement.classList.to
 document.addEventListener('pageerror',e=>notify((e as CustomEvent<string>).detail));
 on('play',()=>playing?pause():play());on('skip-back',()=>{const t=recordingBoundary(displayedRecords,visible().map(c=>c.id),cursor,-1);if(t!==undefined)seek(t)});on('skip-forward',()=>{const t=recordingBoundary(displayedRecords,visible().map(c=>c.id),cursor,1);if(t!==undefined)seek(t)});on('zoom-in',()=>zoom(.5));on('zoom-out',()=>zoom(2));on('reset-zoom',()=>{viewStart=from;viewEnd=to;draw();refreshRange()});
 function changeDate(delta:number){const d=new Date(dateInput.value+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+delta);dateInput.value=d.toISOString().slice(0,10);return loadDay()}
-on('prev-day',()=>changeDate(-1));on('next-day',()=>changeDate(1));on('today',()=>{dateInput.value=berlinDate(new Date());return loadDay()});dateInput.addEventListener('change',()=>void loadDay().catch(e=>notify(e.message)));
+on('prev-day',()=>changeDate(-1));on('next-day',()=>changeDate(1));on('today',()=>{dateInput.value=berlinDate(new Date());return loadDay()});dateInput.addEventListener('change',()=>void loadDay().catch(e=>notifyError(e.message)));
 $<HTMLSelectElement>('layout').addEventListener('change',()=>{page=0;renderCameras();saveView()});$<HTMLSelectElement>('quality').addEventListener('change',()=>{tiles.forEach(t=>{t.release()});update();saveView()});$<HTMLSelectElement>('speed').addEventListener('change',()=>{update();saveView()});
 on('rescan',async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({date:dateInput.value})}))});
 on('logout',async()=>{if(document.querySelector('[data-dirty="true"]')&&!confirm('Ungespeicherte Änderungen verwerfen und abmelden?'))return;for(const draft of document.querySelectorAll<HTMLElement>('[data-dirty]'))draft.dataset.dirty='false';stopBackground();await api('/api/logout',{method:'POST'});location.reload()});
@@ -323,7 +357,7 @@ async function boot(){
  // would be mistaken for a new addition again after every reload.
  preferenceWriter=new PreferenceWriter({...initialSnapshot,cameras:saved.cameras??initialSnapshot.cameras,order:saved.order??initialSnapshot.order},changes=>api('/api/preferences',{method:'PATCH',body:JSON.stringify(changes),keepalive:true}),preferenceStatus);
  try{localStorage.setItem('cctv-view:'+session.preferenceKey,JSON.stringify(preferenceSnapshot()))}catch{}
- refreshRange=attachTimelineControls(canvas,{bounds:()=>({from,to,cursor,viewStart,viewEnd}),preview:timelinePreview,seek,zoom,shortcuts:()=>state.shortcuts,seekStep:()=>state.seekStep,pan:(start,end)=>{viewStart=start;viewEnd=end;draw();refreshRange()}});
+ refreshRange=attachTimelineControls(canvas,{bounds:()=>({from,to,cursor,viewStart,viewEnd}),preview:timelinePreview,seek,zoom,seekStep:()=>state.seekStep,pan:(start,end)=>{viewStart=start;viewEnd=end;draw();refreshRange()}});
  $('boot-error').hidden=true;$('app').hidden=false;startNavigation(()=>session.role==='admin',pause);pollingReady=true;if(!document.hidden)scanPoller.start();
 }
 function showBootError(error:unknown){$('boot-error-message').textContent=(error as Error).message||'Unbekannter Fehler';$('boot-error').hidden=false}
@@ -341,6 +375,7 @@ const savedViews=initSavedViews({
  current:()=>({selected,layout:$<HTMLSelectElement>('layout').value,columns:state.columns,rows:state.rows}),
  apply:view=>{selected=new Set(view.cameras.filter(id=>cameras.some(c=>c.id===id)));$<HTMLSelectElement>('layout').value=view.layout;state.columns=view.columns;state.rows=view.rows;$<HTMLInputElement>('grid-columns').value=String(view.columns);$<HTMLInputElement>('grid-rows').value=String(view.rows);page=0;renderCameras();saveView()}
 });
+$('select-none').after(createReorderToggle('reorder-cameras',()=>reorderMode,()=>{reorderMode=!reorderMode;renderCameras()}));
 on('select-all',()=>{selected=new Set(cameras.map(c=>c.id));page=0;renderCameras();saveView()});
 on('select-none',()=>{selected.clear();page=0;renderCameras();saveView()});
 on('page-prev',()=>{page--;renderCameras()});on('page-next',()=>{page++;renderCameras()});
@@ -348,7 +383,7 @@ on('scan-all',async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:
 on('rebuild-index',async()=>{if(!confirm('Den abgeleiteten Index und Vorschaubilder neu aufbauen? Kameras und Originalvideos bleiben erhalten.'))return;pause();tiles.forEach(t=>t.release());await api('/api/index/rebuild',{method:'POST'});records=[];await loadDay();notify('Index geleert. Der geöffnete Tag wird erneut eingelesen.')});
 overview.onpointerdown=e=>{overview.setPointerCapture(e.pointerId);seek(from+clamp((e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth,0,1)*(to-from));const span=viewEnd-viewStart;viewStart=clamp(cursor-span/2,from,to-span);viewEnd=viewStart+span;draw()};
 overview.onpointermove=e=>{if(e.buttons===1){const span=viewEnd-viewStart,start=clamp(from+(e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth*(to-from)-span/2,from,to-span);viewStart=start;viewEnd=start+span;draw()}};
-overview.onkeydown=e=>{if(state.shortcuts&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();seek(cursor+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?60:state.seekStep))}};
+overview.onkeydown=e=>{if(e.ctrlKey||e.metaKey||e.altKey)return;const target=keyboardSeekTarget(e.key,e.shiftKey,cursor,from,to,state.seekStep);if(target!==undefined){e.preventDefault();seek(target)}};
 function setTimelineHeight(height:number){state.timelineHeight=Math.round(clamp(height,100,650));$('timeline-viewport').style.height=state.timelineHeight+'px';$<HTMLInputElement>('pref-timelineHeight').value=String(state.timelineHeight);resize.setAttribute('aria-valuenow',String(state.timelineHeight));resize.setAttribute('aria-valuetext',`${state.timelineHeight} Pixel`);draw()}
 let resizeStart=0,resizeHeight=0;const resize=$('timeline-resize');resize.onpointerdown=e=>{resize.setPointerCapture(e.pointerId);resizeStart=e.clientY;resizeHeight=state.timelineHeight};resize.onpointermove=e=>{if(!resize.hasPointerCapture(e.pointerId))return;setTimelineHeight(resizeHeight+e.clientY-resizeStart)};resize.onpointerup=()=>saveView();resize.onkeydown=e=>{if(['ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();setTimelineHeight(state.timelineHeight+(e.key==='ArrowDown'?20:-20));saveView()}};
 let observedGridWidth=-1;
@@ -363,7 +398,8 @@ initSearchPage({
 
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'&&document.fullscreenElement)void document.exitFullscreen().catch(()=>notify('Vollbild konnte nicht geschlossen werden.'));
- if(e.key==='Escape')document.querySelectorAll('.camera-tile.expanded').forEach(t=>{t.classList.remove('expanded');const button=t.querySelector('.tile-expand');if(button){button.setAttribute('aria-label','Ansicht vergrößern');setControlIcon(button,'expand')}});
+ // Closing an expanded tile consumes Escape, so the page does not also navigate away.
+ if(e.key==='Escape'&&collapseTile()){e.preventDefault();return}
  const target=e.target instanceof HTMLElement?e.target:undefined;
  const tag=target?.tagName;
  if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA'||tag==='CANVAS'||target?.isContentEditable)return;

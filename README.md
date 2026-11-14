@@ -323,6 +323,19 @@ springen wahlweise 5, 10 oder 30 Sekunden, mit Umschalt immer 60 Sekunden.
 Eine Tastenübersicht steht auf der Einstellungsseite. Eingabefelder behalten ihre
 normale Tastaturbedienung.
 
+### Barrierefreiheit (ab 0.17.0)
+
+Die Oberfläche orientiert sich an WCAG 2.2 Stufe AA und wird in Hell und Dunkel
+automatisch mit axe geprüft. Ein Link „Zum Inhalt springen“ führt an der Navigation
+vorbei. Fokusrahmen sind auch auf farbigen Schaltflächen sichtbar; Eingabefelder
+und Kamera-Chips haben Ränder mit mindestens 3:1 Kontrast. Zeitleiste und
+Tagesübersicht sind Schieberegler: Pfeiltasten, Bild auf/ab sowie Pos1/Ende
+funktionieren dort auch bei abgeschalteten Tastenkürzeln, die aktuelle Uhrzeit wird
+Screenreadern genannt. „Reihenfolge ändern“ ordnet Kameras ohne Ziehen per Knopf.
+Fehlermeldungen bleiben bis zum Schließen sichtbar und werden angesagt. Eine ohne
+Browser-Vollbild vergrößerte Kachel sperrt den Hintergrund; Escape schließt sie und
+setzt den Fokus zurück. Bei reduzierter Bewegung entfallen Animationen.
+
 Änderungen auf der Einstellungsseite werden mit „Speichern“ übernommen. Kameraauswahl,
 Reihenfolge und Wiedergabeoptionen werden direkt gespeichert. Persönliche Einstellungen
 einschließlich Kameraauswahl und Reihenfolge sowie das Farbschema werden dauerhaft je Benutzerkonto auf dem Server
