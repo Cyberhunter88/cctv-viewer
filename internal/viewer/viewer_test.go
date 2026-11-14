@@ -285,7 +285,7 @@ func TestIndexAndMedia(t *testing.T) {
 	data, _ := os.ReadFile(file)
 	os.WriteFile(file, append(data, 0), 0600)
 	w = request(a, "GET", "/api/recordings/"+r.ID+"/file", nil, cookie, "")
-	if w.Code != 404 {
+	if w.Code != http.StatusConflict || w.Header().Get("Retry-After") == "" {
 		t.Fatal("changed file served", w.Code)
 	}
 	a.scanDay("2026-10-14")
