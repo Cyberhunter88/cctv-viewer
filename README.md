@@ -398,6 +398,18 @@ vor verlorenen Abbruchanfragen. Lange Clips werden in bis zu 30-minütigen Teile
 Geschützte APIs für Wiedergabe- und Ressourcenzähler: `/api/playback-status` und `/api/playback-sessions/{id}`;
 Sitzungsdetails sind nur für den Eigentümer erreichbar.
 
+### Aufnahmen, die noch geschrieben werden (ab 0.16.1)
+
+Weicht eine Datei vom Indexeintrag ab, weil die Kamera noch schreibt, antworten
+Original, Vorschau und Stream-Start mit `409` und `Retry-After: 5` statt `404`.
+Die Kachel zeigt „Aufnahme wird noch geschrieben …“ und versucht es alle fünf Sekunden
+erneut (höchstens 24-mal); danach erscheint eine Meldung mit „Erneut versuchen“.
+Ist die Datei seit mindestens 30 Sekunden unverändert, wird der betroffene Tag im
+Hintergrund neu indexiert, sodass die Aufnahme ohne Warten auf den nächsten Scan spielbar wird.
+Wächst eine Datei, während sie umgewandelt wird, meldet `/api/playback-sessions/{id}`
+`sourceChanged: true`, und die Kachel lädt die Aufnahme neu. Kurz vor dem Clipende
+liest die Kachel die ersten 256 KB der folgenden Aufnahme vor, um den Wechsel zu beschleunigen.
+
 ## Upgrade und Rückkehr
 
 Vor dem Umbau wurde der Arbeitsstand als lokales Archiv gesichert:
