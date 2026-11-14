@@ -41,6 +41,9 @@ type stream struct {
 	last           time.Time
 	created        time.Time
 	err            error
+	// sourceChanged is set when the recording was modified while ffmpeg read it,
+	// so the output may end before the real end of the file.
+	sourceChanged bool
 }
 
 func (a *App) source(id string) (Recording, *os.File, error) {
@@ -80,6 +83,19 @@ func (a *App) reindexSettled(r Recording, st os.FileInfo) {
 	}
 	date := time.Unix(0, int64(r.Start*1e9)).In(loc).Format("2006-01-02")
 	a.queueScan(scanJob{date: date, camera: c.ID, incremental: true}, false)
+}
+
+// sourceChangedSince reports whether the file no longer matches the index
+// entry it was verified against when the stream started, for example because a
+// recorder kept appending while the encoder read it.
+func (a *App) sourceChangedSince(r Recording) bool {
+	f, e := openSource(a.root, r.Path)
+	if e != nil {
+		return true
+	}
+	defer f.Close()
+	st, e := f.Stat()
+	return e != nil || st.Size() != r.Size || st.ModTime().UnixNano() != r.Mod
 }
 func (a *App) file(w http.ResponseWriter, r *http.Request) {
 	record, f, e := a.source(r.PathValue("id"))
@@ -323,8 +339,13 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("ffmpeg beendet mit Fehler", "stream", id, "encoder", encoder, "error", e)
 			}
 			cancel()
+			changed := a.sourceChangedSince(record)
+			if changed {
+				slog.Info("Aufnahme wurde während der Umwandlung verändert", "stream", id)
+			}
 			a.mediaMu.Lock()
 			s.err = e
+			s.sourceChanged = changed
 			a.mediaMu.Unlock()
 			a.releaseEncoder()
 			close(s.done)

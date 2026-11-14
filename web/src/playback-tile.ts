@@ -175,8 +175,7 @@ export class Tile {
     });
     this.video.addEventListener('ended', () => {
       if (this.record && this.context.cursor() < this.record.start + this.record.duration - 1) {
-        this.release();
-        this.update();
+        void this.restartAfterEnd();
       }
     });
   }
@@ -440,6 +439,27 @@ export class Tile {
     }
     else if (!this.video.paused) {
       this.video.pause();
+    }
+  }
+  // The stream ended before the recording did. If the file grew meanwhile, say
+  // so: the reload then waits for the reindexed recording instead of looping.
+  async restartAfterEnd() {
+    const id = this.stream, epoch = this.epoch;
+    let grown = false;
+    if (id) {
+      try {
+        grown = (await this.context.request<{ sourceChanged?: boolean }>('/api/playback-sessions/' + id)).sourceChanged === true;
+      }
+      catch { }
+    }
+    if (epoch !== this.epoch) {
+      return;
+    }
+    this.release();
+    this.update();
+    // load() has already shown its own loading text; replace it with the reason.
+    if (grown && this.loading) {
+      this.setMessage('Aufnahme wurde während der Wiedergabe erweitert …');
     }
   }
   // Reads the first bytes of the next clip: this warms the file cache, so the

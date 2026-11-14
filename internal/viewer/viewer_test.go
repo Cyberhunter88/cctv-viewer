@@ -452,3 +452,50 @@ func TestSettledChangedRecordingIsReindexedAfterConflict(t *testing.T) {
 	}
 	t.Fatal("recording was not reindexed after it settled")
 }
+func TestSourceChangeDetectionAndSessionFlag(t *testing.T) {
+	a := testApp(t)
+	c := fixture(t, a, "libx264")
+	a.scanDay("2026-10-14")
+	rs, _ := a.db.Recordings(c.ID, 0, 2e10)
+	record, _ := a.db.Recording(rs[0].ID)
+	if a.sourceChangedSince(record) {
+		t.Fatal("unchanged file reported as changed")
+	}
+	cookie, s := login(t, a)
+	w := request(a, "POST", "/api/streams", map[string]any{"recording": rs[0].ID, "transport": "mp4"}, cookie, s.CSRF)
+	if w.Code != 201 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var stream struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &stream)
+	deadline := time.Now().Add(20 * time.Second)
+	var state struct {
+		State         string `json:"state"`
+		SourceChanged bool   `json:"sourceChanged"`
+	}
+	for time.Now().Before(deadline) {
+		w = request(a, "GET", "/api/playback-sessions/"+stream.ID, nil, cookie, "")
+		json.Unmarshal(w.Body.Bytes(), &state)
+		if state.State != "encoding" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if state.State != "complete" || state.SourceChanged {
+		t.Fatal("unchanged source", state)
+	}
+	a.removeStream(stream.ID)
+	// A recorder appending after the index entry was written is detected.
+	file := filepath.Join(a.cfg.RecordingsDir, c.Folder, "2026/10/14/08-30-00.mp4")
+	data, _ := os.ReadFile(file)
+	os.WriteFile(file, append(data, 0), 0600)
+	if !a.sourceChangedSince(record) {
+		t.Fatal("grown file not detected")
+	}
+	os.Remove(file)
+	if !a.sourceChangedSince(record) {
+		t.Fatal("removed file not detected")
+	}
+}
