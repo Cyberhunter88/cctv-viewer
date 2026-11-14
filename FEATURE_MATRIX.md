@@ -13,6 +13,7 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Kachel-Fortschritt | Dünner Positionsbalken je Kachel; beim Scrubben startet nur die letzte Position einen neuen Stream; nach einer Sperre (409) wird ein ruhiger Aufnahmetag automatisch neu indexiert | `growing.spec.ts`, `TestSettledChangedRecordingIsReindexedAfterConflict` |
 | Nächsten Clip vorwärmen | Kurz vor dem Clipende liest die Kachel die ersten 256 KB der folgenden Aufnahme; das beschleunigt den Wechsel und zeigt eine noch geschriebene Datei früh (409, löst Neuindexierung aus) | `playback-state.test.ts` |
 | Wachsende Quelldatei beim Umwandeln | Nach dem Ende von ffmpeg prüft der Server, ob die Datei noch zum Indexeintrag passt; `GET /api/playback-sessions/{id}` meldet `sourceChanged`, die Kachel lädt dann neu und wartet auf die Neuindexierung | `TestSourceChangeDetectionAndSessionFlag` |
+| Kachel- und Chip-Layout | Video und Footer füllen die Kachel in jeder Breite; Kamera-Chips bleiben einzeilig und erhalten eine eigene Zeile | `tile-layout.spec.ts` |
 | Kachelzustände | Ladeanzeige, themenfähige Meldungsfarben, Fokusrahmen, reduzierte Bewegung | `style.css` |
 
 ## Änderungen ab 0.16.0
