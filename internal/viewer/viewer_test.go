@@ -386,3 +386,30 @@ func TestOriginAndHealth(t *testing.T) {
 	}
 	_, _ = io.Copy(io.Discard, w.Result().Body)
 }
+func TestGrowingRecordingAnswersConflictAndPlaylistIsNotCached(t *testing.T) {
+	a := testApp(t)
+	cookie, session := login(t, a)
+	if err := a.db.SaveCamera(Camera{ID: "camera", Name: "Camera", Folder: "camera", Timezone: "Europe/Berlin"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(a.cfg.RecordingsDir, "camera")
+	os.MkdirAll(dir, 0700)
+	path := filepath.Join(dir, "clip.mp4")
+	if err := os.WriteFile(path, []byte("ftyp-grown"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// The index still holds an older size, as while a recorder appends to the file.
+	if _, err := a.db.Exec(`INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod,filename) VALUES('clip','camera','camera/clip.mp4',1000,30,'h264',3,1,'clip.mp4')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, url := range []string{"/api/recordings/clip/file", "/api/recordings/clip/thumbnail"} {
+		w := request(a, "GET", url, nil, cookie, "")
+		if w.Code != http.StatusConflict || w.Header().Get("Retry-After") == "" {
+			t.Fatal(url, w.Code, w.Body.String())
+		}
+	}
+	w := request(a, "POST", "/api/streams", map[string]any{"recording": "clip"}, cookie, session.CSRF)
+	if w.Code != http.StatusConflict {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}

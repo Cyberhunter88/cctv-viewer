@@ -19,6 +19,21 @@ import (
 	"time"
 )
 
+// errRecordingChanged reports that the file differs from its index entry, which
+// is normal while a recorder still writes it.
+var errRecordingChanged = errors.New("Aufnahme wird gerade geschrieben oder wurde geändert")
+
+// sourceFailure answers a failed source lookup: a recording that is still
+// being written is a temporary condition the client retries, not a missing file.
+func sourceFailure(w http.ResponseWriter, e error, missing string) {
+	if errors.Is(e, errRecordingChanged) {
+		w.Header().Set("Retry-After", "5")
+		fail(w, http.StatusConflict, e.Error())
+		return
+	}
+	fail(w, 404, missing)
+}
+
 type stream struct {
 	id, owner, dir string
 	cancel         context.CancelFunc
@@ -40,14 +55,14 @@ func (a *App) source(id string) (Recording, *os.File, error) {
 	st, e := f.Stat()
 	if e != nil || st.Size() != r.Size || st.ModTime().UnixNano() != r.Mod {
 		f.Close()
-		return r, nil, errors.New("Aufnahme wurde geändert; Index bitte aktualisieren")
+		return r, nil, errRecordingChanged
 	}
 	return r, f, nil
 }
 func (a *App) file(w http.ResponseWriter, r *http.Request) {
 	record, f, e := a.source(r.PathValue("id"))
 	if e != nil {
-		fail(w, 404, "Aufnahme nicht verfügbar; Index gegebenenfalls aktualisieren")
+		sourceFailure(w, e, "Aufnahme nicht verfügbar; Index gegebenenfalls aktualisieren")
 		return
 	}
 	defer f.Close()
@@ -61,12 +76,13 @@ func (a *App) file(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Cache-Control", "private, no-cache")
 	http.ServeContent(w, r, "recording.mp4", time.Unix(0, record.Mod), f)
 }
 func (a *App) thumbnail(w http.ResponseWriter, r *http.Request) {
 	record, f, e := a.source(r.PathValue("id"))
 	if e != nil {
-		fail(w, 404, "Vorschau nicht verfügbar")
+		sourceFailure(w, e, "Vorschau nicht verfügbar")
 		return
 	}
 	defer f.Close()
@@ -219,7 +235,7 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 	}
 	record, f, e := a.source(input.Recording)
 	if e != nil {
-		fail(w, 404, "Aufnahme nicht verfügbar")
+		sourceFailure(w, e, "Aufnahme nicht verfügbar")
 		return
 	}
 	defer f.Close()
@@ -504,10 +520,16 @@ func (a *App) streamFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if strings.HasSuffix(name, ".m3u8") {
+		// The playlist grows while FFmpeg encodes. A cacheable or conditional
+		// answer would hand the player a stale list and stall it at the end.
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	} else {
-		w.Header().Set("Content-Type", "video/mp2t")
+		w.Header().Set("Cache-Control", "no-store")
+		http.ServeContent(w, r, name, time.Time{}, f)
+		return
 	}
+	// Finished segments never change, so the player may reuse them when seeking back.
+	w.Header().Set("Content-Type", "video/mp2t")
+	w.Header().Set("Cache-Control", "private, max-age=300")
 	http.ServeContent(w, r, name, st.ModTime(), f)
 }
 func (a *App) deleteStream(w http.ResponseWriter, r *http.Request) {

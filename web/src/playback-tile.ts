@@ -85,6 +85,8 @@ export class Tile {
   attempts = 0;
   recoveryStart = 0;
   recoveryTimer?: ReturnType<typeof setTimeout>;
+  writingTimer?: ReturnType<typeof setTimeout>;
+  writingRetries = 0;
   stallTimer?: ReturnType<typeof setTimeout>;
   pauseTimer?: ReturnType<typeof setTimeout>;
   constructor(public camera: PlaybackCamera, public view: string | undefined, private context: TileContext) {
@@ -248,6 +250,7 @@ export class Tile {
     clearTimeout(this.pauseTimer);
     clearTimeout(this.stallTimer);
     clearTimeout(this.recoveryTimer);
+    clearTimeout(this.writingTimer);
     this.abort?.abort();
     this.abort = undefined;
     this.hls?.destroy();
@@ -281,6 +284,7 @@ export class Tile {
     if (different && !recovering) {
       this.attempts = 0;
       this.recoveryStart = 0;
+      this.writingRetries = 0;
     }
     this.record = record;
     const epoch = this.epoch;
@@ -295,6 +299,13 @@ export class Tile {
     const quality = this.context.quality();
     try {
       if (quality === 'native') {
+        // A HEAD request reveals a recording that is still being written before
+        // the video element turns the HTTP error into a misleading codec error.
+        this.abort = new AbortController();
+        await this.context.request('/api/recordings/' + record.id + '/file', { method: 'HEAD', signal: this.abort.signal });
+        if (epoch !== this.epoch) {
+          return;
+        }
         this.video.src = '/api/recordings/' + record.id + '/file';
         this.offset = 0;
       }
@@ -348,6 +359,13 @@ export class Tile {
     }
     catch (e) {
       if (epoch !== this.epoch) {
+        return;
+      }
+      if ((e as { status?: number }).status === 409 && this.writingRetries < 24) {
+        // The recorder still writes this file. Wait for it instead of burning recovery attempts.
+        this.writingRetries++;
+        this.setMessage('Aufnahme wird noch geschrieben …');
+        this.writingTimer = setTimeout(() => { if (epoch === this.epoch && this.record) { void this.load(this.record, true); } }, 5000);
         return;
       }
       this.loading = false;
