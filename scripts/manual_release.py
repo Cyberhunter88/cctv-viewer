@@ -64,6 +64,41 @@ def prepare(repository, tag, event_path, output_path, target_commit=""):
         output.write(f"commit={commit}\nrelease={tag}\ncreate_release={str(existing is None).lower()}\n")
 
 
+def prepare_automatic(repository, event_path, output_path):
+    """Release the version recorded in package.json of the current main HEAD.
+
+    No inputs: the version is part of the tested commit (raised in a normal PR).
+    If the release tag of that version already belongs to an earlier main commit
+    with the same version, that commit is resumed or repeated instead of failing,
+    because later commits without a version change cannot be released under it.
+    """
+    command("git", "fetch", "origin", "+refs/heads/main:refs/remotes/origin/main")
+    head = command("git", "rev-parse", "origin/main")
+    if not re.fullmatch(r"[0-9a-f]{40}", head):
+        raise ValueError("Main-Commit konnte nicht eindeutig aufgelöst werden")
+    version = json.loads(command("git", "show", f"{head}:package.json")).get("version")
+    if not isinstance(version, str) or not version:
+        raise ValueError("package.json auf main enthält keine Version")
+    tag = "v" + version
+    parse(tag)
+    commit = head
+    if command("git", "ls-remote", "--tags", "origin", f"refs/tags/{tag}"):
+        command("git", "fetch", "origin", f"refs/tags/{tag}:refs/tags/{tag}")
+        tagged = command("git", "rev-parse", f"{tag}^{{commit}}")
+        if tagged != head:
+            on_main = subprocess.run(["git", "merge-base", "--is-ancestor", tagged, "origin/main"],
+                                     capture_output=True, text=True).returncode == 0
+            tagged_version = json.loads(command("git", "show", f"{tagged}:package.json")).get("version") if on_main else None
+            if tagged_version != version:
+                raise ValueError(f"Release-Tag {tag} gehört zu einem anderen Commit. Für neue Änderungen die Version in package.json per PR erhöhen.")
+            print(f"{tag} gehört bereits zu {tagged}; dieser Release wird fortgesetzt oder wiederholt. "
+                  f"Für die neueren Commits auf main die Version per PR erhöhen.")
+            commit = tagged
+    prepare(repository, tag, event_path, output_path, commit)
+    with open(output_path, "a") as output:
+        output.write(f"head={head}\n")
+
+
 def upload_assets(repository, tag, *paths):
     release = find_release(repository, tag)
     if release is None:
@@ -94,6 +129,8 @@ if __name__ == "__main__":
     try:
         if sys.argv[1] == "assets":
             upload_assets(*sys.argv[2:])
+        elif sys.argv[1] == "auto":
+            prepare_automatic(*sys.argv[2:])
         else:
             prepare(*sys.argv[1:])
     except (ValueError, RuntimeError, KeyError, OSError) as error:

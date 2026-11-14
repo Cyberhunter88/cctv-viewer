@@ -27,7 +27,7 @@ test('per-source HTTPS and preload settings save with secret-free source URLs',a
   await route.fulfill({json:config});
  });
  await page.route('**/api/cameras/*/live/status',route=>route.fulfill({json:{fast:'ready'}}));
- await login(page);await openPage(page,'admin/cameras');await page.locator('#camera-list .camera-entry').first().getByRole('button',{name:/Livequelle einrichten/}).click();
+ await login(page);await openPage(page,'admin/cameras');await page.locator('#camera-list .camera-entry').first().getByRole('button',{name:/Live einrichten/}).click();
  await expect(page.locator('#live-camera-form')).toBeVisible();
  await page.locator('#live-password').fill('synthetic replacement');
  await page.locator('#live-preload-fast').selectOption('always');await page.locator('#live-preload-high').selectOption('off');

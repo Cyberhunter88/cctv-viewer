@@ -48,3 +48,17 @@ export function berlinDate(date:Date):string{return dateFormatter.format(date)}
 export function clock(time:number):string{return clockFormatter.format(new Date(time*1000))}
 /** Index of the camera row at a vertical timeline position, or -1 outside the recording bars. Matches the layout drawn by the timeline view. */
 export function timelineRowAt(y:number,count:number):number{const index=Math.floor((y-39)/34);return index>=0&&index<count&&y-39-index*34<23?index:-1}
+// Keyboard targets of the timeline sliders. They work regardless of the global
+// single-key shortcuts setting, because the slider is the keyboard alternative to the pointer.
+export function keyboardSeekTarget(key:string,shift:boolean,cursor:number,from:number,to:number,step:number):number|undefined{
+ const end=Math.max(from,to-.001);
+ switch(key){
+  case 'ArrowLeft':case 'ArrowDown':return clamp(cursor-(shift?60:step),from,end);
+  case 'ArrowRight':case 'ArrowUp':return clamp(cursor+(shift?60:step),from,end);
+  case 'PageDown':return clamp(cursor-60,from,end);
+  case 'PageUp':return clamp(cursor+60,from,end);
+  case 'Home':return from;
+  case 'End':return end;
+ }
+ return undefined;
+}

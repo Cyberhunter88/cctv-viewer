@@ -60,7 +60,7 @@ export function initCameraList(ctx:Context){
    const c=ctx.cameras().find(c=>c.id===ctx.order()[i]);if(!c||cameraSearch.value&&!c.name.toLocaleLowerCase('de').includes(cameraSearch.value.toLocaleLowerCase('de')))continue;
    const entry=element('article','camera-entry'+(editing===c.id?' is-selected':''));
    const select=element('button','camera-edit'),name=element('strong','camera-name',c.name);
-   select.type='button';select.setAttribute('aria-label',c.name);select.setAttribute('aria-pressed',String(editing===c.id));
+   select.type='button';select.setAttribute('aria-pressed',String(editing===c.id));
    const status=element('span','camera-status'+(c.sourceStatus==='offline'?' is-offline':''),`${c.sourceStatus==='offline'?'Quelle offline':'Quelle erreichbar'} · ${c.indexedVideos||0} ${c.indexedVideos===1?'Video':'Videos'}`);
    if(cameraLiveCapabilities[c.id])status.textContent+=' · '+(cameraLiveCapabilities[c.id].enabled?'Live eingerichtet':'Live aus');
    if(c.lastScan)status.textContent+=' · Scan '+new Date(c.lastScan*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Berlin'});
@@ -70,7 +70,7 @@ export function initCameraList(ctx:Context){
    const actions=element('div','camera-entry-actions');
    const more=element('details','camera-more');const summary=element('summary','','Aktionen');more.append(summary);const moreActions=element('div','camera-more-actions');more.append(moreActions);actions.append(more);
    const addAction=(text:string,label:string,action:()=>void|Promise<void>,className='')=>{const b=element('button',className,text);b.type='button';b.title=label;b.setAttribute('aria-label',label+' · '+c.name);b.disabled=ctx.saving();b.onclick=()=>void Promise.resolve(action()).catch(e=>ctx.notify(e.message));if(['scan-camera','cleanup-camera','delete'].includes(className))moreActions.append(b);else actions.insertBefore(b,more);return b};
-   addAction('Live','Livequelle einrichten',()=>ctx.openLive(c.id),'text-button');
+   addAction('Live','Live einrichten',()=>ctx.openLive(c.id),'text-button');
    const up=addAction('↑','Nach oben verschieben',()=>reorder(i-1),'move-button');up.disabled=ctx.saving()||i===0;
    const down=addAction('↓','Nach unten verschieben',()=>reorder(i+1),'move-button');down.disabled=ctx.saving()||i===ctx.order().length-1;
    const cameraId=c.id;

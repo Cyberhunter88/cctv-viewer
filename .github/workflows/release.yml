@@ -1,15 +1,12 @@
 name: Release und Docker veröffentlichen
+
+# Manuell starten: Actions → Release und Docker veröffentlichen → Run workflow (Branch main), ohne Eingaben.
+# Die Version ist die `version` aus package.json des aktuellen main-Stands (im PR erhöht).
+# Der Workflow ändert nichts an main. Er verlangt die vollständige Main-CI genau dieses Commits,
+# übernimmt deren geprüftes Image ohne Neubau, legt das Release als Entwurf an und veröffentlicht erst danach.
+# Ein erneuter Start mit unveränderter Version setzt denselben Release fort und ist unschädlich.
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version des getesteten Builds: vX.Y.Z oder vX.Y.Z-beta.1'
-        required: true
-        type: string
-      commit:
-        description: 'Optionaler vollständiger Main-Commit-SHA (leer = aktueller HEAD von main)'
-        required: false
-        type: string
 permissions:
   contents: read
 defaults:
@@ -45,17 +42,19 @@ jobs:
           ref: ${{ github.workflow_sha }}
           fetch-depth: 0
       - id: meta
+        name: Version aus package.json von main bestimmen
         env:
           GH_TOKEN: ${{ github.token }}
-          REQUESTED_VERSION: ${{ inputs.version }}
-          REQUESTED_COMMIT: ${{ inputs.commit }}
         run: |
-          python3 scripts/manual_release.py "$GITHUB_REPOSITORY" "$REQUESTED_VERSION" "$RUNNER_TEMP/event.json" "$GITHUB_OUTPUT" "$REQUESTED_COMMIT"
+          python3 scripts/manual_release.py auto "$GITHUB_REPOSITORY" "$RUNNER_TEMP/event.json" "$GITHUB_OUTPUT"
           export GITHUB_EVENT_PATH="$RUNNER_TEMP/event.json"
           export RELEASES_FILE="$RUNNER_TEMP/releases.json"
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RELEASES_FILE"
           python3 scripts/release.py
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          release=$(sed -n 's/^release=//p' "$GITHUB_OUTPUT" | tail -1)
+          commit=$(sed -n 's/^commit=//p' "$GITHUB_OUTPUT" | tail -1)
+          echo "## Release $release für Commit $commit vorbereitet" >> "$GITHUB_STEP_SUMMARY"
       - id: ci
         name: Vollständige CI für exakt diesen Main-Commit verlangen
         env:

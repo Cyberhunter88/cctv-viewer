@@ -29,7 +29,7 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  await page.locator('#batch-save').click();await expect(page.locator('#batch-dialog')).not.toBeVisible();
  await expect(page.locator('#recording-count')).toContainText('6 Aufnahmen',{timeout:20000});await expect(page.locator('#rescan')).toBeEnabled({timeout:20000});
  await openNavigation(page,'settings-button');
- await page.locator('#camera-list').getByRole('button',{name:'DualTestA',exact:true}).click();
+ await page.locator('#camera-list .camera-edit').filter({has:page.locator('.camera-name').getByText('DualTestA',{exact:true})}).click();
  await page.locator('#preview').click();
  await expect(page.locator('#preview-result')).toContainText('Kennungen: Weitwinkel _wide, Zoom _zoom');
  await expect(page.locator('#preview-result')).toContainText(' · Weitwinkel');

@@ -323,6 +323,19 @@ springen wahlweise 5, 10 oder 30 Sekunden, mit Umschalt immer 60 Sekunden.
 Eine Tastenübersicht steht auf der Einstellungsseite. Eingabefelder behalten ihre
 normale Tastaturbedienung.
 
+### Barrierefreiheit (ab 0.17.0)
+
+Die Oberfläche orientiert sich an WCAG 2.2 Stufe AA und wird in Hell und Dunkel
+automatisch mit axe geprüft. Ein Link „Zum Inhalt springen“ führt an der Navigation
+vorbei. Fokusrahmen sind auch auf farbigen Schaltflächen sichtbar; Eingabefelder
+und Kamera-Chips haben Ränder mit mindestens 3:1 Kontrast. Zeitleiste und
+Tagesübersicht sind Schieberegler: Pfeiltasten, Bild auf/ab sowie Pos1/Ende
+funktionieren dort auch bei abgeschalteten Tastenkürzeln, die aktuelle Uhrzeit wird
+Screenreadern genannt. „Reihenfolge ändern“ ordnet Kameras ohne Ziehen per Knopf.
+Fehlermeldungen bleiben bis zum Schließen sichtbar und werden angesagt. Eine ohne
+Browser-Vollbild vergrößerte Kachel sperrt den Hintergrund; Escape schließt sie und
+setzt den Fokus zurück. Bei reduzierter Bewegung entfallen Animationen.
+
 Änderungen auf der Einstellungsseite werden mit „Speichern“ übernommen. Kameraauswahl,
 Reihenfolge und Wiedergabeoptionen werden direkt gespeichert. Persönliche Einstellungen
 einschließlich Kameraauswahl und Reihenfolge sowie das Farbschema werden dauerhaft je Benutzerkonto auf dem Server
@@ -439,15 +452,15 @@ Geprüfte Main-Builds und interne Tags liegen im separaten GHCR-Paket `cctv-view
 
 Offizielle Releases und Docker-Versionstags entstehen ausschließlich über
 **Actions → Release und Docker veröffentlichen → Run workflow** auf Branch `main`.
-Pflichtfeld `version` enthält zum Beispiel `v0.6.0`, das optionale Feld `commit`
-einen vollständigen Main-SHA; leer bedeutet den aktuellen HEAD von `main`.
+Der Start braucht keine Eingaben: veröffentlicht wird die Version aus `package.json`
+des aktuellen HEAD von `main` (Tag `v<Version>`), die zuvor per PR erhöht wurde.
 Die Version muss bereits im getesteten Commit in `package.json`, Lockdatei und
 Image übereinstimmen. Der Workflow verändert `main` nicht und baut kein Image neu.
 Ein grüner PR-Lauf genügt nicht: Die vollständige Push-CI des exakten Commits,
 beide Architektur-Digests und deren Buildnachweis werden geprüft.
 
-Ältere Releases und Vorabversionen verschieben `latest` nicht. Wiederholungen
-mit derselben Version und demselben SHA verwenden korrekte Artefakte weiter;
+Ältere Releases und Vorabversionen verschieben `latest` nicht. Erneute Starts
+ohne Versionsänderung setzen denselben Commit fort und verwenden korrekte Artefakte weiter;
 widersprüchliche Tags werden abgelehnt. Release Notes werden automatisch generiert;
 Compose, Beispielkonfiguration und `release-proof.json` werden als Assets angehängt.
 Ein in der GitHub-Releases-Oberfläche manuell angelegtes Release löst keine

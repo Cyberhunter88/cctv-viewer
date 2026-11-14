@@ -156,6 +156,65 @@ class ManualReleaseTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Vorabversionsstatus"):
             self.prepare("v1.2.3-beta.1")
 
+    def automatic(self):
+        event, output = self.work / "event.json", self.work / "output"
+        manual_release.prepare_automatic("example/viewer", event, output)
+        return json.loads(event.read_text())["release"], output.read_text()
+
+    def test_automatic_release_uses_version_and_head_of_main(self):
+        self.git("checkout", "-qb", "feature")
+        self.version("9.9.9")
+        self.git("add", ".")
+        self.git("commit", "-qm", "unmerged version")
+        release, output = self.automatic()
+        self.assertEqual(release, {"tag_name": "v1.2.3", "prerelease": False})
+        self.assertIn("release=v1.2.3\n", output)
+        self.assertIn("commit=" + self.commit + "\n", output)
+        self.assertIn("create_release=true", output)
+
+    def test_automatic_prerelease_comes_from_package_version(self):
+        self.version("1.3.0-beta.1")
+        self.git("add", ".")
+        self.git("commit", "-qm", "beta")
+        self.git("push", "-q", "origin", "main")
+        release, output = self.automatic()
+        self.assertEqual(release, {"tag_name": "v1.3.0-beta.1", "prerelease": True})
+        self.assertIn("commit=" + self.git("rev-parse", "HEAD"), output)
+
+    def test_automatic_release_rejects_lock_mismatch_and_invalid_version(self):
+        for value, lock in [("1.2.4", "1.2.3"), ("01.2.3", None), ("1.2.3+build", None)]:
+            with self.subTest(value=value):
+                self.version(value, lock)
+                self.git("add", ".")
+                self.git("commit", "-qm", "bad " + value)
+                self.git("push", "-q", "origin", "main")
+                with self.assertRaises(ValueError):
+                    self.automatic()
+
+    def test_automatic_release_resumes_tagged_commit_with_same_version(self):
+        self.git("tag", "v1.2.3")
+        self.git("push", "-q", "origin", "v1.2.3")
+        self.release = {"tag_name": "v1.2.3", "prerelease": False, "draft": True, "target_commitish": self.commit}
+        Path("docs").touch()
+        self.git("add", ".")
+        self.git("commit", "-qm", "docs without version change")
+        self.git("push", "-q", "origin", "main")
+        _, output = self.automatic()
+        self.assertIn("commit=" + self.commit + "\n", output)
+        self.assertIn("head=" + self.git("rev-parse", "HEAD") + "\n", output)
+
+    def test_automatic_release_rejects_tag_of_other_version(self):
+        self.version("1.0.0")
+        self.git("add", ".")
+        self.git("commit", "-qm", "old")
+        self.git("tag", "v1.2.4")
+        self.version("1.2.4")
+        self.git("add", ".")
+        self.git("commit", "-qm", "next")
+        self.git("push", "-q", "origin", "main", "v1.2.4")
+        with self.assertRaisesRegex(ValueError, "anderen Commit"):
+            self.automatic()
+
     def test_api_permission_error_is_not_absence(self):
         patch.stopall()
         with patch("manual_release.subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", "HTTP 403")):

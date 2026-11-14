@@ -24,9 +24,10 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertRegex(triggers, r"(?m)^  workflow_dispatch:")
         self.assertNotRegex(triggers, r"(?m)^  (release|push|pull_request|workflow_run):")
         self.assertIn('[ "$GITHUB_REF" != refs/heads/main ]', self.release)
-        self.assertIn('      version:\n', triggers)
-        self.assertIn('required: true', triggers)
-        self.assertNotIn('inputs.tag', self.release)
+        # No inputs: the version comes from package.json of the current main commit.
+        self.assertNotIn('inputs:', triggers)
+        self.assertNotIn('inputs.', self.release)
+        self.assertIn('manual_release.py auto "$GITHUB_REPOSITORY"', self.release)
 
     def test_release_guard_rejects_non_dispatch_and_non_main_invocations(self):
         shell = self.release.split('      - name: Nur manuell auf main ausführen\n', 1)[1]
@@ -126,7 +127,7 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('run: npm run test:browser', browser)
         self.assertIn('browser-test-results-${{ matrix.browser }}', browser)
         config = (ROOT / 'playwright.config.ts').read_text()
-        self.assertIn('globalTimeout:8*60*1000', config)
+        self.assertIn('globalTimeout:12*60*1000', config)
 
     def test_required_check_cannot_succeed_after_any_failed_prerequisite(self):
         for pr, required in ((False, ('CODE_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT')),
