@@ -2086,3 +2086,44 @@ body:has(#app:not([hidden])) #toast { bottom:calc(96px + env(safe-area-inset-bot
 #avatar::before { content:attr(data-initials); content:attr(data-initials) / ''; }
 .folder-field { display:flex; flex-direction:column; gap:8px; min-width:0; }
 .folder-field > label { display:flex; flex-direction:column; gap:8px; }
+
+/* UX polish: search page, quieter back actions, compact phone header, readable legend and empty tiles. */
+.search-presets { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 20px; }
+.search-presets > span { font-size:12px; margin-right:4px; }
+#app .search-presets .filter { min-height:36px; padding:6px 14px; }
+.search-empty { display:flex; flex-wrap:wrap; align-items:center; gap:12px 16px; margin-top:16px; padding:16px; border:1px dashed var(--line); border-radius:12px; }
+.search-empty p { margin:0; }
+#search-form input::placeholder { color:var(--subtle); opacity:1; }
+/* The rail already links every page; the back action stays for unsaved-change guards but no longer competes with the title. */
+#app .content-page > .dialog-heading > .button.secondary { border-color:transparent; background:transparent; color:var(--muted); font-weight:600; }
+#app .content-page > .dialog-heading > .button.secondary:hover { background:var(--surface); color:var(--text); }
+#reorder-hint[hidden] { display:none; }
+#reorder-hint { flex-basis:100%; margin:4px 0 0; }
+#preload-help { color:var(--muted); font-size:12px; line-height:1.5; }
+#app .content-page .preferences-checks { gap:4px; }
+#app .content-page .preferences-checks label { margin-bottom:0; min-height:36px; }
+/* Legend swatches match the canvas and read as normal text. */
+#app .timeline-tools .legend { color:var(--text); font-size:12px; gap:12px; align-items:center; }
+#app .legend > span { display:inline-flex; align-items:center; gap:6px; }
+.legend i,#app .legend i { width:16px; height:10px; border-radius:2px; }
+.legend .legend-gap,#app .legend .legend-gap { height:4px; }
+/* Tiles without a recording keep their controls but drop status that describes nothing. */
+.camera-tile.no-recording .tile-status { visibility:hidden; }
+.camera-tile.no-recording .tile-footer > span:first-child { color:var(--muted); }
+.tile-header small:empty { display:none; }
+.timeline-bottom { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; }
+#latest-recording[hidden] { display:none; }
+#app #latest-recording { margin-right:auto; min-height:32px; padding:4px 10px; color:var(--accent); font-weight:650; border:1px solid var(--accent-line); border-radius:8px; }
+#app #latest-recording:hover { background:var(--selected); }
+@media (max-width:700px) {
+ /* Menu, account and logout share the first header row. */
+ #app .rail { grid-template-columns:minmax(0,1fr) auto auto; }
+ #mobile-nav-toggle { grid-column:2; grid-row:1; justify-self:end; padding:8px 14px; }
+ #app .rail-bottom { grid-column:3; grid-row:1; }
+ #app .rail nav { grid-row:2; }
+ /* Legend first, then "Ganzer Tag" and the zoom controls share one row. */
+ #app .timeline-tools .legend { order:-2; }
+ /* The back action sits above the title like a breadcrumb instead of squeezing it. */
+ #app .content-page > .dialog-heading { flex-direction:column-reverse; align-items:flex-start; gap:4px; }
+ #app .content-page > .dialog-heading > .button.secondary { padding-left:0; padding-right:8px; }
+}

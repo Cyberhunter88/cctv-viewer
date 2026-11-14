@@ -111,7 +111,7 @@ export class Tile {
     title.onclick = () => { this.context.selectHotspot(camera.id); };
     header.append(title, this.codec);
     const footer = element('div', 'tile-footer');
-    footer.append(this.timestamp, element('span', '', 'AUFNAHME'));
+    footer.append(this.timestamp, element('span', 'tile-status', 'AUFNAHME'));
     this.progress.setAttribute('aria-hidden', 'true');
     this.container.append(this.video, header, this.message, this.progress, footer);
     this.container.setAttribute('role', 'group');
@@ -490,10 +490,13 @@ export class Tile {
       this.timestamp.textContent = timestamp;
     }
     const record = this.current();
+    // Without a recording the footer status and codec badge would describe nothing.
+    this.container.classList.toggle('no-recording', !record);
     if (!record) {
       if (this.record) {
         this.release();
       }
+      if (this.codec.textContent) this.codec.textContent = '';
       this.setMessage(this.view && recordingAt(this.context.recordings(), this.camera.id, this.context.cursor(), 'unknown') ? 'Kennung unklar · Erkennung in Kameraeinstellungen prüfen' : 'Keine Aufnahme zu diesem Zeitpunkt', false, false);
       return;
     }

@@ -2,6 +2,7 @@ import {navigate,registerPage} from './navigation';
 import {createLatestRequest} from './latest-request';
 import {berlinEpoch} from './management';
 import {berlinDate,clock} from './timeline';
+import {searchRange,type SearchRange} from './search-range';
 
 export interface SearchResult {id:string;cameraId:string;cameraName:string;filename:string;start:number;duration:number}
 export interface SearchPage {results:SearchResult[];total:number;offset:number;limit:number;hasMore:boolean;nextCursor?:string}
@@ -58,7 +59,7 @@ export function initSearchPage(options:SearchOptions){
    offset+=data.results.length;cursor=data.nextCursor||'';
    $('search-count').hidden=total===0;
    $('search-count').textContent=total?`${offset} von ${total} Treffern angezeigt`:'';
-   if(!total)root.textContent='Keine Treffer für diese Suche im bisherigen Index. Prüfe die Filter oder öffne weitere Tage beziehungsweise starte einen Kamerascan.';
+   if(!total)root.replaceChildren(emptyResult());
    hasMore=data.hasMore;more.hidden=!hasMore;
    more.textContent=`Weitere ${Math.min(data.limit,total-offset)} laden`;
   }catch(e){if(own===generation&&request.current()&&(e as Error).name!=='AbortError'){retryInitial=false;retryAppend=append;$('search-error').textContent=(e as Error).message;retry.hidden=false}}
@@ -73,6 +74,19 @@ export function initSearchPage(options:SearchOptions){
    void load();
   }catch(error){$('search-error').textContent=(error as Error).message}
  };
+ // Without matches the page offers the next step instead of a dead end.
+ function emptyResult(){
+  const box=document.createElement('div');box.className='search-empty';
+  const text=document.createElement('p');text.textContent='Keine Treffer. Der Index enthält nur bereits eingelesene Tage.';
+  const reset=document.createElement('button');reset.type='button';reset.className='button secondary';reset.textContent='Filter zurücksetzen und erneut suchen';
+  reset.onclick=()=>{form.reset();form.requestSubmit()};
+  box.append(text,reset);return box;
+ }
+ for(const button of form.querySelectorAll<HTMLButtonElement>('[data-search-range]'))button.addEventListener('click',()=>{
+  const range=searchRange(button.dataset.searchRange as SearchRange,Date.now()/1000);
+  (form.elements.namedItem('from') as HTMLInputElement).value=range.from;(form.elements.namedItem('to') as HTMLInputElement).value=range.to;
+  form.requestSubmit();
+ });
  more.addEventListener('click',()=>{if(hasMore&&!more.disabled)void load(true)});
  retry.addEventListener('click',()=>void load(retryAppend));
  window.addEventListener('pagehide',cancelSearch);
