@@ -17,7 +17,7 @@ test('live navigation and empty selection persist independently from recordings'
 });
 
 test('live camera administration protects unsaved edits and does not disclose passwords',async({page})=>{
- await login(page);await openPage(page,'admin/cameras');await page.locator('#camera-list .camera-entry').first().getByRole('button',{name:/Livequelle einrichten/}).click();
+ await login(page);await openPage(page,'admin/cameras');await page.locator('#camera-list .camera-entry').first().getByRole('button',{name:/Live einrichten/}).click();
  await expect(page.locator('#live-admin')).toBeVisible();await expect(page.locator('#live-password')).toHaveValue('');
  await page.locator('#live-fast').fill('rtsp://camera.example.org/sub');
  page.once('dialog',dialog=>dialog.dismiss());await page.locator('#close-dialog').click();await expect(page.locator('#live-admin')).toBeVisible();await expect(page.locator('#live-fast')).toHaveValue('rtsp://camera.example.org/sub');
