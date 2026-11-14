@@ -11,7 +11,7 @@ import {validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveC
 import {attachTimelineControls} from './timeline-controls';
 import {initManagement} from './management';
 import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,timelineRowAt,keyboardSeekTarget,type Recording} from './timeline';
-import {initSearchPage,type SearchPage} from './search-page';
+import {initSearchPage,type SearchPage,type SearchResult} from './search-page';
 import {initSavedViews} from './saved-views';
 import {initCameraEditor} from './camera-editor';
 import {createTimelineView} from './timeline-view';
@@ -243,7 +243,7 @@ async function loadDay(reset=true,signal?:AbortSignal){
   if(signal?.aborted||generation!==loadGeneration||date!==dateInput.value)return;
   loadedScanCompletion=completionAtStart;records=data.recordings;playableRecords=playbackRecordings(records,cameras);from=data.from;to=data.to;setScan(data.scan);refreshDisplayedRecords();
   if(reset){const ids=new Set(visible().map(c=>c.id));cursor=firstRecordingStart(displayedRecords.filter(r=>ids.has(r.cameraId)),from);viewStart=from;viewEnd=to}
-  $('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;update();void thumbnails();refreshRange();
+  $('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;$('latest-recording').hidden=records.length>0||!cameras.length;update();void thumbnails();refreshRange();
  }finally{if(reset&&generation===loadGeneration)dayLoadPending=false}
 }
 async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');for(const id of openZoom)if(!cameras.some(c=>c.id===id&&c.viewMode==='dual'))openZoom.delete(id);order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList();livePage.refresh()}
@@ -375,7 +375,7 @@ const savedViews=initSavedViews({
  current:()=>({selected,layout:$<HTMLSelectElement>('layout').value,columns:state.columns,rows:state.rows}),
  apply:view=>{selected=new Set(view.cameras.filter(id=>cameras.some(c=>c.id===id)));$<HTMLSelectElement>('layout').value=view.layout;state.columns=view.columns;state.rows=view.rows;$<HTMLInputElement>('grid-columns').value=String(view.columns);$<HTMLInputElement>('grid-rows').value=String(view.rows);page=0;renderCameras();saveView()}
 });
-$('select-none').after(createReorderToggle('reorder-cameras',()=>reorderMode,()=>{reorderMode=!reorderMode;renderCameras()}));
+$('select-none').after(createReorderToggle('reorder-cameras',()=>reorderMode,()=>{reorderMode=!reorderMode;$('reorder-hint').hidden=!reorderMode;renderCameras()}));
 on('select-all',()=>{selected=new Set(cameras.map(c=>c.id));page=0;renderCameras();saveView()});
 on('select-none',()=>{selected.clear();page=0;renderCameras();saveView()});
 on('page-prev',()=>{page--;renderCameras()});on('page-next',()=>{page++;renderCameras()});
@@ -388,12 +388,18 @@ function setTimelineHeight(height:number){state.timelineHeight=Math.round(clamp(
 let resizeStart=0,resizeHeight=0;const resize=$('timeline-resize');resize.onpointerdown=e=>{resize.setPointerCapture(e.pointerId);resizeStart=e.clientY;resizeHeight=state.timelineHeight};resize.onpointermove=e=>{if(!resize.hasPointerCapture(e.pointerId))return;setTimelineHeight(resizeHeight+e.clientY-resizeStart)};resize.onpointerup=()=>saveView();resize.onkeydown=e=>{if(['ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();setTimelineHeight(state.timelineHeight+(e.key==='ArrowDown'?20:-20));saveView()}};
 let observedGridWidth=-1;
 new ResizeObserver(([entry])=>{const width=entry.contentRect.width;if(width===observedGridWidth)return;observedGridWidth=width;scheduleResize(true)}).observe($('video-grid'));
-initSearchPage({
- cameras:()=>cameras,request:(url,signal)=>api<SearchPage>(url,{signal}),notify,
- open:async r=>{
-  navigate('recordings');selected.add(r.cameraId);dateInput.value=berlinDate(new Date(r.start*1000));page=0;renderCameras();await loadDay();seek(r.start);
-  const cameraIndex=ordered().findIndex(c=>c.id===r.cameraId);if(cameraIndex>=0)page=Math.floor(cameraIndex/visiblePageCapacity());renderCameras();saveView();
- }
+async function openRecording(r:SearchResult){
+ navigate('recordings');selected.add(r.cameraId);dateInput.value=berlinDate(new Date(r.start*1000));page=0;renderCameras();await loadDay();seek(r.start);
+ const cameraIndex=ordered().findIndex(c=>c.id===r.cameraId);if(cameraIndex>=0)page=Math.floor(cameraIndex/visiblePageCapacity());renderCameras();saveView();
+}
+initSearchPage({cameras:()=>cameras,request:(url,signal)=>api<SearchPage>(url,{signal}),notify,open:openRecording});
+// An empty day offers a direct jump to the newest indexed recording instead of a dead end.
+on('latest-recording',async()=>{
+ const button=$<HTMLButtonElement>('latest-recording');button.disabled=true;
+ try{
+  const data=await api<SearchPage>('/api/search?order=desc&count=0');
+  if(data.results[0])await openRecording(data.results[0]);else notify('Im Index ist noch keine Aufnahme vorhanden.');
+ }catch(e){notify((e as Error).message)}finally{button.disabled=false}
 });
 
 document.addEventListener('keydown',e=>{
