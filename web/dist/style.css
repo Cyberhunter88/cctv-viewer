@@ -2121,6 +2121,8 @@ body:has(#app:not([hidden])) #toast { bottom:calc(96px + env(safe-area-inset-bot
  #mobile-nav-toggle { grid-column:2; grid-row:1; justify-self:end; padding:8px 14px; }
  #app .rail-bottom { grid-column:3; grid-row:1; }
  #app .rail nav { grid-row:2; }
+ /* Legend first, then "Ganzer Tag" and the zoom controls share one row. */
+ #app .timeline-tools .legend { order:-2; }
  /* The back action sits above the title like a breadcrumb instead of squeezing it. */
  #app .content-page > .dialog-heading { flex-direction:column-reverse; align-items:flex-start; gap:4px; }
  #app .content-page > .dialog-heading > .button.secondary { padding-left:0; padding-right:8px; }
