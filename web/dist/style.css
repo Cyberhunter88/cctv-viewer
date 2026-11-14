@@ -2038,3 +2038,6 @@ body:has(#app:not([hidden])) #toast { left:auto; right:24px; bottom:calc(24px + 
 @media (prefers-reduced-motion: reduce) {
   .tile-message .symbol.spinner { animation:none; }
 }
+
+/* Thin per-tile playback position bar, overlaid on the bottom edge of the picture */
+.camera-tile .tile-progress { grid-row:1; grid-column:1; align-self:end; height:3px; background:#a5edb7; transform:scaleX(0); transform-origin:left; pointer-events:none; z-index:2; }

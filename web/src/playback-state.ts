@@ -10,7 +10,7 @@ export function classifyLoadIssue(status: number | undefined, fallback: string):
   switch (status) {
     case 409: return { kind: 'writing', message: 'Aufnahme wird noch geschrieben …' };
     case 429:
-    case 503: return { kind: 'busy', message: 'Server ausgelastet – neuer Versuch folgt …' };
+    case 503: return { kind: 'busy', message: 'Server ausgelastet' };
     case 504: return { kind: 'timeout', message: 'Umwandlung dauert zu lange' };
     default: return { kind: 'generic', message: fallback };
   }

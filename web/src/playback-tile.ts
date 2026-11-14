@@ -93,6 +93,8 @@ export class Tile {
   writingRetries = 0;
   verifiedRecord?: string;
   stallTimer?: ReturnType<typeof setTimeout>;
+  reloadTimer?: ReturnType<typeof setTimeout>;
+  progress = element('div', 'tile-progress');
   pauseTimer?: ReturnType<typeof setTimeout>;
   constructor(public camera: PlaybackCamera, public view: string | undefined, private context: TileContext) {
     this.conceal();
@@ -108,7 +110,8 @@ export class Tile {
     header.append(title, this.codec);
     const footer = element('div', 'tile-footer');
     footer.append(this.timestamp, element('span', '', 'AUFNAHME'));
-    this.container.append(this.video, header, this.message, footer);
+    this.progress.setAttribute('aria-hidden', 'true');
+    this.container.append(this.video, header, this.message, this.progress, footer);
     this.container.setAttribute('role', 'group');
     this.container.setAttribute('aria-label', title.textContent!);
     this.container.ondblclick = () => void this.context.toggleFullscreen(this.container);
@@ -162,6 +165,7 @@ export class Tile {
       }
     });
     this.video.addEventListener('playing', () => { clearTimeout(this.stallTimer); });
+    this.video.addEventListener('timeupdate', () => this.updateProgress());
     // WebKit/GStreamer may clear muted when changing playback speed.
     this.video.addEventListener('volumechange', () => {
       if (this.context.audioTile() !== this && !this.video.muted) {
@@ -256,6 +260,9 @@ export class Tile {
     clearTimeout(this.stallTimer);
     clearTimeout(this.recoveryTimer);
     clearTimeout(this.writingTimer);
+    clearTimeout(this.reloadTimer);
+    this.reloadTimer = undefined;
+    this.progress.style.transform = 'scaleX(0)';
     this.abort?.abort();
     this.abort = undefined;
     this.hls?.destroy();
@@ -401,7 +408,16 @@ export class Tile {
     }
     const target = (this.context.cursor() - this.record.start - this.offset) / this.factor;
     if (this.stream && (target < -.1 || this.loadedSpeed !== this.context.speed() || target > this.video.currentTime + 3 && this.video.readyState >= 1 && !Array.from({ length: this.video.buffered.length }, (_, i) => [this.video.buffered.start(i), this.video.buffered.end(i)]).some(([a, b]) => target >= a && target < b))) {
-      void this.load(this.record, true);
+      // Scrubbing moves the cursor many times; only the last position starts an encoder.
+      if (this.reloadTimer === undefined) {
+        const epoch = this.epoch;
+        this.reloadTimer = setTimeout(() => {
+          this.reloadTimer = undefined;
+          if (epoch === this.epoch && this.record && !this.failed) {
+            void this.load(this.record, true);
+          }
+        }, 250);
+      }
       return;
     }
     if (this.video.readyState >= 1 && Math.abs(this.video.currentTime - target) > .65 / this.factor) {
@@ -424,6 +440,13 @@ export class Tile {
     else if (!this.video.paused) {
       this.video.pause();
     }
+  }
+  updateProgress() {
+    if (!this.record || !this.record.duration) {
+      return;
+    }
+    const position = (this.offset + this.video.currentTime * this.factor) / this.record.duration;
+    this.progress.style.transform = `scaleX(${Math.min(1, Math.max(0, position))})`;
   }
   current() { return recordingAt(this.context.playableRecordings(), this.camera.id, this.context.cursor(), this.view); }
   update(timestamp = clock(this.context.cursor())) {
