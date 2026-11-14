@@ -330,6 +330,13 @@ func TestH265AndCorruptFile(t *testing.T) {
 	if w.Code != 200 || w.Body.Len() == 0 {
 		t.Fatal(w.Code)
 	}
+	if got := w.Header().Get("Cache-Control"); got != "private, max-age=300" {
+		t.Fatal("segment cache header", got)
+	}
+	w = request(a, "GET", stream.URL, nil, cookie, "")
+	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Last-Modified") != "" {
+		t.Fatal("playlist must not be cached", w.Code, w.Header())
+	}
 	a.removeStream(stream.ID)
 }
 func TestStorePersistenceAndCameraChange(t *testing.T) {
@@ -412,4 +419,36 @@ func TestGrowingRecordingAnswersConflictAndPlaylistIsNotCached(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Fatal(w.Code, w.Body.String())
 	}
+}
+func TestSettledChangedRecordingIsReindexedAfterConflict(t *testing.T) {
+	a := testApp(t)
+	c := fixture(t, a, "libx264")
+	a.scanDay("2026-10-14")
+	cookie, _ := login(t, a)
+	rs, _ := a.db.Recordings(c.ID, 0, 2e10)
+	if len(rs) != 1 {
+		t.Fatal(rs)
+	}
+	// The recorder finished and left the file alone, but the index is outdated.
+	file := filepath.Join(a.cfg.RecordingsDir, c.Folder, "2026/10/14/08-30-00.mp4")
+	data, _ := os.ReadFile(file)
+	os.WriteFile(file, append(data, 0), 0600)
+	past := time.Now().Add(-time.Minute)
+	os.Chtimes(file, past, past)
+	// A day that was just scanned is throttled for a minute; the client retries
+	// for two minutes, so the reindex follows. Skip the wait here.
+	a.index.mu.Lock()
+	a.index.last = map[string]time.Time{}
+	a.index.mu.Unlock()
+	if w := request(a, "GET", "/api/recordings/"+rs[0].ID+"/file", nil, cookie, ""); w.Code != http.StatusConflict {
+		t.Fatal("expected conflict", w.Code)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if w := request(a, "HEAD", "/api/recordings/"+rs[0].ID+"/file", nil, cookie, ""); w.Code == 200 {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("recording was not reindexed after it settled")
 }

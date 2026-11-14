@@ -55,9 +55,31 @@ func (a *App) source(id string) (Recording, *os.File, error) {
 	st, e := f.Stat()
 	if e != nil || st.Size() != r.Size || st.ModTime().UnixNano() != r.Mod {
 		f.Close()
+		if e == nil {
+			a.reindexSettled(r, st)
+		}
 		return r, nil, errRecordingChanged
 	}
 	return r, f, nil
+}
+
+// reindexSettled queues a rescan of the recording's day once the recorder has
+// left the file alone long enough, so a finished clip becomes playable without
+// waiting for the next scheduled scan. Files still being written are skipped.
+func (a *App) reindexSettled(r Recording, st os.FileInfo) {
+	if time.Since(st.ModTime()) < 30*time.Second || st.Size() == 0 {
+		return
+	}
+	c, e := a.db.Camera(r.CameraID)
+	if e != nil {
+		return
+	}
+	loc, e := cachedLocation(c.Timezone)
+	if e != nil {
+		return
+	}
+	date := time.Unix(0, int64(r.Start*1e9)).In(loc).Format("2006-01-02")
+	a.queueScan(scanJob{date: date, camera: c.ID, incremental: true}, false)
 }
 func (a *App) file(w http.ResponseWriter, r *http.Request) {
 	record, f, e := a.source(r.PathValue("id"))
