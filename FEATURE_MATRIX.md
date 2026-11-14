@@ -11,6 +11,7 @@ Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht �
 | Aufnahme wird noch geschrieben | Original, Vorschau und Stream-Start antworten mit `409` und `Retry-After`; die Kachel wartet mit Versuchszähler und zeigt danach eine klare Meldung | `playback-state.test.ts`, `TestGrowingRecordingAnswersConflictAndPlaylistIsNotCached` |
 | Wiedergabe | Vorab-Prüfung nur einmal je Aufnahme, Pufferungs-Toleranz wächst mit der Geschwindigkeit, wachsende Playlist wird nicht zwischengespeichert | `playback-state.test.ts` |
 | Kachel-Fortschritt | Dünner Positionsbalken je Kachel; beim Scrubben startet nur die letzte Position einen neuen Stream; nach einer Sperre (409) wird ein ruhiger Aufnahmetag automatisch neu indexiert | `growing.spec.ts`, `TestSettledChangedRecordingIsReindexedAfterConflict` |
+| Nächsten Clip vorwärmen | Kurz vor dem Clipende liest die Kachel die ersten 256 KB der folgenden Aufnahme; das beschleunigt den Wechsel und zeigt eine noch geschriebene Datei früh (409, löst Neuindexierung aus) | `playback-state.test.ts` |
 | Kachelzustände | Ladeanzeige, themenfähige Meldungsfarben, Fokusrahmen, reduzierte Bewegung | `style.css` |
 
 ## Änderungen ab 0.16.0

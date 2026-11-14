@@ -27,3 +27,14 @@ test('stall tolerance grows with speed and stays bounded', () => {
   assert.ok(stallTimeoutMs(8) > stallTimeoutMs(2));
   assert.equal(stallTimeoutMs(1000), 30000);
 });
+
+import {prefetchTarget} from './playback-state.ts';
+const clip = (id: string, start: number, extra = {}) => ({id, cameraId: 'a', start, duration: 60, ...extra});
+test('prefetch picks the adjacent clip only near the end', () => {
+  const list = [clip('one', 0), clip('two', 60), clip('other', 60, {cameraId: 'b'}), clip('later', 400)];
+  assert.equal(prefetchTarget(list, list[0], 30, 1), undefined);
+  assert.equal(prefetchTarget(list, list[0], 55, 1)?.id, 'two');
+  assert.equal(prefetchTarget(list, list[0], 30, 8)?.id, 'two');
+  assert.equal(prefetchTarget(list, list[1], 118, 1), undefined);
+  assert.equal(prefetchTarget([clip('x', 0, {view: 'wide'}), clip('y', 60, {view: 'zoom'})], clip('x', 0, {view: 'wide'}), 58, 1), undefined);
+});

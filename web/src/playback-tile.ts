@@ -1,7 +1,7 @@
 import type Hls from 'hls.js';
 import { recordingAt, clock, type Recording } from './timeline';
 import type { ViewState } from './view-state';
-import { WRITING_RETRY_MS, classifyLoadIssue, nextWritingStep, stallTimeoutMs } from './playback-state';
+import { WRITING_RETRY_MS, classifyLoadIssue, nextWritingStep, prefetchTarget, stallTimeoutMs } from './playback-state';
 // Linux WebKit's GStreamer MediaSource can fail with multiple HLS audio streams.
 // Fragmented MP4 avoids that backend path and still supports compressed playback.
 const useProgressiveOnLinuxWebKit = navigator.platform.startsWith('Linux') && navigator.vendor === 'Apple Computer, Inc.';
@@ -92,6 +92,7 @@ export class Tile {
   writingTimer?: ReturnType<typeof setTimeout>;
   writingRetries = 0;
   verifiedRecord?: string;
+  prefetched = new Set<string>();
   stallTimer?: ReturnType<typeof setTimeout>;
   reloadTimer?: ReturnType<typeof setTimeout>;
   progress = element('div', 'tile-progress');
@@ -165,7 +166,7 @@ export class Tile {
       }
     });
     this.video.addEventListener('playing', () => { clearTimeout(this.stallTimer); });
-    this.video.addEventListener('timeupdate', () => this.updateProgress());
+    this.video.addEventListener('timeupdate', () => { this.updateProgress(); this.prefetchNext(); });
     // WebKit/GStreamer may clear muted when changing playback speed.
     this.video.addEventListener('volumechange', () => {
       if (this.context.audioTile() !== this && !this.video.muted) {
@@ -440,6 +441,23 @@ export class Tile {
     else if (!this.video.paused) {
       this.video.pause();
     }
+  }
+  // Reads the first bytes of the next clip: this warms the file cache, so the
+  // switch at the clip boundary starts faster, and it surfaces a clip that is
+  // still being written (409) early, which also queues its reindexing.
+  prefetchNext() {
+    if (!this.record || this.loading || this.failed || !this.context.playing()) {
+      return;
+    }
+    const next = prefetchTarget(this.context.playableRecordings(), this.record, this.context.cursor(), this.context.speed());
+    if (!next || this.prefetched.has(next.id)) {
+      return;
+    }
+    if (this.prefetched.size > 50) {
+      this.prefetched.clear();
+    }
+    this.prefetched.add(next.id);
+    void this.context.request('/api/recordings/' + next.id + '/file', { headers: { Range: 'bytes=0-262143' }, keepalive: false }).catch(() => { });
   }
   updateProgress() {
     if (!this.record || !this.record.duration) {
