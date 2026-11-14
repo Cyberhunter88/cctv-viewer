@@ -420,6 +420,7 @@ label small {
   padding: 12px 13px;
   background: linear-gradient(#0b0f13ce,transparent);
   font-size: 11px;
+  gap: 6px;
   pointer-events: none;
   z-index: 2
 }
@@ -435,7 +436,8 @@ label small {
   background: #0b1017a0;
   padding: 4px 6px;
   border: 1px solid #ffffff15;
-  border-radius: 3px
+  border-radius: 3px;
+  flex-shrink: 0
 }
 .tile-footer {
   position: absolute;
@@ -447,7 +449,7 @@ label small {
   align-items: center;
   font-family: ui-monospace,monospace;
   font-size: 10px;
-  color: #9ba9b1;
+  color: #d0dce3;
   padding: 10px 13px;
   background: linear-gradient(transparent,#0b0f13cc);
   pointer-events: none
@@ -956,9 +958,6 @@ footer span:last-child {
   cursor: pointer;
   pointer-events: auto
 }
-.tile-header {
-  pointer-events: none
-}
 #timeline-resize {
   height: 12px;
   cursor: ns-resize;
@@ -1074,9 +1073,6 @@ input[type=checkbox] {
   color: inherit;
   font-size: 18px;
   cursor: pointer
-}
-.tile-footer {
-  pointer-events: none
 }
 .camera-group .camera-tile {
   min-width: 0
@@ -1295,10 +1291,7 @@ input[type=checkbox] {
 .camera-group .camera-tile { width:100%; height:auto; max-height:none; }
 @container (width < 720px) {
 .camera-group.dual > .camera-tile { grid-column:1 / -1; } }
-.tile-header { gap:6px; }
 .camera-tile .tile-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; display:block; }
-.tile-header small { flex-shrink:0; }
-.tile-footer { color:#d0dce3; }
 .camera-page-controls { flex-wrap:wrap; margin:10px 0; }
 #camera-range { margin-right:auto; }
 #grid-hint { color:var(--subtle); font-size:11px; }
