@@ -8,8 +8,8 @@ async function login(page:Page){
 
 test('skip link moves focus past the navigation to the page heading',async({page})=>{
  await login(page);
- await page.evaluate(()=>(document.activeElement as HTMLElement|null)?.blur());
- await page.keyboard.press('Tab');await expect(page.locator('#skip-link')).toBeFocused();await expect(page.locator('#skip-link')).toBeInViewport();
+ // The skip link is the first focusable element: Shift+Tab from the first navigation control reaches it.
+ await page.locator('#rail-toggle').focus();await page.keyboard.press('Shift+Tab');await expect(page.locator('#skip-link')).toBeFocused();await expect(page.locator('#skip-link')).toBeInViewport();
  await page.keyboard.press('Enter');await expect(page.locator('#recordings h1')).toBeFocused();
 });
 

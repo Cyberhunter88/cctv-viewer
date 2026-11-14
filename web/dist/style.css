@@ -1329,7 +1329,7 @@ svg { width:22px; height:22px; flex:none; display:block; }
 .rail { width:var(--nav-width); position:fixed; inset:0 auto 0 0; z-index:20; display:flex; flex-direction:column; padding:24px 14px; gap:32px; background:var(--panel); border-right:1px solid var(--line); }
 .rail-logo { display:flex; align-items:center; gap:10px; min-height:40px; padding:0 12px; color:var(--accent); font-weight:800; font-size:19px; letter-spacing:.3px; }
 .rail-logo svg { width:28px; height:28px; }
-.nav-brand-sub { color:var(--muted); font-weight:400; margin-left:4px; }
+.nav-brand-sub { color:var(--muted); font-weight:400; margin-left:0; }
 .rail nav { display:flex; flex-direction:column; gap:8px; }
 .rail-item { display:flex; align-items:center; justify-content:flex-start; gap:12px; width:100%; min-height:46px; padding:10px 12px; background:transparent; color:var(--muted); border:1px solid transparent; border-radius:10px; font-size:13px; font-weight:550; }
 .rail-item:hover { background:var(--surface); color:var(--text); }
@@ -2082,5 +2082,7 @@ body:has(#app:not([hidden])) #toast { bottom:calc(96px + env(safe-area-inset-bot
  .secure-dot.busy { animation:none; }
 }
 /* The camera folder field keeps its label separate from the folder browser. */
+/* Initials are decoration (empty alternative text), so the menu name contains all visible text. */
+#avatar::before { content:attr(data-initials); content:attr(data-initials) / ''; }
 .folder-field { display:flex; flex-direction:column; gap:8px; min-width:0; }
 .folder-field > label { display:flex; flex-direction:column; gap:8px; }
