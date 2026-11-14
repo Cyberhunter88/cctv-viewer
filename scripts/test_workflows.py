@@ -127,7 +127,7 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('run: npm run test:browser', browser)
         self.assertIn('browser-test-results-${{ matrix.browser }}', browser)
         config = (ROOT / 'playwright.config.ts').read_text()
-        self.assertIn('globalTimeout:8*60*1000', config)
+        self.assertIn('globalTimeout:12*60*1000', config)
 
     def test_required_check_cannot_succeed_after_any_failed_prerequisite(self):
         for pr, required in ((False, ('CODE_RESULT', 'BUILD_RESULT', 'PUBLISH_RESULT')),
