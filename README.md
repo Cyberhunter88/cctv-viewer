@@ -452,15 +452,15 @@ Geprüfte Main-Builds und interne Tags liegen im separaten GHCR-Paket `cctv-view
 
 Offizielle Releases und Docker-Versionstags entstehen ausschließlich über
 **Actions → Release und Docker veröffentlichen → Run workflow** auf Branch `main`.
-Pflichtfeld `version` enthält zum Beispiel `v0.6.0`, das optionale Feld `commit`
-einen vollständigen Main-SHA; leer bedeutet den aktuellen HEAD von `main`.
+Der Start braucht keine Eingaben: veröffentlicht wird die Version aus `package.json`
+des aktuellen HEAD von `main` (Tag `v<Version>`), die zuvor per PR erhöht wurde.
 Die Version muss bereits im getesteten Commit in `package.json`, Lockdatei und
 Image übereinstimmen. Der Workflow verändert `main` nicht und baut kein Image neu.
 Ein grüner PR-Lauf genügt nicht: Die vollständige Push-CI des exakten Commits,
 beide Architektur-Digests und deren Buildnachweis werden geprüft.
 
-Ältere Releases und Vorabversionen verschieben `latest` nicht. Wiederholungen
-mit derselben Version und demselben SHA verwenden korrekte Artefakte weiter;
+Ältere Releases und Vorabversionen verschieben `latest` nicht. Erneute Starts
+ohne Versionsänderung setzen denselben Commit fort und verwenden korrekte Artefakte weiter;
 widersprüchliche Tags werden abgelehnt. Release Notes werden automatisch generiert;
 Compose, Beispielkonfiguration und `release-proof.json` werden als Assets angehängt.
 Ein in der GitHub-Releases-Oberfläche manuell angelegtes Release löst keine

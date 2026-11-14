@@ -24,9 +24,10 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertRegex(triggers, r"(?m)^  workflow_dispatch:")
         self.assertNotRegex(triggers, r"(?m)^  (release|push|pull_request|workflow_run):")
         self.assertIn('[ "$GITHUB_REF" != refs/heads/main ]', self.release)
-        self.assertIn('      version:\n', triggers)
-        self.assertIn('required: true', triggers)
-        self.assertNotIn('inputs.tag', self.release)
+        # No inputs: the version comes from package.json of the current main commit.
+        self.assertNotIn('inputs:', triggers)
+        self.assertNotIn('inputs.', self.release)
+        self.assertIn('manual_release.py auto "$GITHUB_REPOSITORY"', self.release)
 
     def test_release_guard_rejects_non_dispatch_and_non_main_invocations(self):
         shell = self.release.split('      - name: Nur manuell auf main ausführen\n', 1)[1]

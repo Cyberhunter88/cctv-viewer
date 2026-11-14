@@ -66,18 +66,18 @@ npm version 0.6.0 --no-git-tag-version
 | MAJOR | `0.5.0` → `1.0.0` | inkompatible Änderung |
 | Vorabversion | `0.7.0-beta.1` | ausdrücklich als Vorabversion veröffentlichen |
 
-Äußere Leerzeichen in den manuellen Eingaben für Version und Commit werden entfernt; innere Leerzeichen und ungültige Werte werden abgelehnt. Alle Folgeschritte verwenden den geprüften Release-Tag. Die Actions-Eingabe enthält ein führendes `v`, `package.json`, Lockdatei, Anwendung und Docker-Labels enthalten die Version ohne `v`. Verwendet werden `vX.Y.Z` und SemVer-Vorabversionen; führende Nullen und Build-Metadaten mit `+` werden abgelehnt, da Docker-Versionstags dieses Format nicht übernehmen können. Bei Versionsänderungen auch eventuell fest eingetragene UI-Versionsanzeigen im selben PR synchronisieren.
+Der Release-Workflow hat keine Eingaben. Er liest die Version aus `package.json` des aktuellen `main`-Stands und bildet daraus den Release-Tag mit führendem `v` (zum Beispiel `0.6.0` → `v0.6.0`); `package.json`, Lockdatei, Anwendung und Docker-Labels enthalten die Version ohne `v`. Verwendet werden `vX.Y.Z` und SemVer-Vorabversionen; führende Nullen und Build-Metadaten mit `+` werden abgelehnt, da Docker-Versionstags dieses Format nicht übernehmen können. Bei Versionsänderungen auch eventuell fest eingetragene UI-Versionsanzeigen im selben PR synchronisieren.
 
-Der Release-Workflow verändert keine Version und schreibt nicht nach `main`. Weicht die gewünschte Version von `package.json`, den beiden Lockdatei-Einträgen, dem CI-Nachweis oder dem Image ab, bricht er mit einer Fehlermeldung ab. Eine nachträgliche Umbenennung eines anders versionierten Images ist ausgeschlossen.
+Der Release-Workflow verändert keine Version und schreibt nicht nach `main`. Weichen die beiden Lockdatei-Einträge, der CI-Nachweis oder das Image von der Version in `package.json` ab, bricht er mit einer Fehlermeldung ab. Eine nachträgliche Umbenennung eines anders versionierten Images ist ausgeschlossen.
 
 ## 4. Offizielles Release manuell starten
 
 1. Erfolgreichen vollständigen Main-Lauf abwarten.
 2. **Actions → Release und Docker veröffentlichen → Run workflow** öffnen.
 3. Als Workflow-Branch **main** auswählen; andere Branches werden abgelehnt.
-4. Pflichtfeld **version** ausfüllen, beispielsweise `v0.6.0` oder `v0.7.0-beta.1`.
-5. Optional **commit** als vollständigen 40-stelligen SHA angeben. Ohne Eingabe wird der bei der Vorbereitung aktuelle HEAD von `main` verwendet. Für eine Wiederholung eines älteren Releases dessen exakten Commit ausdrücklich angeben.
-6. Workflow manuell starten und die Zusammenfassung kontrollieren.
+4. Ohne weitere Eingaben auf **Run workflow** klicken und die Zusammenfassung kontrollieren.
+
+Veröffentlicht wird die Version aus `package.json` des aktuellen HEAD von `main`. Vorabversionen wie `0.7.0-beta.1` werden automatisch als Vorabversion veröffentlicht. Gehört der Tag dieser Version bereits zu einem früheren Main-Commit mit derselben Version (etwa nach einem abgebrochenen Lauf und weiteren Merges ohne Versionsänderung), setzt der Workflow genau diesen Commit fort beziehungsweise wiederholt ihn; die Zusammenfassung nennt Version und Commit. Neuere Änderungen benötigen eine höhere Version per PR. Ein Tag, der zu einer anderen Version gehört, führt zum Abbruch.
 
 Der Workflow verlangt Main-Zugehörigkeit und wartet maximal 30 Minuten auf den neuesten Push-CI-Lauf für exakt diesen SHA. Ein grüner PR-Lauf genügt nicht. Auch ein insgesamt grüner Workflow genügt nicht, wenn einer der erforderlichen Code-, Docker-, Commit-Image- oder Abschlussjobs fehlt bzw. übersprungen wurde. Neue Main-Läufe enthalten keine Browser-Jobs. In älteren Läufen sind absichtlich übersprungene Browser-Jobs weiterhin zulässig; fehlgeschlagene oder abgebrochene Browser-Jobs bleiben ein Fehler. Historische Main-Läufe mit ausgeführten Browser-Prüfungen müssen weiterhin beide Browser beziehungsweise alle vier Browser-Shards vollständig erfolgreich enthalten. Der Nachweis wird aus genau dessen Run-Versuch geladen und mit den Registry-Digests und OCI-Labels beider Architekturen verglichen. Ein vorhandener Git-Tag muss auf denselben Commit zeigen, auch bei annotierten Tags. Ein vorhandener Docker-Versionstag muss auf denselben Multiarch-Digest zeigen.
 
@@ -166,13 +166,12 @@ Erforderlich sind `gh` mit Paket-Lesezugriff und angemeldetes Skopeo. Zum Lösch
 
 | Fehler | Vorgehen |
 | --- | --- |
-| Version passt nicht | Version im Feature-Branch synchronisieren, testen, manuell mergen; passenden neuen Commit verwenden. |
-| Commit liegt nicht auf Main | PR manuell mergen und den tatsächlich auf Main liegenden SHA verwenden. |
+| Version passt nicht | Version im Feature-Branch synchronisieren, testen, manuell mergen und den Workflow erneut starten. |
 | CI fehlt, ist rot oder unvollständig | Fehlerprotokolle und Browser-Artefakte prüfen; Ursache beheben und vollständige Main-CI abwarten. |
 | Nachweis fehlt/ist abgelaufen | Vollständige Main-CI für denselben Commit wiederholen. Für ältere Commits ohne diesen Workflow ist ein neuer Main-Commit mit der neuen Pipeline erforderlich. |
-| GHCR nicht öffentlich/kein Zugriff | Paketeinstellungen korrigieren und denselben Release mit derselben Version und demselben SHA erneut starten. |
+| GHCR nicht öffentlich/kein Zugriff | Paketeinstellungen korrigieren und den Workflow ohne Versionsänderung erneut starten. |
 | Version gehört zu anderem Commit/Image | Abbrechen und eine neue Version über einen normalen PR vorbereiten; vorhandene Tags nicht umhängen. |
-| Upload oder Veröffentlichung abgebrochen | Bestehenden Entwurf beibehalten und Workflow mit derselben Version und demselben Commit wiederholen. |
+| Upload oder Veröffentlichung abgebrochen | Bestehenden Entwurf beibehalten und den Workflow ohne Versionsänderung erneut starten; er setzt den getaggten Commit fort. |
 | Unerklärlicher Alias-Konflikt | Version, Digest und Release-Nachweis vergleichen; keine automatische Reparatur durch Überschreiben. |
 
 Der abschließende Release-Bericht zeigt für Buildprüfung, Entwurf, Versionstag, anonymen Download, Assets, Aliases und Veröffentlichung jeweils das Ergebnis dieses Versuchs. Ein fehlgeschlagener oder abgebrochener Schreibschritt wird als möglicherweise teilweise ausgeführt gekennzeichnet. Der Bericht nennt die geprüfte Version und den vollständigen Commit für die Wiederaufnahme; vorhandene Artefakte früherer Versuche bleiben berücksichtigt. Ein harter Runner-Ausfall kann auch den abschließenden Bericht verhindern.
