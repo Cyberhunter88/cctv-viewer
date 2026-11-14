@@ -1,6 +1,7 @@
 import type Hls from 'hls.js';
 import { recordingAt, clock, type Recording } from './timeline';
 import type { ViewState } from './view-state';
+import { WRITING_RETRY_MS, classifyLoadIssue, nextWritingStep, prefetchTarget, stallTimeoutMs } from './playback-state';
 // Linux WebKit's GStreamer MediaSource can fail with multiple HLS audio streams.
 // Fragmented MP4 avoids that backend path and still supports compressed playback.
 const useProgressiveOnLinuxWebKit = navigator.platform.startsWith('Linux') && navigator.vendor === 'Apple Computer, Inc.';
@@ -43,7 +44,7 @@ export function setControlIcon(button: Element, name: ControlIcon) {
   button.replaceChildren(svg);
 }
 export class Tile {
-  setMessage(message: string, error = false) {
+  setMessage(message: string, error = false, busy = true) {
     if (this.messageState === message && this.messageError === error) {
       return;
     }
@@ -51,9 +52,12 @@ export class Tile {
     this.messageError = error;
     this.message.replaceChildren();
     if (message) {
-      this.message.append(element('span', 'symbol', error ? '⚠' : '▧'), element('span', '', message));
+      const symbol = element('span', error ? 'symbol' : busy ? 'symbol spinner' : 'symbol', error ? '⚠' : busy ? '' : '▧');
+      symbol.setAttribute('aria-hidden', 'true');
+      this.message.append(symbol, element('span', 'tile-message-text', message));
     }
     this.message.hidden = !message;
+    this.message.setAttribute('role', error ? 'alert' : 'status');
     this.message.classList.toggle('error', error);
     if (error) {
       const retry = element('button', 'tile-retry', 'Erneut versuchen');
@@ -85,7 +89,12 @@ export class Tile {
   attempts = 0;
   recoveryStart = 0;
   recoveryTimer?: ReturnType<typeof setTimeout>;
+  writingTimer?: ReturnType<typeof setTimeout>;
+  writingRetries = 0;
+  prefetched = new Set<string>();
   stallTimer?: ReturnType<typeof setTimeout>;
+  reloadTimer?: ReturnType<typeof setTimeout>;
+  progress = element('div', 'tile-progress');
   pauseTimer?: ReturnType<typeof setTimeout>;
   constructor(public camera: PlaybackCamera, public view: string | undefined, private context: TileContext) {
     this.conceal();
@@ -101,7 +110,8 @@ export class Tile {
     header.append(title, this.codec);
     const footer = element('div', 'tile-footer');
     footer.append(this.timestamp, element('span', '', 'AUFNAHME'));
-    this.container.append(this.video, header, this.message, footer);
+    this.progress.setAttribute('aria-hidden', 'true');
+    this.container.append(this.video, header, this.message, this.progress, footer);
     this.container.setAttribute('role', 'group');
     this.container.setAttribute('aria-label', title.textContent!);
     this.container.ondblclick = () => void this.context.toggleFullscreen(this.container);
@@ -151,10 +161,11 @@ export class Tile {
       if (this.context.playing() && !this.loading) {
         this.setMessage('Wird gepuffert …');
         clearTimeout(this.stallTimer);
-        this.stallTimer = setTimeout(() => this.recover('Pufferung dauert zu lange'), 10000);
+        this.stallTimer = setTimeout(() => this.recover('Pufferung dauert zu lange'), stallTimeoutMs(this.context.speed()));
       }
     });
     this.video.addEventListener('playing', () => { clearTimeout(this.stallTimer); });
+    this.video.addEventListener('timeupdate', () => { this.updateProgress(); this.prefetchNext(); });
     // WebKit/GStreamer may clear muted when changing playback speed.
     this.video.addEventListener('volumechange', () => {
       if (this.context.audioTile() !== this && !this.video.muted) {
@@ -163,8 +174,7 @@ export class Tile {
     });
     this.video.addEventListener('ended', () => {
       if (this.record && this.context.cursor() < this.record.start + this.record.duration - 1) {
-        this.release();
-        this.update();
+        void this.restartAfterEnd();
       }
     });
   }
@@ -248,6 +258,10 @@ export class Tile {
     clearTimeout(this.pauseTimer);
     clearTimeout(this.stallTimer);
     clearTimeout(this.recoveryTimer);
+    clearTimeout(this.writingTimer);
+    clearTimeout(this.reloadTimer);
+    this.reloadTimer = undefined;
+    this.progress.style.transform = 'scaleX(0)';
     this.abort?.abort();
     this.abort = undefined;
     this.hls?.destroy();
@@ -281,6 +295,7 @@ export class Tile {
     if (different && !recovering) {
       this.attempts = 0;
       this.recoveryStart = 0;
+      this.writingRetries = 0;
     }
     this.record = record;
     const epoch = this.epoch;
@@ -295,6 +310,16 @@ export class Tile {
     const quality = this.context.quality();
     try {
       if (quality === 'native') {
+        // A HEAD request reveals a recording that is still being written before
+        // the video element turns the HTTP error into a misleading codec error.
+        // Checked on every load: the file can start growing at any time, and the
+        // video element would report that as a codec error.
+        this.abort = new AbortController();
+        await this.context.request('/api/recordings/' + record.id + '/file', { method: 'HEAD', signal: this.abort.signal });
+        if (epoch !== this.epoch) {
+          return;
+        }
+        this.writingRetries = 0;
         this.video.src = '/api/recordings/' + record.id + '/file';
         this.offset = 0;
       }
@@ -350,10 +375,27 @@ export class Tile {
       if (epoch !== this.epoch) {
         return;
       }
-      this.loading = false;
-      if ((e as Error).name !== 'AbortError') {
-        this.recover((e as Error).message);
+      if ((e as Error).name === 'AbortError') {
+        this.loading = false;
+        return;
       }
+      const issue = classifyLoadIssue((e as { status?: number }).status, (e as Error).message);
+      if (issue.kind === 'writing') {
+        // The recorder still writes this file. Wait for it instead of burning recovery attempts.
+        const step = nextWritingStep(this.writingRetries);
+        if (step.retry) {
+          this.writingRetries = step.attempt;
+          // Stays loading while waiting, so video events cannot replace this message.
+          this.setMessage(step.message);
+          this.writingTimer = setTimeout(() => { if (epoch === this.epoch && this.record) { void this.load(this.record, true); } }, WRITING_RETRY_MS);
+        }
+        else {
+          this.fail(step.message);
+        }
+        return;
+      }
+      this.loading = false;
+      this.recover(issue.message);
     }
   }
   align() {
@@ -362,7 +404,16 @@ export class Tile {
     }
     const target = (this.context.cursor() - this.record.start - this.offset) / this.factor;
     if (this.stream && (target < -.1 || this.loadedSpeed !== this.context.speed() || target > this.video.currentTime + 3 && this.video.readyState >= 1 && !Array.from({ length: this.video.buffered.length }, (_, i) => [this.video.buffered.start(i), this.video.buffered.end(i)]).some(([a, b]) => target >= a && target < b))) {
-      void this.load(this.record, true);
+      // Scrubbing moves the cursor many times; only the last position starts an encoder.
+      if (this.reloadTimer === undefined) {
+        const epoch = this.epoch;
+        this.reloadTimer = setTimeout(() => {
+          this.reloadTimer = undefined;
+          if (epoch === this.epoch && this.record && !this.failed) {
+            void this.load(this.record, true);
+          }
+        }, 250);
+      }
       return;
     }
     if (this.video.readyState >= 1 && Math.abs(this.video.currentTime - target) > .65 / this.factor) {
@@ -386,6 +437,51 @@ export class Tile {
       this.video.pause();
     }
   }
+  // The stream ended before the recording did. If the file grew meanwhile, say
+  // so: the reload then waits for the reindexed recording instead of looping.
+  async restartAfterEnd() {
+    const id = this.stream, epoch = this.epoch;
+    let grown = false;
+    if (id) {
+      try {
+        grown = (await this.context.request<{ sourceChanged?: boolean }>('/api/playback-sessions/' + id)).sourceChanged === true;
+      }
+      catch { }
+    }
+    if (epoch !== this.epoch) {
+      return;
+    }
+    this.release();
+    this.update();
+    // load() has already shown its own loading text; replace it with the reason.
+    if (grown && this.loading) {
+      this.setMessage('Aufnahme wurde während der Wiedergabe erweitert …');
+    }
+  }
+  // Reads the first bytes of the next clip: this warms the file cache, so the
+  // switch at the clip boundary starts faster, and it surfaces a clip that is
+  // still being written (409) early, which also queues its reindexing.
+  prefetchNext() {
+    if (!this.record || this.loading || this.failed || !this.context.playing()) {
+      return;
+    }
+    const next = prefetchTarget(this.context.playableRecordings(), this.record, this.context.cursor(), this.context.speed());
+    if (!next || this.prefetched.has(next.id)) {
+      return;
+    }
+    if (this.prefetched.size > 50) {
+      this.prefetched.clear();
+    }
+    this.prefetched.add(next.id);
+    void this.context.request('/api/recordings/' + next.id + '/file', { headers: { Range: 'bytes=0-262143' }, keepalive: false }).catch(() => { });
+  }
+  updateProgress() {
+    if (!this.record || !this.record.duration) {
+      return;
+    }
+    const position = (this.offset + this.video.currentTime * this.factor) / this.record.duration;
+    this.progress.style.transform = `scaleX(${Math.min(1, Math.max(0, position))})`;
+  }
   current() { return recordingAt(this.context.playableRecordings(), this.camera.id, this.context.cursor(), this.view); }
   update(timestamp = clock(this.context.cursor())) {
     if (this.timestamp.textContent !== timestamp) {
@@ -396,7 +492,7 @@ export class Tile {
       if (this.record) {
         this.release();
       }
-      this.setMessage(this.view && recordingAt(this.context.recordings(), this.camera.id, this.context.cursor(), 'unknown') ? 'Kennung unklar · Erkennung in Kameraeinstellungen prüfen' : 'Keine Aufnahme zu diesem Zeitpunkt');
+      this.setMessage(this.view && recordingAt(this.context.recordings(), this.camera.id, this.context.cursor(), 'unknown') ? 'Kennung unklar · Erkennung in Kameraeinstellungen prüfen' : 'Keine Aufnahme zu diesem Zeitpunkt', false, false);
       return;
     }
     if (this.record?.id !== record.id) {
@@ -411,6 +507,7 @@ export class Tile {
       const record = this.record;
       this.attempts = 0;
       this.recoveryStart = 0;
+      this.writingRetries = 0;
       this.release();
       if (record) {
         void this.load(record);

@@ -420,6 +420,7 @@ label small {
   padding: 12px 13px;
   background: linear-gradient(#0b0f13ce,transparent);
   font-size: 11px;
+  gap: 6px;
   pointer-events: none;
   z-index: 2
 }
@@ -435,7 +436,8 @@ label small {
   background: #0b1017a0;
   padding: 4px 6px;
   border: 1px solid #ffffff15;
-  border-radius: 3px
+  border-radius: 3px;
+  flex-shrink: 0
 }
 .tile-footer {
   position: absolute;
@@ -447,30 +449,38 @@ label small {
   align-items: center;
   font-family: ui-monospace,monospace;
   font-size: 10px;
-  color: #9ba9b1;
+  color: #d0dce3;
   padding: 10px 13px;
   background: linear-gradient(transparent,#0b0f13cc);
   pointer-events: none
 }
+/* Tiles stay dark in both themes (video background), so message colours are fixed light tones. */
 .tile-message {
   position: absolute;
-  inset: 45px 18px;
+  inset: 34px 8px 32px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   text-align: center;
-  gap: 12px;
+  gap: 4px;
   pointer-events: none;
-  color: #5b6d78;
-  font-size: 12px
+  color: #b7c6ce;
+  font-size: 12px;
+  overflow: auto
 }
 .tile-message .symbol {
-  font-size: 32px;
-  color: #374b56
+  font-size: 22px;
+  color: #9eb5c3
 }
 .tile-message.error {
-  color: #ddae8f
+  color: #ffc8a6
+}
+.tile-message .tile-message-text { max-width: 32ch; line-height: 1.4 }
+.tile-message .symbol.spinner { width: 22px; height: 22px; border: 2px solid #4d6a5a; border-top-color: #a5edb7; border-radius: 50%; animation: tile-spin .9s linear infinite }
+@keyframes tile-spin { to { transform: rotate(360deg) } }
+@media (prefers-reduced-motion: reduce) {
+  .tile-message .symbol.spinner { animation: none }
 }
 .transport,.timeline-tools {
   display: flex;
@@ -948,9 +958,6 @@ footer span:last-child {
   cursor: pointer;
   pointer-events: auto
 }
-.tile-header {
-  pointer-events: none
-}
 #timeline-resize {
   height: 12px;
   cursor: ns-resize;
@@ -1066,9 +1073,6 @@ input[type=checkbox] {
   color: inherit;
   font-size: 18px;
   cursor: pointer
-}
-.tile-footer {
-  pointer-events: none
 }
 .camera-group .camera-tile {
   min-width: 0
@@ -1287,13 +1291,7 @@ input[type=checkbox] {
 .camera-group .camera-tile { width:100%; height:auto; max-height:none; }
 @container (width < 720px) {
 .camera-group.dual > .camera-tile { grid-column:1 / -1; } }
-.tile-header { gap:6px; }
 .camera-tile .tile-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; display:block; }
-.tile-header small { flex-shrink:0; }
-.tile-message { inset:34px 8px 32px; gap:4px; color:#b7c6ce; font-size:12px; overflow:auto; }
-.tile-message .symbol { font-size:22px; color:#9eb5c3; }
-.tile-footer { color:#d0dce3; }
-.tile-message.error { color:#ffc8a6; }
 .camera-page-controls { flex-wrap:wrap; margin:10px 0; }
 #camera-range { margin-right:auto; }
 #grid-hint { color:var(--subtle); font-size:11px; }
@@ -2024,3 +2022,8 @@ body:has(#app:not([hidden])) #toast { left:auto; right:24px; bottom:calc(24px + 
  .settings-tabs button { padding-inline:8px; }
  .share-url-row { flex-wrap:wrap; }
 }
+
+/* Playback tile focus states */
+.tile-retry:focus-visible, .tile-title:focus-visible, .tile-audio:focus-visible, .tile-expand:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+/* Thin per-tile playback position bar, overlaid on the bottom edge of the picture */
+.camera-tile .tile-progress { grid-row:1; grid-column:1; align-self:end; height:3px; background:#a5edb7; transform:scaleX(0); transform-origin:left; pointer-events:none; z-index:2; }

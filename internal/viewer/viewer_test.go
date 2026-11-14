@@ -285,7 +285,7 @@ func TestIndexAndMedia(t *testing.T) {
 	data, _ := os.ReadFile(file)
 	os.WriteFile(file, append(data, 0), 0600)
 	w = request(a, "GET", "/api/recordings/"+r.ID+"/file", nil, cookie, "")
-	if w.Code != 404 {
+	if w.Code != http.StatusConflict || w.Header().Get("Retry-After") == "" {
 		t.Fatal("changed file served", w.Code)
 	}
 	a.scanDay("2026-10-14")
@@ -329,6 +329,13 @@ func TestH265AndCorruptFile(t *testing.T) {
 	w = request(a, "GET", strings.TrimSuffix(stream.URL, "index.m3u8")+"segment-000000.ts", nil, cookie, "")
 	if w.Code != 200 || w.Body.Len() == 0 {
 		t.Fatal(w.Code)
+	}
+	if got := w.Header().Get("Cache-Control"); got != "private, max-age=300" {
+		t.Fatal("segment cache header", got)
+	}
+	w = request(a, "GET", stream.URL, nil, cookie, "")
+	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Last-Modified") != "" {
+		t.Fatal("playlist must not be cached", w.Code, w.Header())
 	}
 	a.removeStream(stream.ID)
 }
@@ -385,4 +392,110 @@ func TestOriginAndHealth(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 	_, _ = io.Copy(io.Discard, w.Result().Body)
+}
+func TestGrowingRecordingAnswersConflictAndPlaylistIsNotCached(t *testing.T) {
+	a := testApp(t)
+	cookie, session := login(t, a)
+	if err := a.db.SaveCamera(Camera{ID: "camera", Name: "Camera", Folder: "camera", Timezone: "Europe/Berlin"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(a.cfg.RecordingsDir, "camera")
+	os.MkdirAll(dir, 0700)
+	path := filepath.Join(dir, "clip.mp4")
+	if err := os.WriteFile(path, []byte("ftyp-grown"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// The index still holds an older size, as while a recorder appends to the file.
+	if _, err := a.db.Exec(`INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod,filename) VALUES('clip','camera','camera/clip.mp4',1000,30,'h264',3,1,'clip.mp4')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, url := range []string{"/api/recordings/clip/file", "/api/recordings/clip/thumbnail"} {
+		w := request(a, "GET", url, nil, cookie, "")
+		if w.Code != http.StatusConflict || w.Header().Get("Retry-After") == "" {
+			t.Fatal(url, w.Code, w.Body.String())
+		}
+	}
+	w := request(a, "POST", "/api/streams", map[string]any{"recording": "clip"}, cookie, session.CSRF)
+	if w.Code != http.StatusConflict {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}
+func TestSettledChangedRecordingIsReindexedAfterConflict(t *testing.T) {
+	a := testApp(t)
+	c := fixture(t, a, "libx264")
+	a.scanDay("2026-10-14")
+	cookie, _ := login(t, a)
+	rs, _ := a.db.Recordings(c.ID, 0, 2e10)
+	if len(rs) != 1 {
+		t.Fatal(rs)
+	}
+	// The recorder finished and left the file alone, but the index is outdated.
+	file := filepath.Join(a.cfg.RecordingsDir, c.Folder, "2026/10/14/08-30-00.mp4")
+	data, _ := os.ReadFile(file)
+	os.WriteFile(file, append(data, 0), 0600)
+	past := time.Now().Add(-time.Minute)
+	os.Chtimes(file, past, past)
+	// A day that was just scanned is throttled for a minute; the client retries
+	// for two minutes, so the reindex follows. Skip the wait here.
+	a.index.mu.Lock()
+	a.index.last = map[string]time.Time{}
+	a.index.mu.Unlock()
+	if w := request(a, "GET", "/api/recordings/"+rs[0].ID+"/file", nil, cookie, ""); w.Code != http.StatusConflict {
+		t.Fatal("expected conflict", w.Code)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if w := request(a, "HEAD", "/api/recordings/"+rs[0].ID+"/file", nil, cookie, ""); w.Code == 200 {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("recording was not reindexed after it settled")
+}
+func TestSourceChangeDetectionAndSessionFlag(t *testing.T) {
+	a := testApp(t)
+	c := fixture(t, a, "libx264")
+	a.scanDay("2026-10-14")
+	rs, _ := a.db.Recordings(c.ID, 0, 2e10)
+	record, _ := a.db.Recording(rs[0].ID)
+	if a.sourceChangedSince(record) {
+		t.Fatal("unchanged file reported as changed")
+	}
+	cookie, s := login(t, a)
+	w := request(a, "POST", "/api/streams", map[string]any{"recording": rs[0].ID, "transport": "mp4"}, cookie, s.CSRF)
+	if w.Code != 201 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var stream struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &stream)
+	deadline := time.Now().Add(20 * time.Second)
+	var state struct {
+		State         string `json:"state"`
+		SourceChanged bool   `json:"sourceChanged"`
+	}
+	for time.Now().Before(deadline) {
+		w = request(a, "GET", "/api/playback-sessions/"+stream.ID, nil, cookie, "")
+		json.Unmarshal(w.Body.Bytes(), &state)
+		if state.State != "encoding" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if state.State != "complete" || state.SourceChanged {
+		t.Fatal("unchanged source", state)
+	}
+	a.removeStream(stream.ID)
+	// A recorder appending after the index entry was written is detected.
+	file := filepath.Join(a.cfg.RecordingsDir, c.Folder, "2026/10/14/08-30-00.mp4")
+	data, _ := os.ReadFile(file)
+	os.WriteFile(file, append(data, 0), 0600)
+	if !a.sourceChangedSince(record) {
+		t.Fatal("grown file not detected")
+	}
+	os.Remove(file)
+	if !a.sourceChangedSince(record) {
+		t.Fatal("removed file not detected")
+	}
 }

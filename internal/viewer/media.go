@@ -19,6 +19,21 @@ import (
 	"time"
 )
 
+// errRecordingChanged reports that the file differs from its index entry, which
+// is normal while a recorder still writes it.
+var errRecordingChanged = errors.New("Aufnahme wird gerade geschrieben oder wurde geändert")
+
+// sourceFailure answers a failed source lookup: a recording that is still
+// being written is a temporary condition the client retries, not a missing file.
+func sourceFailure(w http.ResponseWriter, e error, missing string) {
+	if errors.Is(e, errRecordingChanged) {
+		w.Header().Set("Retry-After", "5")
+		fail(w, http.StatusConflict, e.Error())
+		return
+	}
+	fail(w, 404, missing)
+}
+
 type stream struct {
 	id, owner, dir string
 	cancel         context.CancelFunc
@@ -26,6 +41,9 @@ type stream struct {
 	last           time.Time
 	created        time.Time
 	err            error
+	// sourceChanged is set when the recording was modified while ffmpeg read it,
+	// so the output may end before the real end of the file.
+	sourceChanged bool
 }
 
 func (a *App) source(id string) (Recording, *os.File, error) {
@@ -40,14 +58,49 @@ func (a *App) source(id string) (Recording, *os.File, error) {
 	st, e := f.Stat()
 	if e != nil || st.Size() != r.Size || st.ModTime().UnixNano() != r.Mod {
 		f.Close()
-		return r, nil, errors.New("Aufnahme wurde geändert; Index bitte aktualisieren")
+		if e == nil {
+			a.reindexSettled(r, st)
+		}
+		return r, nil, errRecordingChanged
 	}
 	return r, f, nil
+}
+
+// reindexSettled queues a rescan of the recording's day once the recorder has
+// left the file alone long enough, so a finished clip becomes playable without
+// waiting for the next scheduled scan. Files still being written are skipped.
+func (a *App) reindexSettled(r Recording, st os.FileInfo) {
+	if time.Since(st.ModTime()) < 30*time.Second || st.Size() == 0 {
+		return
+	}
+	c, e := a.db.Camera(r.CameraID)
+	if e != nil {
+		return
+	}
+	loc, e := cachedLocation(c.Timezone)
+	if e != nil {
+		return
+	}
+	date := time.Unix(0, int64(r.Start*1e9)).In(loc).Format("2006-01-02")
+	a.queueScan(scanJob{date: date, camera: c.ID, incremental: true}, false)
+}
+
+// sourceChangedSince reports whether the file no longer matches the index
+// entry it was verified against when the stream started, for example because a
+// recorder kept appending while the encoder read it.
+func (a *App) sourceChangedSince(r Recording) bool {
+	f, e := openSource(a.root, r.Path)
+	if e != nil {
+		return true
+	}
+	defer f.Close()
+	st, e := f.Stat()
+	return e != nil || st.Size() != r.Size || st.ModTime().UnixNano() != r.Mod
 }
 func (a *App) file(w http.ResponseWriter, r *http.Request) {
 	record, f, e := a.source(r.PathValue("id"))
 	if e != nil {
-		fail(w, 404, "Aufnahme nicht verfügbar; Index gegebenenfalls aktualisieren")
+		sourceFailure(w, e, "Aufnahme nicht verfügbar; Index gegebenenfalls aktualisieren")
 		return
 	}
 	defer f.Close()
@@ -61,12 +114,13 @@ func (a *App) file(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Cache-Control", "private, no-cache")
 	http.ServeContent(w, r, "recording.mp4", time.Unix(0, record.Mod), f)
 }
 func (a *App) thumbnail(w http.ResponseWriter, r *http.Request) {
 	record, f, e := a.source(r.PathValue("id"))
 	if e != nil {
-		fail(w, 404, "Vorschau nicht verfügbar")
+		sourceFailure(w, e, "Vorschau nicht verfügbar")
 		return
 	}
 	defer f.Close()
@@ -219,7 +273,7 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 	}
 	record, f, e := a.source(input.Recording)
 	if e != nil {
-		fail(w, 404, "Aufnahme nicht verfügbar")
+		sourceFailure(w, e, "Aufnahme nicht verfügbar")
 		return
 	}
 	defer f.Close()
@@ -285,8 +339,13 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("ffmpeg beendet mit Fehler", "stream", id, "encoder", encoder, "error", e)
 			}
 			cancel()
+			changed := a.sourceChangedSince(record)
+			if changed {
+				slog.Info("Aufnahme wurde während der Umwandlung verändert", "stream", id)
+			}
 			a.mediaMu.Lock()
 			s.err = e
+			s.sourceChanged = changed
 			a.mediaMu.Unlock()
 			a.releaseEncoder()
 			close(s.done)
@@ -504,10 +563,16 @@ func (a *App) streamFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if strings.HasSuffix(name, ".m3u8") {
+		// The playlist grows while FFmpeg encodes. A cacheable or conditional
+		// answer would hand the player a stale list and stall it at the end.
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	} else {
-		w.Header().Set("Content-Type", "video/mp2t")
+		w.Header().Set("Cache-Control", "no-store")
+		http.ServeContent(w, r, name, time.Time{}, f)
+		return
 	}
+	// Finished segments never change, so the player may reuse them when seeking back.
+	w.Header().Set("Content-Type", "video/mp2t")
+	w.Header().Set("Cache-Control", "private, max-age=300")
 	http.ServeContent(w, r, name, st.ModTime(), f)
 }
 func (a *App) deleteStream(w http.ResponseWriter, r *http.Request) {

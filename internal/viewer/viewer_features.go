@@ -332,7 +332,7 @@ func (a *App) playbackSession(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 	}
-	jsonOut(w, 200, map[string]any{"id": s.id, "state": state, "created": s.created, "lastAccess": s.last})
+	jsonOut(w, 200, map[string]any{"id": s.id, "state": state, "created": s.created, "lastAccess": s.last, "sourceChanged": s.sourceChanged})
 }
 func (a *App) previewTimestamp(ctx context.Context, c Camera, name, relative string) (time.Time, error) {
 	t, e := cameraTimestamp(c, relative)
