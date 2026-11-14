@@ -37,6 +37,8 @@ playwright-report/
 /.local-reports/
 /TEST_REPORT.md
 /UI_REVIEW.md
+/FEATURE_MATRIX.md
+/THIRD_PARTY.md
 *.log
 
 # Lokale Editor- und Betriebssystemdateien.

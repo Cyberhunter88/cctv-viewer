@@ -2026,4 +2026,9 @@ body:has(#app:not([hidden])) #toast { left:auto; right:24px; bottom:calc(24px + 
 /* Playback tile focus states */
 .tile-retry:focus-visible, .tile-title:focus-visible, .tile-audio:focus-visible, .tile-expand:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 /* Thin per-tile playback position bar, overlaid on the bottom edge of the picture */
+.camera-tile > video, .camera-tile > .tile-footer { grid-column:1; }
 .camera-tile .tile-progress { grid-row:1; grid-column:1; align-self:end; height:3px; background:#a5edb7; transform:scaleX(0); transform-origin:left; pointer-events:none; z-index:2; }
+
+/* Camera chips keep their text on one line and move to their own row when the heading is wide. */
+.camera-filters { flex:1 1 280px; min-width:0; }
+.camera-filters .filter { white-space:nowrap; }
