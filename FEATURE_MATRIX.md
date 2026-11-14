@@ -4,6 +4,14 @@ Referenz: [cctv-timeline-viewer-core, Commit 9c3128c756430529dc5c34c52d6bb4e8e5c
 Abgleich von README, Kamera-/Such-/System-APIs, Indexierung, Hotspot und Oberfläche.
 Eigenständiger Nachbau in Go/TypeScript; Originalcode und Assets wurden nicht übernommen.
 
+## Änderungen ab 0.16.1
+
+| Funktion | Änderung | Nachweis |
+|---|---|---|
+| Aufnahme wird noch geschrieben | Original, Vorschau und Stream-Start antworten mit `409` und `Retry-After`; die Kachel wartet mit Versuchszähler und zeigt danach eine klare Meldung | `playback-state.test.ts`, `TestGrowingRecordingAnswersConflictAndPlaylistIsNotCached` |
+| Wiedergabe | Vorab-Prüfung nur einmal je Aufnahme, Pufferungs-Toleranz wächst mit der Geschwindigkeit, wachsende Playlist wird nicht zwischengespeichert | `playback-state.test.ts` |
+| Kachelzustände | Ladeanzeige, themenfähige Meldungsfarben, Fokusrahmen, reduzierte Bewegung | `style.css` |
+
 ## Änderungen ab 0.16.0
 
 Aufräumversion: weniger genutzte Funktionen wurden entfernt, um Oberfläche und Wartung zu verkleinern.
