@@ -389,7 +389,8 @@
  .saved-view-form input { width:min(260px,70vw); }
  #reorder-hint { flex-basis:100%; margin:0; }
  .camera-filters { display:flex; flex-wrap:wrap; gap:var(--space-2); flex:1 1 280px; min-width:0; }
- .camera-filters .filter { cursor:grab; }
+ /* Short names stay on one line; very long names wrap instead of widening the page. */
+ .camera-filters .filter { cursor:grab; white-space:normal; overflow-wrap:anywhere; text-align:left; }
  .camera-filters .filter:active { cursor:grabbing; }
  .chip-move { display:inline-flex; align-items:center; gap:2px; }
  .chip-move .chip-move-button { font-size:18px; }
