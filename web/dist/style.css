@@ -452,25 +452,33 @@ label small {
   background: linear-gradient(transparent,#0b0f13cc);
   pointer-events: none
 }
+/* Tiles stay dark in both themes (video background), so message colours are fixed light tones. */
 .tile-message {
   position: absolute;
-  inset: 45px 18px;
+  inset: 34px 8px 32px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   text-align: center;
-  gap: 12px;
+  gap: 4px;
   pointer-events: none;
-  color: #5b6d78;
-  font-size: 12px
+  color: #b7c6ce;
+  font-size: 12px;
+  overflow: auto
 }
 .tile-message .symbol {
-  font-size: 32px;
-  color: #374b56
+  font-size: 22px;
+  color: #9eb5c3
 }
 .tile-message.error {
-  color: #ddae8f
+  color: #ffc8a6
+}
+.tile-message .tile-message-text { max-width: 32ch; line-height: 1.4 }
+.tile-message .symbol.spinner { width: 22px; height: 22px; border: 2px solid #4d6a5a; border-top-color: #a5edb7; border-radius: 50%; animation: tile-spin .9s linear infinite }
+@keyframes tile-spin { to { transform: rotate(360deg) } }
+@media (prefers-reduced-motion: reduce) {
+  .tile-message .symbol.spinner { animation: none }
 }
 .transport,.timeline-tools {
   display: flex;
@@ -1290,10 +1298,7 @@ input[type=checkbox] {
 .tile-header { gap:6px; }
 .camera-tile .tile-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; display:block; }
 .tile-header small { flex-shrink:0; }
-.tile-message { inset:34px 8px 32px; gap:4px; color:#b7c6ce; font-size:12px; overflow:auto; }
-.tile-message .symbol { font-size:22px; color:#9eb5c3; }
 .tile-footer { color:#d0dce3; }
-.tile-message.error { color:#ffc8a6; }
 .camera-page-controls { flex-wrap:wrap; margin:10px 0; }
 #camera-range { margin-right:auto; }
 #grid-hint { color:var(--subtle); font-size:11px; }
@@ -2025,19 +2030,7 @@ body:has(#app:not([hidden])) #toast { left:auto; right:24px; bottom:calc(24px + 
  .share-url-row { flex-wrap:wrap; }
 }
 
-/* Playback tile states: spinner, message colours, focus */
-/* Tiles stay dark in both themes (video background), so message colours are fixed light tones. */
-.tile-message { color:#b7c6ce; }
-.tile-message .symbol { color:#9eb5c3; }
-.tile-message.error { color:#ffc8a6; }
-.tile-message .symbol.spinner { border-color:#4d6a5a; border-top-color:#a5edb7; }
-.tile-message .tile-message-text { max-width:32ch; line-height:1.4; }
-.tile-message .symbol.spinner { width:22px; height:22px; border-width:2px; border-style:solid; border-radius:50%; animation:tile-spin .9s linear infinite; }
-@keyframes tile-spin { to { transform:rotate(360deg); } }
+/* Playback tile focus states */
 .tile-retry:focus-visible, .tile-title:focus-visible, .tile-audio:focus-visible, .tile-expand:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-@media (prefers-reduced-motion: reduce) {
-  .tile-message .symbol.spinner { animation:none; }
-}
-
 /* Thin per-tile playback position bar, overlaid on the bottom edge of the picture */
 .camera-tile .tile-progress { grid-row:1; grid-column:1; align-self:end; height:3px; background:#a5edb7; transform:scaleX(0); transform-origin:left; pointer-events:none; z-index:2; }
