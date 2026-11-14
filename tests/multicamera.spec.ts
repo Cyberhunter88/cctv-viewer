@@ -84,7 +84,7 @@ test('light, dark and system modes persist and redraw canvas and dialogs',async(
   await page.locator('#preferences-close').click();await openNavigation(page,'search-button');await page.screenshot({path:info.outputPath(`${theme}-search.png`),fullPage:true});await page.locator('#search-close').click();
   await openNavigation(page,'settings-button');await page.screenshot({path:info.outputPath(`${theme}-settings.png`),fullPage:true});await page.locator('#close-dialog').click();
   const background=await page.locator('#overview').evaluate((c:HTMLCanvasElement)=>Array.from(c.getContext('2d')!.getImageData(10,5,1,1).data));
-  const expected=theme==='light'?[220,229,234]:[37,53,64];
+  const expected=theme==='light'?[230,233,238]:[34,39,47];
   for(let i=0;i<3;i++)expect(Math.abs(background[i]-expected[i])).toBeLessThanOrEqual(2);
  }
  await openNavigation(page,'preferences-button');await (await preferenceControl(page,'theme')).selectOption('system');await savePreferences(page);await page.emulateMedia({colorScheme:'dark'});await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await page.emulateMedia({colorScheme:'light'});await expect(page.locator('html')).toHaveAttribute('data-theme','light');await page.reload();await expect(page.locator('#theme')).toHaveValue('system');

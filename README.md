@@ -323,10 +323,21 @@ springen wahlweise 5, 10 oder 30 Sekunden, mit Umschalt immer 60 Sekunden.
 Eine Tastenübersicht steht auf der Einstellungsseite. Eingabefelder behalten ihre
 normale Tastaturbedienung.
 
-### Barrierefreiheit (ab 0.17.0)
+### Erscheinungsbild (ab 0.18.0)
+
+Die Oberfläche nutzt ein ruhiges Design-System mit neutralen Grautönen und einer
+Akzentfarbe, damit das Kamerabild im Mittelpunkt steht. Farben, Abstände, Radien und
+Schriftgrößen sind als gemeinsame Variablen definiert und gelten für Hell, Dunkel und
+die kompakte Oberflächendichte. Aufnahmen, Zeitleiste, Einstellungen, Suche und
+Verwaltung verwenden dieselben Schaltflächen, Chips, Karten und Seitenköpfe. Unter
+Windows mit hohem Kontrast bleiben Ränder und Auswahl sichtbar.
+
+### Barrierefreiheit (ab 0.17.0, erweitert in 0.18.0)
 
 Die Oberfläche orientiert sich an WCAG 2.2 Stufe AA und wird in Hell und Dunkel
-automatisch mit axe geprüft. Ein Link „Zum Inhalt springen“ führt an der Navigation
+automatisch mit axe geprüft, seit 0.18.0 auch in Smartphone-Breite mit kompakter
+Dichte. Texte erreichen mindestens 4,5:1, Bedienelemente und Fokusrahmen mindestens
+3:1; Schaltflächen sind mindestens 44 × 44 Pixel groß. Ein Link „Zum Inhalt springen“ führt an der Navigation
 vorbei. Fokusrahmen sind auch auf farbigen Schaltflächen sichtbar; Eingabefelder
 und Kamera-Chips haben Ränder mit mindestens 3:1 Kontrast. Zeitleiste und
 Tagesübersicht sind Schieberegler: Pfeiltasten, Bild auf/ab sowie Pos1/Ende
