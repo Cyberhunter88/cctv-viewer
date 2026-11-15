@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {classifyLoadIssue, nativeErrorConverts, nextWritingStep, stallTimeoutMs, streamQuality, WRITING_MAX_RETRIES} from './playback-state.ts';
+import {classifyLoadIssue, conversionTooSlow, nativeErrorConverts, nextWritingStep, stallTimeoutMs, streamQuality, WRITING_MAX_RETRIES} from './playback-state.ts';
 
 test('classifies HTTP statuses of failed loads', () => {
   assert.equal(classifyLoadIssue(409, 'x').kind, 'writing');
@@ -58,4 +58,19 @@ test('a native load error converts only codecs the browser does not claim to dec
   assert.equal(nativeErrorConverts('mjpeg', h264Only), true);
   assert.equal(streamQuality('native', 'h264', () => '', new Set()), 'full');
   assert.equal(streamQuality('native', 'mjpeg', h264Only, new Set()), 'native');
+});
+
+test('full conversion falls back to balanced after three separate stalls within 30 seconds', () => {
+  const stalls: number[] = [];
+  assert.equal(conversionTooSlow(stalls, 10000, 0), false);
+  assert.equal(conversionTooSlow(stalls, 10500, 0), false, 'events of one stall count once');
+  assert.equal(conversionTooSlow(stalls, 14000, 13000), false, 'a stall right after a seek is expected');
+  assert.equal(conversionTooSlow(stalls, 15000, 0), false);
+  assert.equal(conversionTooSlow(stalls, 45000, 0), false, 'old stalls leave the window');
+  assert.equal(conversionTooSlow(stalls, 50000, 0), false);
+  assert.equal(conversionTooSlow(stalls, 55000, 0), true);
+  const h264 = (type: string) => type.includes('avc1') ? 'probably' : '';
+  assert.equal(streamQuality('native', 'hevc', h264, new Set(), true), 'balanced');
+  assert.equal(streamQuality('native', 'h264', h264, new Set(), true), 'native');
+  assert.equal(streamQuality('fast', 'hevc', h264, new Set(), true), 'fast');
 });
