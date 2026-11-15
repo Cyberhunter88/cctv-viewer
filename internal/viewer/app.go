@@ -55,8 +55,11 @@ type App struct {
 	thumbSlots      chan struct{}
 	assets          fs.FS
 	hardwareBlocked atomic.Int64
-	assetOnce       sync.Once
-	assetCache      map[string]staticAsset
+	// hardwareDecodeBlocked maps a source codec to the Unix time until which the GPU is not
+	// asked to decode it, after its hardware decoder refused the codec.
+	hardwareDecodeBlocked sync.Map
+	assetOnce             sync.Once
+	assetCache            map[string]staticAsset
 }
 
 func New(ctx context.Context, cfg Config, assets fs.FS) (*App, error) {
