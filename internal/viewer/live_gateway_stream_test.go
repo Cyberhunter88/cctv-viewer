@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -84,14 +85,22 @@ func TestLiveGatewayForwardsLargeCameraPackets(t *testing.T) {
 		t.Fatalf("simulated camera is not clean: %v\n%s", err, out)
 	}
 	u := &url.URL{Scheme: "rtsp", Host: a.cfg.LiveRTSPAddress, Path: "/live/camera/wide/fast", User: url.UserPassword("homeassistant", share.Password)}
-	// Decode five seconds like Home Assistant's stream worker; any lost packet shows up as a decoding error.
+	// Decode five seconds like Home Assistant's stream worker. A reader joins mid-GOP, so the
+	// frames before the first keyframe may not decode; everything after it must arrive. Before
+	// the fix the share delivered no frame at all.
 	readCtx, readCancel := context.WithTimeout(ctx, 20*time.Second)
 	defer readCancel()
-	reader := exec.CommandContext(readCtx, "ffmpeg", "-nostdin", "-v", "error", "-rtsp_transport", "tcp", "-i", u.String(), "-t", "5", "-f", "null", "-")
-	out, err := reader.CombinedOutput()
-	text := strings.ReplaceAll(string(out), share.Password, "[redacted]")
-	if err != nil || strings.TrimSpace(text) != "" {
-		t.Fatalf("gateway stream was not clean (%d packets dropped): %v\n%s", a.metrics.liveDrops.Load(), err, text)
+	reader := exec.CommandContext(readCtx, "ffmpeg", "-nostdin", "-v", "error", "-rtsp_transport", "tcp", "-i", u.String(), "-t", "5", "-f", "null", "-progress", "pipe:1", "-")
+	out, err := reader.Output()
+	frames := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		if value, ok := strings.CutPrefix(line, "frame="); ok {
+			frames, _ = strconv.Atoi(strings.TrimSpace(value))
+		}
+	}
+	// 5 s at 15 fps are 75 frames; at most one GOP (15 frames) may precede the first keyframe.
+	if err != nil || frames < 58 {
+		t.Fatalf("gateway delivered %d of 75 frames (%d packets dropped): %v", frames, a.metrics.liveDrops.Load(), err)
 	}
 	if drops := a.metrics.liveDrops.Load(); drops != 0 {
 		t.Fatalf("gateway dropped %d packets", drops)

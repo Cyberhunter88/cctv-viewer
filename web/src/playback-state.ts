@@ -64,6 +64,22 @@ export function prefetchTarget<T extends ClipRef>(records: T[], current: ClipRef
 export function streamQuality(selected: string, codec: string, canPlayType: (type: string) => string, unsupported: ReadonlySet<string>): string {
   if (selected !== 'native') return selected;
   if (unsupported.has(codec)) return 'full';
-  if (codec === 'hevc' && !canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"') && !canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"')) return 'full';
-  return 'native';
+  return codecPlayable(codec, canPlayType) === false ? 'full' : 'native';
+}
+const codecTypes: Record<string, string[]> = {
+  h264: ['video/mp4; codecs="avc1.42E01E"', 'video/mp4; codecs="avc1.640028"'],
+  hevc: ['video/mp4; codecs="hvc1.1.6.L93.B0"', 'video/mp4; codecs="hev1.1.6.L93.B0"'],
+};
+/** Whether the browser reports it can decode the codec; undefined for codecs it cannot be asked about. */
+export function codecPlayable(codec: string, canPlayType: (type: string) => string): boolean | undefined {
+  const types = codecTypes[codec];
+  return types ? types.some(type => canPlayType(type) !== '') : undefined;
+}
+/**
+ * A native "source not supported" error only means an undecodable codec when the browser
+ * does not claim support for it. Otherwise it is transient, for example an aborted request
+ * while a new source starts (WebKit), and the original is retried instead of converted.
+ */
+export function nativeErrorConverts(codec: string, canPlayType: (type: string) => string): boolean {
+  return codecPlayable(codec, canPlayType) !== true;
 }

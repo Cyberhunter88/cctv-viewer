@@ -58,15 +58,19 @@ test('tiles offer picture-in-picture and a visible hotspot marker',async({page})
 });
 
 test('original quality falls back to a full-resolution conversion when the browser cannot decode it',async({page})=>{
+ // The browser reports no support for the recording codec, as Chrome on Linux does for H.265.
+ await page.addInitScript(()=>{const original=HTMLMediaElement.prototype.canPlayType;HTMLMediaElement.prototype.canPlayType=function(type:string){return /avc1|hvc1|hev1/.test(type)?'':original.call(this,type)} as typeof original});
  await login(page);
- const profiles:string[]=[];page.on('request',request=>{if(request.url().endsWith('/api/streams')&&request.method()==='POST')profiles.push(request.postDataJSON().profile)});
- // An undecodable original stands in for H.265 in a browser without HEVC support.
- await page.route('**/api/recordings/*/file',route=>route.request().method()==='HEAD'?route.fulfill({status:200,headers:{'Content-Type':'video/mp4'}}):route.fulfill({status:200,headers:{'Content-Type':'video/mp4'},body:'not a video'}));
+ const profiles:string[]=[],originals:string[]=[];
+ page.on('request',request=>{if(request.url().endsWith('/api/streams')&&request.method()==='POST')profiles.push(request.postDataJSON().profile);if(request.url().endsWith('/file'))originals.push(request.method())});
  await expect(page.locator('#quality')).toHaveValue('native');
  await seekToRecording(page);await page.locator('#play').click();
  await expect.poll(()=>profiles.includes('full'),{timeout:20000}).toBe(true);
  await expect(page.locator('#toast-text')).toContainText('voller Auflösung');
  await expect.poll(()=>page.locator('.camera-tile video').first().evaluate(v=>(v as HTMLVideoElement).readyState),{timeout:25000}).toBeGreaterThanOrEqual(2);
  await expect(page.locator('.camera-tile .tile-header small').first()).toContainText('umgewandelt');
- expect(profiles.every(profile=>profile==='full')).toBe(true);
+ expect(profiles.every(profile=>profile==='full')).toBe(true);expect(originals).toEqual([]);
+ // Release the conversion: the shared test server counts streams across tests.
+ await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));
+ await expect.poll(async()=>(await(await page.request.get('/api/playback-status')).json()).sessions,{timeout:15000}).toBe(0);
 });

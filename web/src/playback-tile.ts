@@ -1,7 +1,7 @@
 import type Hls from 'hls.js';
 import { recordingAt, clock, type Recording } from './timeline';
 import type { ViewState } from './view-state';
-import { WRITING_RETRY_MS, classifyLoadIssue, nextWritingStep, prefetchTarget, stallTimeoutMs, streamQuality } from './playback-state';
+import { WRITING_RETRY_MS, classifyLoadIssue, nativeErrorConverts, nextWritingStep, prefetchTarget, stallTimeoutMs, streamQuality } from './playback-state';
 // Linux WebKit's GStreamer MediaSource can fail with multiple HLS audio streams.
 // Fragmented MP4 avoids that backend path and still supports compressed playback.
 const useProgressiveOnLinuxWebKit = navigator.platform.startsWith('Linux') && navigator.vendor === 'Apple Computer, Inc.';
@@ -228,7 +228,7 @@ export class Tile {
     footer.append(actions);
     this.video.addEventListener('error', () => {
       if (this.record && !this.loading) {
-        if (this.context.quality() === 'native' && !this.stream && this.video.error?.code === 4) {
+        if (this.context.quality() === 'native' && !this.stream && this.video.error?.code === 4 && nativeErrorConverts(this.record.codec, type => this.video.canPlayType(type))) {
           // The browser cannot decode this codec: continue with a full-resolution conversion.
           unsupportedCodecs.add(this.record.codec);
           noteConversion(this.context);
@@ -499,7 +499,7 @@ export class Tile {
     if (!this.record || this.loading || this.failed) {
       return;
     }
-    const target = (this.context.cursor() - this.record.start - this.offset) / this.factor;
+    const target = this.target(this.record);
     if (this.stream && (target < -.1 || this.loadedSpeed !== this.context.speed() || target > this.video.currentTime + 3 && this.video.readyState >= 1 && !Array.from({ length: this.video.buffered.length }, (_, i) => [this.video.buffered.start(i), this.video.buffered.end(i)]).some(([a, b]) => target >= a && target < b))) {
       // Scrubbing moves the cursor many times; only the last position starts an encoder.
       if (this.reloadTimer === undefined) {
@@ -516,13 +516,11 @@ export class Tile {
     // While playing, small drift is corrected by the playback rate. A paused picture follows
     // every new cursor position exactly, so single-frame steps (, and .) are visible; it seeks
     // once per position, because browsers may report a time rounded to the nearest frame.
-    // Pausing keeps the shown frame as the starting point instead of jumping to the cursor.
+    // paused() records where the picture stopped, so the first step after pausing is seen as a move.
     const paused = !this.context.playing(), drift = Math.abs(this.video.currentTime - target) > .65 / this.factor;
-    if (!paused) this.pausedTarget = undefined;
-    else if (this.pausedTarget === undefined && !drift && this.video.readyState >= 1) this.pausedTarget = target;
     const moved = paused && this.pausedTarget !== undefined ? Math.abs(target - this.pausedTarget) > .001 : drift;
+    this.pausedTarget = paused && this.video.readyState >= 1 ? target : undefined;
     if (this.video.readyState >= 1 && moved && Math.abs(this.video.currentTime - target) > .001) {
-      if (paused) this.pausedTarget = target;
       try {
         this.conceal();
         this.reveal();
@@ -623,8 +621,12 @@ export class Tile {
       }
     }
   }
+  /** Position in the loaded media that matches the shared cursor. */
+  target(record: Recording) { return (this.context.cursor() - record.start - this.offset) / this.factor; }
   paused() {
     this.video.pause();
+    // The stopped picture is the starting point for frame steps (, and .) while paused.
+    if (this.record && !this.loading && this.video.readyState >= 1) this.pausedTarget = this.target(this.record);
     clearTimeout(this.stallTimer);
     if (this.stream) {
       const id = this.stream;
