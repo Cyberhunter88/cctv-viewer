@@ -2,8 +2,12 @@ import {registerPage,navigate} from './navigation';
 import {LivePlayer} from './live-player';
 import {liveSelection,type LivePreferences} from './live-state';
 import {gridSize,moveCamera} from './view-state';
-import {expandTile,collapseTile,expandedTile} from './expanded-tile';
+import {collapseTile,toggleEnlarged} from './expanded-tile';
 import {wrapChipWithMoveButtons,createReorderToggle} from './chip-order';
+import {setControlIcon} from './playback-tile';
+// Live expand buttons show whether their tile is currently enlarged.
+function syncLiveExpand(){for(const b of document.querySelectorAll('#live-grid .live-expand')){const tile=b.closest('.live-tile');setControlIcon(b,tile&&(document.fullscreenElement===tile||tile.classList.contains('expanded'))?'collapse':'expand')}}
+document.addEventListener('fullscreenchange',syncLiveExpand);document.addEventListener('tileexpandchange',syncLiveExpand);
 interface Camera{id:string;name:string;viewMode?:string}
 interface Capability{enabled:boolean;high:boolean;zoom:boolean;zoomHigh:boolean}
 interface LiveInfo{ready:boolean;message:string;webrtc?:boolean;cameras:Record<string,Capability>}
@@ -11,7 +15,7 @@ type Context={api:<T>(url:string,options?:RequestInit)=>Promise<T>;cameras:()=>C
 export function initLivePage(c:Context){
  const root=document.createElement('section');root.id='live-page';root.className='content-page';root.setAttribute('role','main');root.hidden=true;
  root.innerHTML=`<div class="page-heading"><div><span class="eyebrow">Jetzt vor Ort</span><h1>Liveansicht</h1></div><span id="live-service-status" class="muted" role="status"></span></div>
- <section class="archive-controls" aria-label="Livekameras auswählen"><div class="view-toolbar"><p class="muted">Aktuelle Kamerabilder</p><label class="compact-label">Ansicht<select id="live-layout"><option value="auto">Automatisch</option><option value="1x1">1 × 1</option><option value="2x2">2 × 2</option><option value="3x3">3 × 3</option><option value="4x4">4 × 4</option></select></label></div><section class="camera-selection" aria-label="Livekameraauswahl"><div class="selection-heading"><strong>Kameras</strong><div><button id="live-select-all" class="text-button" type="button">Alle</button><button id="live-select-none" class="text-button" type="button">Keine</button></div></div><p class="setting-help">Reihenfolge: Kamera ziehen, „Reihenfolge ändern“ wählen oder Alt + Pfeil links/rechts auf einer Kamera.</p><div id="live-camera-filters" class="camera-filters"></div></section></section>
+ <section class="archive-controls" aria-label="Livekameras auswählen"><div class="view-toolbar"><p class="muted">Aktuelle Kamerabilder</p><label class="compact-label"><span class="sr-only">Ansicht</span><select id="live-layout" aria-label="Ansicht"><option value="auto">Automatisch</option><option value="1x1">1 × 1</option><option value="2x2">2 × 2</option><option value="3x3">3 × 3</option><option value="4x4">4 × 4</option></select></label></div><section class="camera-selection" aria-label="Livekameraauswahl"><div class="selection-heading"><strong>Kameras</strong><div><button id="live-select-all" class="text-button" type="button">Alle</button><button id="live-select-none" class="text-button" type="button">Keine</button></div></div><p class="setting-help">Reihenfolge: Kamera ziehen, „Reihenfolge ändern“ wählen oder Alt + Pfeil links/rechts auf einer Kamera.</p><div id="live-camera-filters" class="camera-filters"></div></section></section>
  <p id="live-empty" class="empty-filter-hint"></p><div id="live-grid" class="video-grid live-grid"></div><div class="live-pagination"><button id="live-prev" class="button secondary" type="button">← Zurück</button><span id="live-range" role="status"></span><button id="live-next" class="button secondary" type="button">Weiter →</button></div><p><button id="live-setup" class="button secondary" type="button">Livequellen einrichten</button></p>`;
  document.querySelector('.workspace')!.append(root);
  const $=<T extends HTMLElement=HTMLElement>(id:string)=>root.querySelector<T>('#'+id)!;
@@ -62,17 +66,16 @@ export function initLivePage(c:Context){
     const quality=document.createElement('select');quality.setAttribute('aria-label','Livequalität '+heading.textContent);quality.innerHTML='<option value="fast">Schnell</option>';
     if(view==='wide'?capability?.high:capability?.zoomHigh)quality.add(new Option('Hohe Qualität','high'));
     controls.append(quality);
-    const soundState=(b:Element,on:boolean)=>{b.textContent=on?'Ton ausschalten':'Ton einschalten'};
-    const sound=button('Ton einschalten',()=>{if(!video.muted){video.muted=true;soundState(sound,false);return}for(const v of grid.querySelectorAll('video'))v.muted=true;for(const b of grid.querySelectorAll('[data-live-audio]'))soundState(b,false);audio=video;audio.muted=false;soundState(sound,true);void video.play().catch(()=>{video.muted=true;soundState(sound,false)})});sound.dataset.liveAudio='';soundState(sound,false);
-    const fallback=()=>{if(expandedTile()===tile)collapseTile();else expandTile(tile,expand)};
-    const expand=button('Vergrößern',()=>{if(document.fullscreenElement)void document.exitFullscreen();else if(expandedTile()===tile)collapseTile();else if(tile.requestFullscreen)void tile.requestFullscreen().catch(fallback);else fallback()});expand.setAttribute('aria-label','Vergrößern: '+heading.textContent);
+    const soundState=(b:Element,on:boolean)=>{setControlIcon(b,on?'sound':'muted');const label=(on?'Ton ausschalten':'Ton einschalten')+': '+((b as HTMLElement).dataset.cameraName||'');b.setAttribute('aria-label',label);b.setAttribute('title',on?'Ton ausschalten':'Ton einschalten');b.setAttribute('aria-pressed',String(on))};
+    const sound=button('Ton einschalten',()=>{if(!video.muted){video.muted=true;soundState(sound,false);return}for(const v of grid.querySelectorAll('video'))v.muted=true;for(const b of grid.querySelectorAll('[data-live-audio]'))soundState(b,false);audio=video;audio.muted=false;soundState(sound,true);void video.play().catch(()=>{video.muted=true;soundState(sound,false)})});sound.dataset.liveAudio='';sound.dataset.cameraName=heading.textContent||'';sound.className='icon-button live-sound';soundState(sound,false);
+    const expand=button('Vergrößern',()=>void toggleEnlarged(tile,expand).catch(()=>{}));expand.setAttribute('aria-label','Vergrößern: '+heading.textContent);expand.title='Vergrößern';expand.className='icon-button live-expand';setControlIcon(expand,'expand');
     if(view==='wide'&&zoomAvailable(id)){const zoom=button(openZoom.has(id)?'Zoom schließen':'Zoom anzeigen',()=>{if(openZoom.has(id))openZoom.delete(id);else openZoom.add(id);render();document.getElementById('live-zoom-'+id)?.focus()});zoom.id='live-zoom-'+id;zoom.setAttribute('aria-expanded',String(openZoom.has(id)))}
     nodes.set(key,tile);
     // Tiles of a new grid connect 60 ms apart so camera and restreamer do not take all starts at once.
     const start=(delay=0)=>{players.get(key)?.dispose();players.delete(key);if(!info.ready||!capability?.enabled||document.hidden){setStatus(!capability?.enabled?'Livequelle nicht eingerichtet':info.message||'Livebild angehalten');return}
      const launch=()=>{if(nodes.get(key)!==tile||document.hidden)return;players.get(key)?.dispose();players.set(key,new LivePlayer(video,id,view,quality.value,setStatus,()=>{quality.value='fast';qualityHint.textContent='Hohe Qualität nicht verfügbar · schneller Stream aktiv';qualityHint.hidden=false;start()},info.webrtc===true))};
      if(delay>0){setStatus('Verbindung wird aufgebaut …');setTimeout(launch,delay)}else launch()};
-    quality.onchange=()=>{qualityHint.hidden=true;start()};button('Erneut verbinden',()=>start()).setAttribute('aria-label','Erneut verbinden: '+heading.textContent);tile.append(heading,video,status,startButton,qualityHint,controls);group.append(tile);start(Math.min(staggered++*60,900));
+    quality.onchange=()=>{qualityHint.hidden=true;start()};const reconnect=button('Erneut verbinden',()=>start());reconnect.setAttribute('aria-label','Erneut verbinden: '+heading.textContent);reconnect.title='Erneut verbinden';reconnect.className='icon-button live-reconnect';setControlIcon(reconnect,'reconnect');tile.append(heading,video,status,startButton,qualityHint,controls);group.append(tile);start(Math.min(staggered++*60,900));
    }
   }
   $<HTMLButtonElement>('live-prev').disabled=page===0;$<HTMLButtonElement>('live-next').disabled=(page+1)*capacity>=chosen.length;

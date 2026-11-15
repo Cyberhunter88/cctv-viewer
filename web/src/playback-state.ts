@@ -55,3 +55,15 @@ export function prefetchTarget<T extends ClipRef>(records: T[], current: ClipRef
   }
   return best;
 }
+
+/**
+ * "Original" stays the original whenever the browser can decode it. Otherwise (typically
+ * H.265 in Chrome on Linux) the server converts it with the "full" profile, which keeps
+ * the resolution and frame rate. Codecs the browser already refused are not tried again.
+ */
+export function streamQuality(selected: string, codec: string, canPlayType: (type: string) => string, unsupported: ReadonlySet<string>): string {
+  if (selected !== 'native') return selected;
+  if (unsupported.has(codec)) return 'full';
+  if (codec === 'hevc' && !canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"') && !canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"')) return 'full';
+  return 'native';
+}

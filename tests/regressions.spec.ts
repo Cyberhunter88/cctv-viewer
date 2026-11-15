@@ -1,4 +1,4 @@
-import {test,expect} from './fixtures';
+import {test,expect,seekToRecording} from './fixtures';
 test('delayed login initialization keeps username and password entry in their fields',async({page})=>{
  await page.setExtraHTTPHeaders({'X-Forwarded-For':'192.0.2.181'});
  let release!:()=>void;const ready=new Promise<void>(resolve=>release=resolve);
@@ -27,7 +27,7 @@ test('reloading a loaded player keeps the page and saved playback preferences us
  for(const quality of ['balanced','native','balanced']){
   await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen');
   const saved=page.waitForResponse(response=>response.url().endsWith('/api/preferences')&&response.request().method()==='PATCH'&&response.ok());
-  await page.locator('#quality').selectOption(quality);await saved;await page.locator('.thumb').first().click();await page.locator('#play').click();
+  await page.locator('#quality').selectOption(quality);await saved;await seekToRecording(page);await page.locator('#play').click();
   await expect.poll(()=>page.locator('video').first().evaluate(video=>video.readyState),{timeout:25000}).toBeGreaterThanOrEqual(2);
   await page.reload();await expect(page.locator('#app')).toBeVisible();await expect(page.locator('#quality')).toHaveValue(quality);
  }

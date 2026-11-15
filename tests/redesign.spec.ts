@@ -1,4 +1,4 @@
-import {openPage,openNavigation,preferenceControl} from './fixtures';
+import {openPage,openNavigation,preferenceControl,seekToRecording} from './fixtures';
 import {test,expect,savePreferences,type Page} from './fixtures';
 
 test.use({hasTouch:true});
@@ -77,7 +77,7 @@ test.describe('mobile browser',()=>{
  await page.locator('#zoom-in').tap();await expect(page.locator('#zoom-label')).not.toHaveText('24 Std.');
  await page.locator('#reset-zoom').tap();await expect(page.locator('#zoom-label')).toHaveText('24 Std.');
  await page.locator('#skip-back').tap();await expect(page.locator('#clock')).not.toHaveText('12:00:00');
- await page.locator('.thumb').first().tap();
+ await seekToRecording(page);
  await page.locator('#play').tap();await expect(page.locator('#play')).toHaveAttribute('aria-label','Pause');
  await page.locator('#play').tap();await expect(page.locator('#play')).toHaveAttribute('aria-label','Abspielen');
  await expect(page.locator('.timeline-help-touch')).toBeVisible();await expect(page.locator('.timeline-help-pointer')).toBeHidden();

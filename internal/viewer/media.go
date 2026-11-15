@@ -267,7 +267,7 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 	if input.Transport == "" {
 		input.Transport = "hls"
 	}
-	if (input.Profile != "balanced" && input.Profile != "fast") || (input.Transport != "hls" && input.Transport != "mp4") || !contains([]string{"0.25", "0.5", "1", "2", "4", "8", "16"}, strconv.FormatFloat(input.Speed, 'f', -1, 64)) {
+	if (input.Profile != "balanced" && input.Profile != "fast" && input.Profile != "full") || (input.Transport != "hls" && input.Transport != "mp4") || !contains([]string{"0.25", "0.5", "1", "2", "4", "8", "16"}, strconv.FormatFloat(input.Speed, 'f', -1, 64)) {
 		fail(w, 400, "Streamingprofil, Geschwindigkeit oder Transport ungültig")
 		return
 	}
@@ -293,8 +293,11 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 	}
 	duration := math.Min(1800, record.Duration-input.Offset)
 	profile := a.config().Balanced
-	if input.Profile == "fast" {
+	switch input.Profile {
+	case "fast":
 		profile = a.config().Fast
+	case "full":
+		profile = fullProfile
 	}
 	factor := math.Max(1, input.Speed)
 	// attempt runs one encoder and answers the request. It reports true without
@@ -447,9 +450,18 @@ func (a *App) playbackEncoder() string {
 // and returns it with the name of the output file inside dir. Hardware encoders
 // decode in software and upload the scaled frames, which works for every
 // source codec the software path accepts.
+// fullProfile converts originals the browser cannot decode (often H.265) without
+// reducing the resolution; it is not configurable because it mirrors the original.
+var fullProfile = StreamProfile{Scale: 100, FPS: 0, Bitrate: 6000}
+
 func streamArgs(encoder, device string, profile StreamProfile, offset, duration, speed float64, transport, dir string) ([]string, string) {
 	factor := math.Max(1, speed)
-	args := []string{"-nostdin", "-v", "error", "-threads", "1"}
+	// Full resolution in software needs more than one core to keep up with real time.
+	threads := "1"
+	if profile.Scale >= 100 {
+		threads = "0"
+	}
+	args := []string{"-nostdin", "-v", "error", "-threads", threads}
 	switch encoder {
 	case "vaapi":
 		args = append(args, "-vaapi_device", device)
@@ -460,7 +472,11 @@ func streamArgs(encoder, device string, profile StreamProfile, offset, duration,
 	if speed >= 8 && offset == 0 {
 		args = append(args, "-skip_frame", "nokey")
 	}
-	vf := fmt.Sprintf("setpts=(PTS-STARTPTS)/%.3f,scale=trunc(iw*%d/100/2)*2:trunc(ih*%d/100/2)*2,fps=%d", factor, profile.Scale, profile.Scale, profile.FPS)
+	vf := fmt.Sprintf("setpts=(PTS-STARTPTS)/%.3f,scale=trunc(iw*%d/100/2)*2:trunc(ih*%d/100/2)*2", factor, profile.Scale, profile.Scale)
+	// FPS 0 keeps the source frame rate (full profile).
+	if profile.FPS > 0 {
+		vf += fmt.Sprintf(",fps=%d", profile.FPS)
+	}
 	switch encoder {
 	case "vaapi":
 		vf += ",format=nv12,hwupload"
@@ -478,7 +494,11 @@ func streamArgs(encoder, device string, profile StreamProfile, offset, duration,
 		args = append(args, "-c:v", "h264_qsv", "-bf", "0", "-preset", "veryfast", "-b:v", fmt.Sprintf("%dk", profile.Bitrate))
 		args = append(args, rate...)
 	default:
-		args = append(args, "-c:v", "libx264", "-bf", "0", "-preset", "veryfast", "-threads", "1", "-crf", "25")
+		crf := "25"
+		if profile.Scale >= 100 {
+			crf = "20"
+		}
+		args = append(args, "-c:v", "libx264", "-bf", "0", "-preset", "veryfast", "-threads", threads, "-crf", crf)
 		args = append(args, rate...)
 		args = append(args, "-pix_fmt", "yuv420p")
 	}

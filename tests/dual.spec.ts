@@ -1,4 +1,4 @@
-import {openNavigation} from './fixtures';
+import {openNavigation,seekToRecording} from './fixtures';
 import {test,expect,type Page} from './fixtures';
 // The disposable server trusts loopback as a synthetic proxy. Give this test
 // its own client IP so adding a ninth test does not exhaust the login quota.
@@ -44,7 +44,7 @@ test('batch setup, paired views, offset sync, enlargement and cleanup',async({pa
  const firstGroup=page.locator('.camera-group.dual').first();
  await expect(firstGroup.locator('video')).toHaveCount(2);await expect(firstGroup.locator('.tile-title').last()).toContainText('Zoom');
  await expect(firstGroup.locator('.zoom-toggle')).toBeFocused();
- await page.locator('.thumb').first().click();await page.locator('#play').click();
+ await seekToRecording(page);await page.locator('#play').click();
  await expect.poll(()=>page.locator('.camera-group.dual video').first().evaluate(v=>v.currentTime)).toBeGreaterThan(1);
  const times=await firstGroup.locator('video').evaluateAll(v=>v.map(x=>x.currentTime));expect(Math.abs(times[0]-times[1])).toBeLessThan(1);
  await page.locator('#play').click();await page.locator('.camera-group.dual video').first().dblclick();await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(true);await firstGroup.locator('.zoom-toggle').click();await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(false);await expect(firstGroup.locator('video')).toHaveCount(1);await firstGroup.locator('.zoom-toggle').click();await expect(firstGroup.locator('video')).toHaveCount(2);
@@ -98,7 +98,7 @@ test('a failed or missing zoom leaves wide playback running without repeated req
    if(route.request().method()==='POST'&&route.request().postDataJSON().recording===zoomRecord.id){zoomRequests++;await route.fulfill({status:422,contentType:'application/json',body:'{"error":"synthetic zoom failure"}'});return}
    await route.continue();
   });
-  await page.locator('.thumb').first().click();await page.locator('#play').click();await page.locator('#quality').selectOption('fast');
+  await seekToRecording(page);await page.locator('#play').click();await page.locator('#quality').selectOption('fast');
   await expect(zoom.locator('.tile-message.error')).toBeVisible();
   await expect.poll(()=>wide.locator('video').evaluate(v=>v.currentTime),{timeout:20000}).toBeGreaterThan(1);
   expect(zoomRequests).toBe(4);await expect(wide.locator('.tile-message.error')).toHaveCount(0);

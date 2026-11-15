@@ -61,3 +61,18 @@ export async function preferenceControl(page:Page,id:string){
  await openPage(page,'settings/'+(appearance.includes(id)?'appearance':'playback'));
  return page.locator('#'+id);
 }
+
+/**
+ * Moves the playback cursor to the start of the first or last-starting recording of the
+ * shown day with the boundary buttons (the former thumbnail strip did the same).
+ */
+export async function seekToRecording(page:Page,which:'first'|'last'='first'){
+ const date=await page.locator('#date').inputValue();
+ const day=await(await page.request.get('/api/day?date='+encodeURIComponent(date))).json() as {recordings:{start:number;kind?:string}[]};
+ const starts=day.recordings.filter(r=>r.kind!=='image').map(r=>r.start).sort((a,b)=>a-b);
+ const target=which==='first'?starts[0]:starts.at(-1)!;
+ const label=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(new Date(target*1000));
+ await page.locator('#timeline').focus();await page.keyboard.press('Home');
+ for(let step=0;step<40&&await page.locator('#clock').textContent()!==label;step++)await page.locator('#skip-forward').click();
+ await expect(page.locator('#clock')).toHaveText(label);
+}

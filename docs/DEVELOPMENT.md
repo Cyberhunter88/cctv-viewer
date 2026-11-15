@@ -58,6 +58,20 @@ The hook requires `node` and `git` on `PATH`. On CachyOS, ensure `.githooks/pre-
 Run `node scripts/check-secrets.mjs --history` for a read-only audit of all locally available commits. The scanner reports path, commit, line, rule, risk, and masked value. Review findings manually; automated pattern checks cannot prove that a value is live. The older shared PowerShell scanner is outside this repository and is not required by this cross-platform hook.
 
 
+## Browser-Tests ohne Google Chrome
+
+`playwright.config.ts` startet standardmäßig den Kanal `chrome` (Google Chrome unter
+`/opt/google/chrome`). Unter CachyOS oder ohne Chrome-Installation das von Playwright
+geladene Chromium verwenden:
+
+```bash
+npx playwright install chromium
+CTV_TEST_BROWSER="$(ls -d ~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome | tail -n 1)" npm run test:browser
+```
+
+Unter PowerShell `$env:CTV_TEST_BROWSER` auf die `chrome.exe` im Playwright-Cache
+setzen.
+
 ## Archivsuche messen
 
 `npm test` entdeckt alle `*.test.ts` unter `web/src` automatisch, auch in Unterordnern.

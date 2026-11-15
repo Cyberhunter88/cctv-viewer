@@ -1,7 +1,7 @@
 import type Hls from 'hls.js';
 import { recordingAt, clock, type Recording } from './timeline';
 import type { ViewState } from './view-state';
-import { WRITING_RETRY_MS, classifyLoadIssue, nextWritingStep, prefetchTarget, stallTimeoutMs } from './playback-state';
+import { WRITING_RETRY_MS, classifyLoadIssue, nextWritingStep, prefetchTarget, stallTimeoutMs, streamQuality } from './playback-state';
 // Linux WebKit's GStreamer MediaSource can fail with multiple HLS audio streams.
 // Fragmented MP4 avoids that backend path and still supports compressed playback.
 const useProgressiveOnLinuxWebKit = navigator.platform.startsWith('Linux') && navigator.vendor === 'Apple Computer, Inc.';
@@ -23,13 +23,15 @@ export interface TileContext {
   setAudioTile: (tile: Tile | undefined) => void;
   selectHotspot: (id: string) => void;
   toggleFullscreen: (tile: HTMLElement) => Promise<void>;
+  togglePlay: () => void;
+  seekBy: (seconds: number) => void;
   notify: (message: string) => void;
   request: <T>(url: string, options?: RequestInit) => Promise<T>;
 }
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] { const e = document.createElement(tag); e.className = className; e.textContent = text; return e; }
-type ControlIcon = 'expand' | 'collapse' | 'sound' | 'muted';
+export type ControlIcon = 'expand' | 'collapse' | 'sound' | 'muted' | 'play' | 'pause' | 'back' | 'forward' | 'reconnect' | 'pip' | 'target';
 export function setControlIcon(button: Element, name: ControlIcon) {
-  const paths: Record<ControlIcon, string> = { expand: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5', collapse: 'M3 8h5V3m13 5h-5V3M8 21v-5H3m13 5v-5h5', sound: 'M11 5 6 9H3v6h3l5 4V5Zm4 3a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14', muted: 'M11 5 6 9H3v6h3l5 4V5Zm5 4 5 6m0-6-5 6' };
+  const paths: Record<ControlIcon, string> = { expand: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5', collapse: 'M3 8h5V3m13 5h-5V3M8 21v-5H3m13 5v-5h5', sound: 'M11 5 6 9H3v6h3l5 4V5Zm4 3a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14', muted: 'M11 5 6 9H3v6h3l5 4V5Zm5 4 5 6m0-6-5 6', play: 'M7 5v14l12-7L7 5Z', pause: 'M8 5v14m8-14v14', back: 'M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4', forward: 'M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4', reconnect: 'M20 11a8 8 0 0 0-14.6-4M4 4v4h4m-4 5a8 8 0 0 0 14.6 4M20 20v-4h-4', pip: 'M3 5h18v14H3zM12 12h7v5h-7z', target: 'M12 3v4m0 10v4M3 12h4m10 0h4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z' };
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
@@ -42,6 +44,14 @@ export function setControlIcon(button: Element, name: ControlIcon) {
   path.setAttribute('d', paths[name]);
   svg.append(path);
   button.replaceChildren(svg);
+}
+// Codecs the browser refused in this session; their originals are converted at full resolution.
+const unsupportedCodecs = new Set<string>();
+let conversionNoted = false;
+function noteConversion(context: TileContext) {
+  if (conversionNoted) return;
+  conversionNoted = true;
+  context.notify('Der Browser kann das Originalformat nicht abspielen. Es wird in voller Auflösung umgewandelt.');
 }
 export class Tile {
   setMessage(message: string, error = false, busy = true) {
@@ -69,6 +79,36 @@ export class Tile {
     }
   }
   audioButton = element('button', 'tile-audio');
+  playButton = element('button', 'tile-play');
+  flash = element('div', 'tile-flash');
+  clickTimer?: ReturnType<typeof setTimeout>;
+  flashTimer?: ReturnType<typeof setTimeout>;
+  /** True while the tile is shown in native fullscreen or the expanded fallback overlay. */
+  enlarged() { return document.fullscreenElement === this.container || this.container.classList.contains('expanded'); }
+  pipButton = element('button', 'tile-pip');
+  idleTimer?: ReturnType<typeof setTimeout>;
+  /** Shows the controls again and hides them after 2.5 s while an enlarged tile plays. */
+  wake() {
+    this.container.classList.remove('idle');
+    clearTimeout(this.idleTimer);
+    if (this.enlarged() && this.context.playing()) this.idleTimer = setTimeout(() => { if (this.enlarged() && this.context.playing()) this.container.classList.add('idle'); }, 2500);
+  }
+  setPlaying(playing: boolean) {
+    this.wake();
+    setControlIcon(this.playButton, playing ? 'pause' : 'play');
+    const label = playing ? 'Pause' : 'Abspielen';
+    this.playButton.setAttribute('aria-label', label);
+    this.playButton.title = label;
+  }
+  /** Briefly shows the new playback state in the middle of the picture. */
+  flashPlayback() {
+    setControlIcon(this.flash, this.context.playing() ? 'play' : 'pause');
+    this.flash.classList.remove('visible');
+    void this.flash.offsetWidth;
+    this.flash.classList.add('visible');
+    clearTimeout(this.flashTimer);
+    this.flashTimer = setTimeout(() => this.flash.classList.remove('visible'), 600);
+  }
   frameCallback?: number;
   messageState?: string;
   messageError = false;
@@ -109,6 +149,10 @@ export class Tile {
     title.setAttribute('aria-label', title.textContent + ' · Als Hotspot wählen');
     title.title = title.textContent + ' · Als Hotspot wählen';
     title.onclick = () => { this.context.selectHotspot(camera.id); };
+    // In the hotspot layout a visible marker shows that the name selects the large tile.
+    const marker = element('span', 'tile-hotspot-marker');
+    setControlIcon(marker, 'target');
+    title.prepend(marker);
     header.append(title, this.codec);
     const footer = element('div', 'tile-footer');
     footer.append(this.timestamp, element('span', 'tile-status', 'AUFNAHME'));
@@ -116,7 +160,49 @@ export class Tile {
     this.container.append(this.video, header, this.message, this.progress, footer);
     this.container.setAttribute('role', 'group');
     this.container.setAttribute('aria-label', title.textContent!);
-    this.container.ondblclick = () => void this.context.toggleFullscreen(this.container);
+    // Controls of an enlarged tile fade out while the picture plays and nothing moves.
+    for (const type of ['pointermove', 'pointerdown', 'keydown'] as const) this.container.addEventListener(type, () => this.wake());
+    this.container.ondblclick = () => { clearTimeout(this.clickTimer); void this.context.toggleFullscreen(this.container); };
+    // In fullscreen a single click on the picture toggles playback; the delay keeps double-click for closing.
+    this.video.addEventListener('click', () => {
+      if (!this.enlarged()) return;
+      clearTimeout(this.clickTimer);
+      this.clickTimer = setTimeout(() => { this.context.togglePlay(); this.flashPlayback(); }, 250);
+    });
+    const transport = element('div', 'tile-transport');
+    transport.setAttribute('role', 'group');
+    transport.setAttribute('aria-label', 'Wiedergabe');
+    const back = element('button', 'tile-seek'), forward = element('button', 'tile-seek');
+    for (const [button, icon, label, seconds] of [[back, 'back', '10 Sekunden zurück', -10], [forward, 'forward', '10 Sekunden vor', 10]] as const) {
+      button.type = 'button';
+      setControlIcon(button, icon);
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      button.onclick = () => this.context.seekBy(seconds);
+      button.ondblclick = e => e.stopPropagation();
+    }
+    this.playButton.type = 'button';
+    this.playButton.onclick = () => this.context.togglePlay();
+    this.playButton.ondblclick = e => e.stopPropagation();
+    this.setPlaying(this.context.playing());
+    this.pipButton.type = 'button';
+    this.pipButton.hidden = !document.pictureInPictureEnabled;
+    setControlIcon(this.pipButton, 'pip');
+    this.pipButton.setAttribute('aria-label', 'Bild-in-Bild · ' + camera.name);
+    this.pipButton.title = 'Bild-in-Bild';
+    this.pipButton.ondblclick = e => e.stopPropagation();
+    this.pipButton.onclick = () => {
+      const request = document.pictureInPictureElement === this.video ? document.exitPictureInPicture() : this.video.requestPictureInPicture();
+      void request.catch(() => this.context.notify('Bild-in-Bild ist für dieses Video nicht verfügbar.'));
+    };
+    const syncPip = () => this.pipButton.setAttribute('aria-pressed', String(document.pictureInPictureElement === this.video));
+    this.video.addEventListener('enterpictureinpicture', syncPip);
+    this.video.addEventListener('leavepictureinpicture', syncPip);
+    syncPip();
+    transport.append(back, this.playButton, forward);
+    this.flash.setAttribute('aria-hidden', 'true');
+    this.container.append(this.flash);
+    footer.append(transport);
     const expand = element('button', 'tile-expand');
     setControlIcon(expand, 'expand');
     expand.type = 'button';
@@ -136,12 +222,15 @@ export class Tile {
     this.audioButton.ondblclick = e => e.stopPropagation();
     expand.ondblclick = e => e.stopPropagation();
     const actions = element('div', 'tile-actions');
-    actions.append(this.audioButton, expand);
+    actions.append(this.audioButton, this.pipButton, expand);
     footer.append(actions);
     this.video.addEventListener('error', () => {
       if (this.record && !this.loading) {
-        if (this.context.quality() === 'native' && this.video.error?.code === 4) {
-          this.fail('Originalformat im Browser nicht unterstützt. Bitte Ausgewogen oder Schnell wählen');
+        if (this.context.quality() === 'native' && !this.stream && this.video.error?.code === 4) {
+          // The browser cannot decode this codec: continue with a full-resolution conversion.
+          unsupportedCodecs.add(this.record.codec);
+          noteConversion(this.context);
+          void this.load(this.record, true);
         }
         else {
           this.recover('Video konnte nicht geladen werden');
@@ -309,7 +398,9 @@ export class Tile {
     if (recovering && this.recoveryStart) {
       this.recoveryTimer = setTimeout(() => this.fail('Wiederherstellung nach 30 Sekunden beendet'), Math.max(1, 30000 - (performance.now() - this.recoveryStart)));
     }
-    const quality = this.context.quality();
+    const quality = streamQuality(this.context.quality(), record.codec, type => this.video.canPlayType(type), unsupportedCodecs);
+    if (quality === 'full') noteConversion(this.context);
+    this.codec.textContent += quality === 'full' ? ' · umgewandelt' : '';
     try {
       if (quality === 'native') {
         // A HEAD request reveals a recording that is still being written before

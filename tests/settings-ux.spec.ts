@@ -15,19 +15,21 @@ test('preferences are drafts until saved, including theme, reset and validation'
  });
  const session=await(await page.request.get('/api/session')).json();
  const stored=()=>page.evaluate(key=>localStorage.getItem('cctv-view:'+key),session.preferenceKey);
+ // A custom grid shows the column field, the remaining numeric preference for the validation check.
+ const customSaved=page.waitForResponse(response=>response.url().endsWith('/api/preferences')&&response.request().method()==='PATCH'&&response.ok());await page.locator('#layout').selectOption('custom');await customSaved;
  await openPreferences(page);await expect(page.locator('#preferences-save')).toBeDisabled();
  const before=await stored();
- await (await preferenceControl(page,'pref-density')).selectOption('compact');await (await preferenceControl(page,'theme')).selectOption('dark');await (await preferenceControl(page,'aspect')).selectOption('4/3');await (await preferenceControl(page,'pref-showNames')).uncheck();
- await expect(page.locator('html')).toHaveAttribute('data-density','comfortable');await expect(page.locator('html')).toHaveAttribute('data-theme','light');await expect(page.locator('body')).not.toHaveClass(/hide-showNames/);expect(await stored()).toBe(before);
+ await (await preferenceControl(page,'pref-density')).selectOption('compact');await (await preferenceControl(page,'theme')).selectOption('dark');await (await preferenceControl(page,'aspect')).selectOption('4/3');await (await preferenceControl(page,'pref-showTimestamps')).uncheck();
+ await expect(page.locator('html')).toHaveAttribute('data-density','comfortable');await expect(page.locator('html')).toHaveAttribute('data-theme','light');await expect(page.locator('body')).not.toHaveClass(/hide-showTimestamps/);expect(await stored()).toBe(before);
  // System theme updates must not overwrite a user's unsaved selection.
  await page.emulateMedia({colorScheme:'dark'});await page.emulateMedia({colorScheme:'light'});await page.evaluate(()=>window.dispatchEvent(new StorageEvent('storage',{key:'cctv-theme',newValue:null})));await expect(page.locator('#theme')).toHaveValue('dark');
  page.once('dialog',d=>d.dismiss());await page.keyboard.press('Escape');await expect(page.locator('#preferences-dialog')).toBeVisible();await expect(page.locator('#pref-density')).toHaveValue('compact');
  page.once('dialog',d=>d.accept());await page.locator('#preferences-cancel').click();await expect(page.locator('#preferences-dialog')).toBeHidden();
  await openPreferences(page);await expect(page.locator('#pref-density')).toHaveValue('comfortable');await expect(page.locator('#aspect')).toHaveValue('auto');await expect(page.locator('#theme')).toHaveValue('system');await expect(page.locator('#preferences-save')).toBeDisabled();
- await (await preferenceControl(page,'pref-timelineHeight')).fill('20');await page.locator('#preferences-save').click();await expect(page.locator('#preferences-dialog')).toBeVisible();expect(await stored()).toBe(before);
- await (await preferenceControl(page,'pref-timelineHeight')).fill('333');await (await preferenceControl(page,'pref-density')).selectOption('compact');await (await preferenceControl(page,'theme')).selectOption('dark');await (await preferenceControl(page,'aspect')).selectOption('4/3');await persistPreferences(page);
+ await (await preferenceControl(page,'grid-columns')).fill('20');await page.locator('#preferences-save').click();await expect(page.locator('#preferences-dialog')).toBeVisible();expect(await stored()).toBe(before);
+ await (await preferenceControl(page,'grid-columns')).fill('3');await (await preferenceControl(page,'pref-density')).selectOption('compact');await (await preferenceControl(page,'theme')).selectOption('dark');await (await preferenceControl(page,'aspect')).selectOption('4/3');await persistPreferences(page);
  await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await page.reload();await expect(page.locator('#app')).toBeVisible();
- await openPreferences(page);await expect(page.locator('#aspect')).toHaveValue('4/3');await expect(page.locator('#pref-timelineHeight')).toHaveValue('333');await expect(page.locator('#preferences-save')).toBeDisabled();
+ await openPreferences(page);await expect(page.locator('#aspect')).toHaveValue('4/3');await expect(page.locator('#grid-columns')).toHaveValue('3');await expect(page.locator('#preferences-save')).toBeDisabled();
  page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  page.once('dialog',d=>d.accept());await page.locator('#preferences-close').click();await openPreferences(page);await expect(page.locator('#aspect')).toHaveValue('4/3');await expect(page.locator('#pref-density')).toHaveValue('compact');
  page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await persistPreferences(page);await expect(page.locator('html')).toHaveAttribute('data-density','comfortable');await expect(page.locator('html')).toHaveAttribute('data-theme','light');

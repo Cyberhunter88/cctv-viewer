@@ -10,20 +10,20 @@ export function initPreferencesDialog(c:Context){
  const on=(id:string,fn:()=>void|Promise<void>)=>$(id).addEventListener('click',()=>{Promise.resolve(fn()).catch(e=>c.notify(e.message))});
  const preferences=$('preferences-dialog'),preferencesForm=$<HTMLFormElement>('preferences-form');
  let preferencesBaseline='',resetPreferencesPending=false,preferencesSaving=false;
- const preferenceChecks=['showNames','showTimestamps','showCodec','showOverview','showThumbnails','shortcuts'] as const;
+ const preferenceChecks=['showTimestamps','showOverview','showThumbnails','shortcuts'] as const;
  function preferencesSnapshot(){return JSON.stringify(Array.from(preferencesForm.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select')).map(e=>[e.id,e.type==='checkbox'?(e as HTMLInputElement).checked:e.value]))}
  function updatePreferencesSave(){const dirty=resetPreferencesPending||preferencesSnapshot()!==preferencesBaseline;$<HTMLButtonElement>('preferences-save').disabled=!dirty;preferencesForm.dataset.dirty=String(dirty)}
  function syncPreferences(value:ViewState=c.state){
   for(const key of preferenceChecks)$<HTMLInputElement>('pref-'+key).checked=value[key];
-  $<HTMLSelectElement>('pref-density').value=value.density;$<HTMLSelectElement>('pref-seekStep').value=String(value.seekStep);$<HTMLInputElement>('pref-timelineHeight').value=String(value.timelineHeight);
+  $<HTMLSelectElement>('pref-density').value=value.density;$<HTMLSelectElement>('pref-seekStep').value=String(value.seekStep);
   for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).value=value[id];
   $<HTMLInputElement>('grid-columns').value=String(value.columns);$<HTMLInputElement>('grid-rows').value=String(value.rows);$<HTMLInputElement>('auto-hotspot').checked=value.autoHotspot;
   $<HTMLSelectElement>('theme').value=$<HTMLSelectElement>('login-theme').value;
  }
  function applyPreferences(){
   document.documentElement.dataset.density=c.state.density;
-  for(const key of ['showNames','showTimestamps','showCodec'] as const)document.body.classList.toggle('hide-'+key,!c.state[key]);
-  $('overview').hidden=!c.state.showOverview;$('thumbnails').hidden=!c.state.showThumbnails;if(preferences.hidden)syncPreferences();c.scheduleResize();
+  document.body.classList.toggle('hide-showTimestamps',!c.state.showTimestamps);
+  $('overview').hidden=!c.state.showOverview;if(preferences.hidden)syncPreferences();c.scheduleResize();
  }
  function openPreferences(){if(preferencesForm.dataset.draftActive==='true')return;preferencesForm.dataset.draftActive='true';syncPreferences();resetPreferencesPending=false;preferencesBaseline=preferencesSnapshot();updatePreferencesSave();preferencesForm.dataset.dirty='false'}
  function leavePreferences(){if(preferencesSaving)return false;if((resetPreferencesPending||preferencesSnapshot()!==preferencesBaseline)&&!confirm('Ungespeicherte Einstellungen verwerfen?'))return false;preferencesForm.dataset.draftActive='false';syncPreferences();resetPreferencesPending=false;preferencesBaseline=preferencesSnapshot();updatePreferencesSave();return true}
@@ -41,7 +41,7 @@ export function initPreferencesDialog(c:Context){
   c.state.density=$<HTMLSelectElement>('pref-density').value as ViewState['density'];c.state.seekStep=Number($<HTMLSelectElement>('pref-seekStep').value);
   for(const id of ['preload','aspect'] as const)c.state[id]=$<HTMLSelectElement>(id).value;
   c.state.columns=Number($<HTMLInputElement>('grid-columns').value);c.state.rows=Number($<HTMLInputElement>('grid-rows').value);c.state.autoHotspot=$<HTMLInputElement>('auto-hotspot').checked;
-  c.setTimelineHeight(Number($<HTMLInputElement>('pref-timelineHeight').value));
+  c.setTimelineHeight(c.state.timelineHeight);
   c.state.theme=theme as ViewState['theme'];window.dispatchEvent(new CustomEvent('themecommit',{detail:theme}));
   c.applyRail();applyPreferences();if(resetPreferencesPending)c.releaseTiles();c.renderCameras();const saving=c.saveView();resetPreferencesPending=false;preferencesBaseline=preferencesSnapshot();updatePreferencesSave();preferencesSaving=true;try{await saving;preferencesSaving=false;if(preferencesSnapshot()===preferencesBaseline){preferencesForm.dataset.dirty='false';navigate('recordings');c.notify('Persönliche Einstellungen gespeichert.')}else c.notify('Einstellungen gespeichert. Weitere Änderungen sind noch nicht gespeichert.')}catch{}finally{preferencesSaving=false}
  });

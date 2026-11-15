@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {classifyLoadIssue, nextWritingStep, stallTimeoutMs, WRITING_MAX_RETRIES} from './playback-state.ts';
+import {classifyLoadIssue, nextWritingStep, stallTimeoutMs, streamQuality, WRITING_MAX_RETRIES} from './playback-state.ts';
 
 test('classifies HTTP statuses of failed loads', () => {
   assert.equal(classifyLoadIssue(409, 'x').kind, 'writing');
@@ -37,4 +37,14 @@ test('prefetch picks the adjacent clip only near the end', () => {
   assert.equal(prefetchTarget(list, list[0], 30, 8)?.id, 'two');
   assert.equal(prefetchTarget(list, list[1], 118, 1), undefined);
   assert.equal(prefetchTarget([clip('x', 0, {view: 'wide'}), clip('y', 60, {view: 'zoom'})], clip('x', 0, {view: 'wide'}), 58, 1), undefined);
+});
+
+test('original quality converts at full resolution only when the browser cannot decode it', () => {
+  const none = () => '', hevc = (type: string) => type.includes('hvc1') ? 'probably' : '';
+  assert.equal(streamQuality('native', 'h264', none, new Set()), 'native');
+  assert.equal(streamQuality('native', 'hevc', hevc, new Set()), 'native');
+  assert.equal(streamQuality('native', 'hevc', none, new Set()), 'full');
+  assert.equal(streamQuality('native', 'h264', none, new Set(['h264'])), 'full');
+  assert.equal(streamQuality('balanced', 'hevc', none, new Set()), 'balanced');
+  assert.equal(streamQuality('fast', 'h264', none, new Set(['h264'])), 'fast');
 });

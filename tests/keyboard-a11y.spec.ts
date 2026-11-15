@@ -38,6 +38,11 @@ test('expanded tile without fullscreen locks the background and Escape restores 
  await expand.focus();await page.keyboard.press('Enter');
  await expect(page.locator('#video-grid .camera-tile.expanded')).toHaveCount(1);
  await expect(page.locator('.rail')).toHaveJSProperty('inert',true);
+ // The overlay carries its own transport because the page controls are inert.
+ const toggle=page.locator('#video-grid .camera-tile.expanded .tile-play');
+ await expect(toggle).toBeVisible();await expect(toggle).toHaveAttribute('aria-label','Abspielen');
+ await page.keyboard.press(' ');await expect(toggle).toHaveAttribute('aria-label','Pause');
+ await page.keyboard.press(' ');await expect(toggle).toHaveAttribute('aria-label','Abspielen');
  await page.keyboard.press('Escape');
  await expect(page.locator('#video-grid .camera-tile.expanded')).toHaveCount(0);
  await expect(page.locator('.rail')).toHaveJSProperty('inert',false);
@@ -47,7 +52,7 @@ test('expanded tile without fullscreen locks the background and Escape restores 
 test('camera order can be changed without dragging',async({page})=>{
  await login(page);
  const chips=page.locator('#camera-filters .filter');const first=await chips.first().getAttribute('id');
- await page.locator('#reorder-cameras').click();await expect(page.locator('#reorder-cameras')).toHaveAttribute('aria-pressed','true');
+ await page.locator('#selection-menu summary').click();await page.locator('#reorder-cameras').click();await expect(page.locator('#reorder-cameras')).toHaveAttribute('aria-pressed','true');
  await page.locator('#'+first+'-move-right').click();
  await expect(chips.nth(1)).toHaveAttribute('id',first!);
  await page.locator('#'+first+'-move-left').click();
