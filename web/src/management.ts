@@ -1,16 +1,11 @@
 import {navigate,registerPage,formGuard,currentPage} from './navigation.ts';
 import {berlinDate,clock} from './timeline.ts';
+import {berlinEpoch,berlinLocal} from './berlin-time.ts';
 type Context={api:<T>(url:string,options?:RequestInit)=>Promise<T>;getSession:()=>{name:string;role:string;kind:string};getCameras:()=>{id:string;name:string}[];getCursor:()=>number;notify:(message:string)=>void};
 type Settings={version:number;values:Record<string,unknown>;sources:Record<string,string>;secretSet:boolean;external:Record<string,unknown>};
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const input=(form:HTMLFormElement,name:string)=>form.elements.namedItem(name) as HTMLInputElement|HTMLSelectElement;
 const button=(text:string,fn:()=>void|Promise<void>)=>{const b=document.createElement('button');b.type='button';b.className='button secondary';b.textContent=text;b.onclick=()=>void Promise.resolve(fn()).catch(e=>alert(e.message));return b};
-export function berlinLocal(epoch:number):string{return berlinDate(new Date(epoch*1000))+'T'+clock(epoch)}
-export function berlinEpoch(value:string):number{
- const base=Date.parse(value+'Z')/1000;if(!Number.isFinite(base))throw new Error('Datum und Uhrzeit fehlen');
- const matches=[base,base-3600,base-7200].filter(t=>berlinLocal(t)===value);
- if(matches.length!==1)throw new Error('Uhrzeit ist wegen Zeitumstellung mehrdeutig oder existiert nicht. Einen anderen Zeitpunkt wählen.');return matches[0];
-}
 export function initManagement(c:Context){
  const root=document.createElement('div');root.innerHTML=`
  <section id="management-dialog" class="content-page" role="main" hidden><div class="dialog-heading"><h2 id="management-title">Verwaltung</h2><button type="button" id="management-close" class="button secondary" aria-label="Zurück zu Aufnahmen">← Aufnahmen</button></div>

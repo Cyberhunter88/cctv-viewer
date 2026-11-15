@@ -9,7 +9,6 @@ import {createPlaybackClock} from './playback-clock';
 import {createPoller} from './poller';
 import {validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveCamera,defaultView,type ViewState} from './view-state';
 import {attachTimelineControls} from './timeline-controls';
-import {initManagement} from './management';
 import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,timelineRowAt,keyboardSeekTarget,type Recording} from './timeline';
 import {initSearchPage,type SearchPage,type SearchResult} from './search-page';
 import {initCameraEditor} from './camera-editor';
@@ -330,7 +329,9 @@ async function boot(){
  }
  if(!response.ok)throw new Error(`Sitzung konnte nicht geladen werden (${response.status})`);
  session=await response.json();$('password-button').hidden=false;$('password-button').textContent='Mein Konto';accountMenu.open=false;
- if(!managementInitialized){initManagement({api,getSession:()=>session,getCameras:()=>cameras,getCursor:()=>cursor,notify});initSettingsLayout();managementInitialized=true}
+ // Account, session and administration pages load as a separate chunk after sign-in;
+ // it registers its pages before navigation starts.
+ if(!managementInitialized){const {initManagement}=await import('./management');initManagement({api,getSession:()=>session,getCameras:()=>cameras,getCursor:()=>cursor,notify});initSettingsLayout();managementInitialized=true}
  $('user-name').textContent=session.name;$('avatar').dataset.initials=session.name.slice(0,2).toUpperCase();document.querySelector('#account-menu summary')!.setAttribute('aria-label','Konto: '+session.name);document.querySelector('#account-menu summary')!.setAttribute('title',session.name);$('settings-button').hidden=session.role!=='admin';$('rescan').hidden=session.role!=='admin';dateInput.value=berlinDate(new Date());await refreshCameras();
  let stored:unknown;try{stored=JSON.parse(localStorage.getItem('cctv-view:'+session.preferenceKey)||'null')}catch{}
  let remote=await api<unknown>('/api/preferences');

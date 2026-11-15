@@ -326,9 +326,12 @@ type staticAsset struct {
 }
 
 var staticAssetTypes = map[string]string{
-	"index.html":           "text/html; charset=utf-8",
-	"app.js":               "text/javascript; charset=utf-8",
-	"chunks/hls.js":        "text/javascript; charset=utf-8",
+	"index.html":    "text/html; charset=utf-8",
+	"app.js":        "text/javascript; charset=utf-8",
+	"chunks/hls.js": "text/javascript; charset=utf-8",
+	// Shared code and the administration pages, which load after sign-in.
+	"chunks/chunk.js":      "text/javascript; charset=utf-8",
+	"chunks/management.js": "text/javascript; charset=utf-8",
 	"theme.js":             "text/javascript; charset=utf-8",
 	"style.css":            "text/css; charset=utf-8",
 	"favicon.svg":          "image/svg+xml",
