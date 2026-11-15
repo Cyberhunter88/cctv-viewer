@@ -106,15 +106,19 @@ on('preferences-retry',async()=>{try{await preferenceWriter?.flush()}catch{}});
 // with its text is often skipped by screen readers). Errors stay until closed or replaced;
 // other messages close after six seconds unless pointer or focus rests on them.
 function hideToast(){clearTimeout(toastTimer);$('toast').hidden=true}
-function scheduleToastHide(){clearTimeout(toastTimer);if(!$('toast').classList.contains('toast-error'))toastTimer=setTimeout(hideToast,6000)}
-function notify(message:string,kind:'info'|'error'='info'){
+function scheduleToastHide(){clearTimeout(toastTimer);if(!$('toast').classList.contains('toast-error'))toastTimer=setTimeout(hideToast,$('toast').classList.contains('toast-has-action')?12000:6000)}
+// An optional action (such as "Rückgängig") keeps the message open until it is used or closed.
+let toastAction:(()=>void)|undefined;
+function notify(message:string,kind:'info'|'error'='info',action?:{label:string;run:()=>void}){
  const error=kind==='error',region=$(error?'toast-alert':'toast-region'),other=$(error?'toast-region':'toast-alert');
+ toastAction=action?.run;$('toast-action').textContent=action?.label||'';$('toast-action').hidden=!action;$('toast').classList.toggle('toast-has-action',!!action);
  $('toast-text').textContent=message;$('toast').classList.toggle('toast-error',error);$('toast').hidden=false;
  other.textContent='';region.textContent='';setTimeout(()=>{region.textContent=message},50);
  scheduleToastHide();
 }
 const notifyError=(message:string)=>notify(message,'error');
 $('toast-close').addEventListener('click',hideToast);
+$('toast-action').addEventListener('click',()=>{const run=toastAction;toastAction=undefined;hideToast();run?.()});
 $('toast').addEventListener('pointerenter',()=>clearTimeout(toastTimer));$('toast').addEventListener('pointerleave',scheduleToastHide);
 $('toast').addEventListener('focusin',()=>clearTimeout(toastTimer));$('toast').addEventListener('focusout',scheduleToastHide);
 // Skip link: moves focus past the navigation to the heading of the visible page.
@@ -360,7 +364,17 @@ void runBoot();
 const {applyPreferences}=initPreferencesDialog({
  state,notify,scheduleResize:()=>scheduleResize(),setTimelineHeight:height=>setTimelineHeight(height),
  resetSelection:()=>{selected=new Set(cameras.map(c=>c.id));order=cameras.map(c=>c.id);hotspot=undefined;page=0},
- applyRail,releaseTiles:()=>tiles.forEach(t=>t.release()),renderCameras:()=>renderCameras(),saveView:()=>saveView()
+ applyRail,releaseTiles:()=>tiles.forEach(t=>t.release()),renderCameras:()=>renderCameras(),saveView:()=>saveView(),
+ snapshot:()=>({state:structuredClone(state),selected:[...selected],order:[...order],hotspot}),
+ restore:value=>{
+  const previous=value as {state:ViewState;selected:string[];order:string[];hotspot?:string};
+  for(const key of Object.keys(state))delete (state as unknown as Record<string,unknown>)[key];
+  Object.assign(state,structuredClone(previous.state));selected=new Set(previous.selected);order=[...previous.order];hotspot=previous.hotspot;
+  for(const id of ['layout','quality','speed'] as const)$<HTMLSelectElement>(id).value=state[id];
+  window.dispatchEvent(new CustomEvent('themecommit',{detail:state.theme||'system'}));
+  setTimelineHeight(state.timelineHeight);applyRail();applyPreferences();tiles.forEach(t=>t.release());renderCameras();void saveView();
+ },
+ notifyAction:(message,label,run)=>notify(message,'info',{label,run})
 });
 $('select-none').after(createReorderToggle('reorder-cameras',()=>reorderMode,()=>{reorderMode=!reorderMode;$('reorder-hint').hidden=!reorderMode;renderCameras()}));
 on('select-all',()=>{selected=new Set(cameras.map(c=>c.id));page=0;renderCameras();saveView()});
@@ -390,7 +404,7 @@ on('latest-recording',async()=>{
 });
 
 const shortcutHelp=initShortcutHelp();
-on('shortcut-help-open',()=>shortcutHelp.open());
+on('shortcut-help-open',()=>shortcutHelp.open());on('shortcut-help-button',()=>shortcutHelp.open());
 // The tile a single-camera shortcut acts on: fullscreen, focused, hotspot, then the first one.
 function shortcutTile(target?:HTMLElement){
  const element=document.fullscreenElement||expandedTile()||target?.closest('.camera-tile')||document.querySelector('.camera-group.hotspot-primary .camera-tile')||document.querySelector('#video-grid .camera-tile');
@@ -438,6 +452,11 @@ document.addEventListener('keydown',e=>{
   e.preventDefault();shortcutTile(target)?.audioButton.click();
  }else if(e.key==='ArrowUp'||e.key==='ArrowDown'){
   e.preventDefault();changeSpeed(e.key==='ArrowUp'?1:-1);
+ }else if(e.key==='n'||e.key==='N'||e.key==='p'||e.key==='P'){
+  // Next or previous recording boundary, like the arrows beside play.
+  e.preventDefault();const t=recordingBoundary(displayedRecords,visible().map(c=>c.id),cursor,e.key.toLowerCase()==='n'?1:-1);if(t!==undefined)seek(t);
+ }else if(e.key==='Home'||e.key==='End'){
+  e.preventDefault();seek(e.key==='Home'?from:to-.001);
  }else if(e.key===','||e.key==='.'){
   // Single frames at the usual 25 fps of camera recordings; stepping always pauses first.
   e.preventDefault();if(playing)pause();seek(cursor+(e.key===','?-.04:.04));

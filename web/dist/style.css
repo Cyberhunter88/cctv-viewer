@@ -295,6 +295,7 @@
  #toast #toast-text { padding-top:6px; }
  #toast .toast-close { flex:none; min-width:32px; min-height:32px; border:0; border-radius:var(--radius-s); background:transparent; color:inherit; font-size:20px; line-height:1; }
  #toast .toast-close:hover { background:var(--surface); }
+ #toast #toast-action { flex:none; min-height:32px; margin-left:auto; padding:4px 10px; }
  /* Above the transport bar, aligned right while the app is open. */
  body:has(#app:not([hidden])) #toast { left:auto; right:var(--space-6); transform:none; bottom:calc(96px + env(safe-area-inset-bottom)); }
  @media (max-width:700px) { body:has(#app:not([hidden])) #toast { right:max(var(--space-4),env(safe-area-inset-right)); } }
@@ -539,6 +540,7 @@
  .transport strong { font-family:var(--mono); font-size:20px; font-weight:550; font-variant-numeric:tabular-nums; letter-spacing:.01em; }
  .timezone { color:var(--muted); font-size:12px; }
  .timeline-tools { flex-wrap:wrap; color:var(--muted); font-size:13px; }
+ #shortcut-help-button span { font-size:15px; font-weight:700; }
  #zoom-label { min-width:60px; text-align:center; font-variant-numeric:tabular-nums; color:var(--text); }
  /* WCAG 2.5.8: the resize handle offers at least a 24 px tall target. */
  #timeline-resize { position:relative; height:24px; background:var(--panel); border-top:1px solid var(--line); cursor:ns-resize; touch-action:none; }

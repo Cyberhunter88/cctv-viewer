@@ -4,6 +4,8 @@ export const shortcuts: ReadonlyArray<readonly [string, string]> = [
   ['← / →', 'Gewählte Sprungweite (auf der Zeitleiste immer aktiv)'],
   ['Umschalt + ← / →', '60 Sekunden springen'],
   ['J / L', '10 Sekunden zurück / vor'],
+  ['P / N', 'Vorherige / nächste Aufnahmegrenze'],
+  ['Pos1 / Ende', 'Tagesanfang / Tagesende'],
   [', / .', 'Einzelbild zurück / vor (hält die Wiedergabe an)'],
   ['↑ / ↓', 'Schneller / langsamer abspielen'],
   ['M', 'Ton der gewählten Kamera ein / aus'],
