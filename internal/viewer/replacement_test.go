@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,7 +50,7 @@ func TestMetadataFallbackAndFullDirectory(t *testing.T) {
 	file := filepath.Join(a.cfg.RecordingsDir, "auto/nested/metadata.mp4")
 	testVideo(t, file, false)
 	tagged := filepath.Join(filepath.Dir(file), "tagged.mp4")
-	out, e := exec.Command("ffmpeg", "-nostdin", "-v", "error", "-i", file, "-c", "copy", "-metadata", "creation_time=2026-10-14T08:30:00Z", "-y", tagged).CombinedOutput()
+	out, e := testCommand(t, "ffmpeg", "-nostdin", "-v", "error", "-i", file, "-c", "copy", "-metadata", "creation_time=2026-10-14T08:30:00Z", "-y", tagged).CombinedOutput()
 	if e != nil {
 		t.Fatal(e, string(out))
 	}

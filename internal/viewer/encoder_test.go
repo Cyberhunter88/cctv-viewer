@@ -78,6 +78,30 @@ func TestFullProfileKeepsResolutionAndFrameRate(t *testing.T) {
 	}
 }
 
+func TestStreamArgumentsDecodeOnTheGPU(t *testing.T) {
+	profile := StreamProfile{Scale: 50, FPS: 15, Bitrate: 1200}
+	vaapi, _ := streamArgs("vaapi", "/dev/dri/renderD129", profile, 0, 60, 1, "mp4", "dir")
+	joined := strings.Join(vaapi, " ")
+	for _, part := range []string{"-hwaccel vaapi -hwaccel_device /dev/dri/renderD129 -hwaccel_output_format vaapi -ss", "scale_vaapi=w=trunc(iw*50/100/2)*2:h=trunc(ih*50/100/2)*2:format=nv12,fps=15 -c:v h264_vaapi"} {
+		if !strings.Contains(joined, part) {
+			t.Fatalf("missing %q in %s", part, joined)
+		}
+	}
+	if strings.Contains(joined, "hwupload") || strings.Contains(joined, "-vaapi_device") {
+		t.Fatal("GPU-decoded frames must not be uploaded again", joined)
+	}
+	qsv, _ := streamArgs("qsv", "", fullProfile, 0, 60, 1, "mp4", "dir")
+	joined = strings.Join(qsv, " ")
+	for _, part := range []string{"-init_hw_device qsv=hw -filter_hw_device hw -hwaccel qsv -hwaccel_output_format qsv -ss", "scale_qsv=w=trunc(iw*100/100/2)*2:h=trunc(ih*100/100/2)*2 -c:v h264_qsv"} {
+		if !strings.Contains(joined, part) {
+			t.Fatalf("missing %q in %s", part, joined)
+		}
+	}
+	if strings.Contains(joined, "hwupload") || strings.Contains(joined, "fps=") {
+		t.Fatal("full profile on the GPU keeps frames and frame rate", joined)
+	}
+}
+
 func TestStreamArgumentsPerEncoder(t *testing.T) {
 	profile := StreamProfile{Scale: 50, FPS: 15, Bitrate: 1200}
 	dir := filepath.Join("cache", "hls-x")
@@ -94,14 +118,14 @@ func TestStreamArgumentsPerEncoder(t *testing.T) {
 	if seeking, _ := streamArgs("software", "", profile, 5, 80, 8, "mp4", dir); strings.Contains(strings.Join(seeking, " "), "-skip_frame") {
 		t.Fatal("keyframe-only decoding must be limited to the clip start")
 	}
-	vaapi, _ := streamArgs("vaapi", "/dev/dri/renderD129", profile, 0, 60, 1, "hls", dir)
+	vaapi, _ := streamArgs("vaapi-upload", "/dev/dri/renderD129", profile, 0, 60, 1, "hls", dir)
 	joined = strings.Join(vaapi, " ")
 	for _, part := range []string{"-threads 1 -vaapi_device /dev/dri/renderD129 -ss 0.000", "fps=15,format=nv12,hwupload -c:v h264_vaapi -bf 0 -b:v 1200k -maxrate 1200k -bufsize 2400k -force_key_frames"} {
 		if !strings.Contains(joined, part) {
 			t.Fatalf("missing %q in %s", part, joined)
 		}
 	}
-	qsv, _ := streamArgs("qsv", "", profile, 0, 60, 1, "hls", dir)
+	qsv, _ := streamArgs("qsv-upload", "", profile, 0, 60, 1, "hls", dir)
 	joined = strings.Join(qsv, " ")
 	for _, part := range []string{"-init_hw_device qsv=hw -filter_hw_device hw -ss", "fps=15,format=nv12,hwupload=extra_hw_frames=64,format=qsv -c:v h264_qsv -bf 0 -preset veryfast -b:v 1200k"} {
 		if !strings.Contains(joined, part) {

@@ -1,7 +1,7 @@
 import type Hls from 'hls.js';
 import { recordingAt, clock, type Recording } from './timeline';
 import type { ViewState } from './view-state';
-import { WRITING_RETRY_MS, classifyLoadIssue, nativeErrorConverts, nextWritingStep, prefetchTarget, stallTimeoutMs, streamQuality } from './playback-state';
+import { WRITING_RETRY_MS, classifyLoadIssue, conversionTooSlow, nativeErrorConverts, nextWritingStep, prefetchTarget, stallTimeoutMs, streamQuality } from './playback-state';
 // Linux WebKit's GStreamer MediaSource can fail with multiple HLS audio streams.
 // Fragmented MP4 avoids that backend path and still supports compressed playback.
 const useProgressiveOnLinuxWebKit = navigator.platform.startsWith('Linux') && navigator.vendor === 'Apple Computer, Inc.';
@@ -47,6 +47,9 @@ export function setControlIcon(button: Element, name: ControlIcon) {
 }
 // Codecs the browser refused in this session; their originals are converted at full resolution.
 const unsupportedCodecs = new Set<string>();
+// Set once full-resolution conversion could not keep up; later loads use the balanced profile.
+let fullTooSlow = false;
+let slowNoted = false;
 let conversionNoted = false;
 function noteConversion(context: TileContext) {
   if (conversionNoted) return;
@@ -82,6 +85,26 @@ export class Tile {
   playButton = element('button', 'tile-play');
   flash = element('div', 'tile-flash');
   clickTimer?: ReturnType<typeof setTimeout>;
+  /** Profile of the current source: native, full, balanced or fast. */
+  streamProfile = 'native';
+  stalls: number[] = [];
+  lastSeek = 0;
+  lastCursor?: number;
+  /**
+   * Counts stalls of a full-resolution conversion. When the server cannot keep up, the tile
+   * switches to the balanced profile instead of restarting the same conversion again and again.
+   */
+  noteStall(): boolean {
+    if (this.streamProfile !== 'full' || !this.record || !conversionTooSlow(this.stalls, performance.now(), this.lastSeek)) return false;
+    fullTooSlow = true;
+    this.stalls = [];
+    if (!slowNoted) {
+      slowNoted = true;
+      this.context.notify('Die Umwandlung in voller Auflösung ist für diesen Server zu langsam. Es wird „Ausgewogen“ verwendet.');
+    }
+    void this.load(this.record, true);
+    return true;
+  }
   /** Position a paused picture was last moved to; reset whenever a new source loads. */
   pausedTarget?: number;
   flashTimer?: ReturnType<typeof setTimeout>;
@@ -251,6 +274,7 @@ export class Tile {
     this.video.addEventListener('seeked', () => this.reveal());
     this.video.addEventListener('seeking', () => { this.conceal(); this.reveal(); });
     this.video.addEventListener('waiting', () => {
+      if (this.context.playing() && !this.loading && this.noteStall()) return;
       if (this.context.playing() && !this.loading) {
         this.setMessage('Wird gepuffert …');
         clearTimeout(this.stallTimer);
@@ -402,7 +426,8 @@ export class Tile {
     if (recovering && this.recoveryStart) {
       this.recoveryTimer = setTimeout(() => this.fail('Wiederherstellung nach 30 Sekunden beendet'), Math.max(1, 30000 - (performance.now() - this.recoveryStart)));
     }
-    const quality = streamQuality(this.context.quality(), record.codec, type => this.video.canPlayType(type), unsupportedCodecs);
+    const quality = streamQuality(this.context.quality(), record.codec, type => this.video.canPlayType(type), unsupportedCodecs, fullTooSlow);
+    this.streamProfile = quality;
     if (quality === 'full') noteConversion(this.context);
     this.codec.textContent += quality === 'full' ? ' · umgewandelt' : '';
     try {
@@ -500,6 +525,12 @@ export class Tile {
       return;
     }
     const target = this.target(this.record);
+    // A cursor jump is a seek; stalls shortly after it do not count against the conversion.
+    const cursor = this.context.cursor();
+    if (this.lastCursor === undefined || Math.abs(cursor - this.lastCursor) > 2) this.lastSeek = performance.now();
+    this.lastCursor = cursor;
+    const behind = this.stream !== undefined && this.context.playing() && target > this.video.currentTime + 3 && this.loadedSpeed === this.context.speed() && target >= -.1;
+    if (behind && this.reloadTimer === undefined && this.noteStall()) return;
     if (this.stream && (target < -.1 || this.loadedSpeed !== this.context.speed() || target > this.video.currentTime + 3 && this.video.readyState >= 1 && !Array.from({ length: this.video.buffered.length }, (_, i) => [this.video.buffered.start(i), this.video.buffered.end(i)]).some(([a, b]) => target >= a && target < b))) {
       // Scrubbing moves the cursor many times; only the last position starts an encoder.
       if (this.reloadTimer === undefined) {

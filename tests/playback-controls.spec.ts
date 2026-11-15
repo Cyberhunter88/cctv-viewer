@@ -74,3 +74,27 @@ test('original quality falls back to a full-resolution conversion when the brows
  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));
  await expect.poll(async()=>(await(await page.request.get('/api/playback-status')).json()).sessions,{timeout:15000}).toBe(0);
 });
+
+test('boundary and day keys move the cursor and the help button opens the overview',async({page})=>{
+ await login(page);await page.evaluate(()=>(document.activeElement as HTMLElement|null)?.blur());
+ await page.keyboard.press('Home');await expect(page.locator('#clock')).toHaveText('00:00:00');
+ await page.keyboard.press('n');const first=await page.locator('#clock').textContent();expect(first).not.toBe('00:00:00');
+ await page.keyboard.press('n');await expect(page.locator('#clock')).not.toHaveText(first!);
+ await page.keyboard.press('p');await expect(page.locator('#clock')).toHaveText(first!);
+ await page.keyboard.press('End');await expect(page.locator('#clock')).toHaveText('23:59:59');
+ await page.locator('#shortcut-help-button').click();await expect(page.locator('#shortcut-help')).toBeVisible();
+ await expect(page.locator('#shortcut-help .shortcut-list')).toContainText('Vorherige / nächste Aufnahmegrenze');
+ await page.keyboard.press('Escape');await expect(page.locator('#shortcut-help')).toBeHidden();
+});
+
+test('a preferences reset can be undone from its message',async({page})=>{
+ await login(page);
+ const saved=(check:(body:Record<string,unknown>)=>boolean)=>page.waitForResponse(r=>r.url().endsWith('/api/preferences')&&r.request().method()==='PATCH'&&check(r.request().postDataJSON())&&r.ok());
+ await page.goto('/#settings/appearance');let write=saved(body=>body.density==='compact');await page.locator('#pref-density').selectOption('compact');await write;
+ page.once('dialog',d=>d.accept());write=saved(body=>body.density==='comfortable');await page.locator('#preferences-reset').click();await write;
+ await expect(page.locator('html')).toHaveAttribute('data-density','comfortable');
+ await expect(page.locator('#toast-action')).toHaveText('Rückgängig');
+ write=saved(body=>body.density==='compact');await page.locator('#toast-action').click();await write;
+ await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('#pref-density')).toHaveValue('compact');
+ await page.reload();await expect(page.locator('#app')).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-density','compact');
+});

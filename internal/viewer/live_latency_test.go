@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/bluenviron/gortsplib/v4"
+	"github.com/bluenviron/gortsplib/v4/pkg/liberrors"
 )
 
 func TestLiveInfoReportsWebRTCAvailabilityAndRejectsUnusableMode(t *testing.T) {
@@ -108,4 +111,21 @@ func TestLiveGatewayDropCounterIsExported(t *testing.T) {
 	if drops, ok := a.metricValues()["liveGatewayDrops"]; !ok || drops != 3 {
 		t.Fatal("drop counter is not exported", drops, ok)
 	}
+}
+
+// Packets gortsplib drops for a slow reader and packets lost before the share must both
+// reach the operation page; gortsplib itself only logs them.
+func TestLiveGatewayCountsReaderAndUpstreamLoss(t *testing.T) {
+	a := testApp(t)
+	g := &liveGateway{live: a.live}
+	// The test triggers the losses on purpose; keep their warning out of the log.
+	g.lossLogged.Store(time.Now().Unix())
+	g.OnStreamWriteError(&gortsplib.ServerHandlerOnStreamWriteErrorCtx{Error: liberrors.ErrServerWriteQueueFull{}})
+	g.OnStreamWriteError(&gortsplib.ServerHandlerOnStreamWriteErrorCtx{Error: liberrors.ErrServerWriteQueueFull{}})
+	g.upstreamLost(5, "test")
+	values := a.metricValues()
+	if values["liveGatewayDrops"] != 2 || values["liveUpstreamLost"] != 5 {
+		t.Fatal("losses are not counted", values["liveGatewayDrops"], values["liveUpstreamLost"])
+	}
+	var _ gortsplib.ServerHandlerOnStreamWriteError = g
 }

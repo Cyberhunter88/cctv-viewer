@@ -13,12 +13,18 @@ test('sidebar collapses to usable icons, persists and expands at tablet width',a
  await expect.poll(()=>workspace.evaluate(el=>Math.round(parseFloat(getComputedStyle(el).marginLeft)))).toBe(72);
  await expect(page.locator('a[data-page="recordings"] .rail-label')).toBeHidden();
  await expect(page.getByRole('link',{name:'Betrieb'})).toBeHidden();
- await expect(page.locator('#rail-nav .nav-group')).toHaveCount(2);
- await page.locator('#rail-nav .nav-group[data-admin] > summary').click();
- await expect(page.locator('#rail-toggle')).toHaveAttribute('aria-expanded','true');
+ // The rail holds the three views and one settings entry; every settings page sits behind it.
+ await expect(page.locator('#rail-nav > a')).toHaveCount(4);
+ await page.locator('#settings-entry').click();await expect(page).toHaveURL(/#settings\/appearance$/);
+ await expect(page.locator('#settings-entry')).toHaveClass(/active/);await expect(page.locator('#settings-nav')).toBeVisible();
  await page.getByRole('link',{name:'Betrieb'}).click();await expect(page).toHaveURL(/#admin\/operation$/);
+ // Leaving and returning through the rail reopens the last settings page.
+ await page.locator('a[data-page="recordings"]').click();await expect(page.locator('#settings-nav')).toBeHidden();
+ await page.locator('#settings-entry').click();await expect(page).toHaveURL(/#admin\/operation$/);
  await expect(page.locator('#operation-panel')).toBeVisible();
  await page.reload();await expect(page.locator('#app')).toBeVisible();
+ await expect.poll(()=>rail.evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBe(72);
+ await page.locator('#rail-toggle').click();
  await expect.poll(()=>rail.evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBeGreaterThan(200);
  await page.setViewportSize({width:768,height:800});
  await expect.poll(()=>rail.evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBeGreaterThan(200);
@@ -30,7 +36,9 @@ test('mobile navigation exposes settings links with a collapsed rail preference'
  await page.setViewportSize({width:390,height:844});await login(page);
  await expect(page.locator('#rail-toggle')).toHaveAttribute('aria-expanded','false');
  await page.locator('#mobile-nav-toggle').click();
+ await expect(page.getByRole('link',{name:'Einstellungen'})).toBeVisible();await page.getByRole('link',{name:'Einstellungen'}).click();
  await expect(page.getByRole('link',{name:'Darstellung'})).toBeVisible();
+ await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await openPage(page,'settings/appearance');
  await expect(page.locator('#preferences-dialog')).toBeVisible();
 });
@@ -57,7 +65,10 @@ test('direct links, history, draft guards and paused playback',async({page})=>{
  await page.goBack();await expect(page).toHaveURL(/#settings\/appearance$/);await page.locator('a[data-page=search]').click();await expect(page).toHaveURL(/#search$/);
  page.off('dialog',onDialog);expect(asked).toBe(false);await expect(page.locator('html')).toHaveAttribute('data-density','compact');
  await page.goto('/#admin/operation');await expect(page.locator('#operation-panel')).toBeVisible();await expect(page.locator('#operation-form input[name=cacheMB]')).not.toHaveValue('');
- await page.goto('/#unknown');await expect(page).toHaveURL(/#recordings$/);
+ // Operating figures are shown and refreshed only while the page is open.
+ await expect(page.locator('#operation-metrics')).toContainText('Wiedergabesitzungen');await expect(page.locator('#operation-metrics')).toContainText('Verlorene Pakete der Freigabe');await expect(page.locator('#operation-metrics')).toContainText('Vor der Freigabe verlorene Pakete');
+ let polls=0;page.on('request',r=>{if(r.url().endsWith('/api/admin/metrics'))polls++});
+ await page.goto('/#unknown');await expect(page).toHaveURL(/#recordings$/);const after=polls;await page.waitForTimeout(6000);expect(polls).toBe(after);
 });
 
 test('local user lifecycle and session revocation through the GUI',async({page,browser})=>{

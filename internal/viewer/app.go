@@ -55,8 +55,11 @@ type App struct {
 	thumbSlots      chan struct{}
 	assets          fs.FS
 	hardwareBlocked atomic.Int64
-	assetOnce       sync.Once
-	assetCache      map[string]staticAsset
+	// hardwareDecodeBlocked maps a source codec to the Unix time until which the GPU is not
+	// asked to decode it, after its hardware decoder refused the codec.
+	hardwareDecodeBlocked sync.Map
+	assetOnce             sync.Once
+	assetCache            map[string]staticAsset
 }
 
 func New(ctx context.Context, cfg Config, assets fs.FS) (*App, error) {
@@ -323,9 +326,12 @@ type staticAsset struct {
 }
 
 var staticAssetTypes = map[string]string{
-	"index.html":           "text/html; charset=utf-8",
-	"app.js":               "text/javascript; charset=utf-8",
-	"chunks/hls.js":        "text/javascript; charset=utf-8",
+	"index.html":    "text/html; charset=utf-8",
+	"app.js":        "text/javascript; charset=utf-8",
+	"chunks/hls.js": "text/javascript; charset=utf-8",
+	// Shared code and the administration pages, which load after sign-in.
+	"chunks/chunk.js":      "text/javascript; charset=utf-8",
+	"chunks/management.js": "text/javascript; charset=utf-8",
 	"theme.js":             "text/javascript; charset=utf-8",
 	"style.css":            "text/css; charset=utf-8",
 	"favicon.svg":          "image/svg+xml",

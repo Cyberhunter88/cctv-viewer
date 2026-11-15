@@ -107,7 +107,15 @@ bestehen, sodass ein erneuter Abruf ohne neuen Verbindungsaufbau startet.
 Nicht übertragene Pakete zählt `liveGatewayDrops` in `GET /api/admin/metrics`. Erst der letzte Betrachter beendet die Quelle.
 Das Zurücksetzen des Freigabepassworts beendet bestehende Freigabeverbindungen.
 RTSP ist unverschlüsselt und für das Heimnetz/VPN bestimmt; Port 8554 nicht ins
-Internet weiterleiten. Die go2rtc-Verwaltungsoberfläche wird nicht veröffentlicht.
+Internet weiterleiten.
+
+**Verschlüsselt (RTSPS, ab 0.19.0):** Mit `CTV_LIVE_RTSPS_CERT` und `CTV_LIVE_RTSPS_KEY`
+(Zertifikat und Schlüssel als PEM-Dateien, etwa per Docker-Volume eingebunden) nimmt der
+Listener nur noch RTSPS an; unverschlüsselte Anfragen bleiben unbeantwortet. Die Adressen
+lauten dann `rtsps://…:8554/live/<kamera-id>/wide/fast`, die Oberfläche zeigt den Modus
+unter **Streamfreigabe**. Home Assistant prüft das Zertifikat: Es muss zum Hostnamen in der
+Adresse passen und von einer vertrauten Stelle stammen. Bei einem selbst signierten
+Zertifikat in der Generic Camera **SSL-Zertifikat überprüfen** ausschalten. Die go2rtc-Verwaltungsoberfläche wird nicht veröffentlicht.
 
 ### Flüssige Wiedergabe in Home Assistant
 
@@ -134,9 +142,18 @@ Für ein ruhiges Bild außerdem:
 - Mit „60 Sekunden Nachlauf“ oder „Dauerhaft bereit“ startet ein erneuter Abruf
   ohne neuen Kameraverbindungsaufbau.
 
-Verlorene Pakete zählt `liveGatewayDrops` in `GET /api/admin/metrics` (nur
-Administratoren). Bleibt der Wert bei laufender Wiedergabe
-bei 0, liegen Ruckler nicht in der Freigabe, sondern bei Kamera, Netz oder Home Assistant.
+Verluste zeigt „Betrieb“ unter Verwaltung; ab 0.19.1 sind beide Zähler auch in
+`GET /api/admin/metrics` (nur Administratoren) vollständig:
+
+- `liveGatewayDrops` („Verlorene Pakete der Freigabe“): Pakete, die die Freigabe
+  einer Home-Assistant-Verbindung nicht übergeben konnte, vor allem bei voller
+  Warteschlange, weil Home Assistant oder das Netz langsamer liest, als die Kamera sendet.
+- `liveUpstreamLost` („Vor der Freigabe verlorene Pakete“): Lücken oder unlesbare
+  Pakete zwischen go2rtc und der Freigabe, also schon bei Kamera, WLAN oder go2rtc.
+
+Bleiben beide Werte bei laufender Wiedergabe bei 0, liegen Ruckler nicht in der
+Freigabe, sondern bei Home Assistant selbst. Die Freigabe protokolliert Verluste
+höchstens einmal pro Minute als Warnung.
 
 Dokumentation: [Home Assistant Generic Camera](https://www.home-assistant.io/integrations/generic/).
 Die Verwendung der generischen Streamquelle umfasst keine Reolink-Ereignisse,

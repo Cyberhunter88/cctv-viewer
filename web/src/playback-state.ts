@@ -61,10 +61,25 @@ export function prefetchTarget<T extends ClipRef>(records: T[], current: ClipRef
  * H.265 in Chrome on Linux) the server converts it with the "full" profile, which keeps
  * the resolution and frame rate. Codecs the browser already refused are not tried again.
  */
-export function streamQuality(selected: string, codec: string, canPlayType: (type: string) => string, unsupported: ReadonlySet<string>): string {
+export function streamQuality(selected: string, codec: string, canPlayType: (type: string) => string, unsupported: ReadonlySet<string>, fullTooSlow = false): string {
   if (selected !== 'native') return selected;
-  if (unsupported.has(codec)) return 'full';
-  return codecPlayable(codec, canPlayType) === false ? 'full' : 'native';
+  const converted = unsupported.has(codec) || codecPlayable(codec, canPlayType) === false;
+  // A server that cannot convert in real time at full resolution falls back to the balanced profile.
+  return converted ? fullTooSlow ? 'balanced' : 'full' : 'native';
+}
+export const SLOW_WINDOW_MS = 30000;
+export const SLOW_STALLS = 3;
+/**
+ * Records a stall of a converted stream and reports whether the conversion is too slow:
+ * three stalls within 30 seconds, at least two seconds apart. Stalls right after a seek
+ * are expected and not counted.
+ */
+export function conversionTooSlow(stalls: number[], now: number, lastSeek: number): boolean {
+  // Seeks cause expected stalls; one stall may raise several events within two seconds.
+  if (now - lastSeek < 1500 || stalls.length && now - stalls[stalls.length - 1] < 2000) return false;
+  stalls.push(now);
+  while (stalls.length && now - stalls[0] > SLOW_WINDOW_MS) stalls.shift();
+  return stalls.length >= SLOW_STALLS;
 }
 const codecTypes: Record<string, string[]> = {
   h264: ['video/mp4; codecs="avc1.42E01E"', 'video/mp4; codecs="avc1.640028"'],

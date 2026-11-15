@@ -3,7 +3,7 @@ import {liveKeys,importLiveURL} from './live-source';
 type Camera={id:string;name:string;viewMode?:string};
 type Sources=Record<string,string>;
 interface LiveConfig{enabled:boolean;username:string;hasPassword:boolean;sources:Sources;shared:boolean;preload?:Record<string,string>;skipTLSVerify?:Record<string,boolean>}
-interface Share{enabled:boolean;username:string;password:string;hasPassword:boolean;address:string;listening:boolean;serverUrl:string}
+interface Share{enabled:boolean;username:string;password:string;hasPassword:boolean;address:string;listening:boolean;serverUrl:string;secure?:boolean}
 type Context={api:<T>(url:string,options?:RequestInit)=>Promise<T>;cameras:()=>Camera[];viewMode:(id:string)=>string;notify:(message:string)=>void;changed:()=>void};
 export function initLiveAdmin(c:Context){
  const root=document.createElement('section');root.id='live-admin';root.className='live-editor';root.hidden=true;
@@ -80,11 +80,11 @@ export function initLiveAdmin(c:Context){
   $('live-test-result').hidden=false;$('live-test-result').textContent=Object.entries(result).map(([key,value])=>key+': '+(value.ok?value.codecs?.streams.map(stream=>stream.codec_type+' '+stream.codec_name+(stream.width?' '+stream.width+'×'+stream.height:'')).join(', '):value.message)).join('\n')||'Keine Quellen eingetragen.';
  });
  $('live-remove').onclick=()=>{if(!confirm('Livekonfiguration und gespeicherte Kamerazugangsdaten entfernen?'))return;void action(async()=>{await c.api('/api/cameras/'+encodeURIComponent(current)+'/live',{method:'DELETE'});guard.clean();await load(current,true);c.changed()})};
- function showShare(value:Share){input('live-share-enabled').checked=value.enabled;input('live-share-reset').checked=false;input('live-share-server-url').value=value.serverUrl||'';$('live-share-status').textContent=`Benutzer: ${value.username} · ${value.enabled?(value.listening?'Freigabe aktiv':'Listener nicht verfügbar'):'Freigabe deaktiviert'} · Listener: ${value.address}`;$('live-share-secret').hidden=!value.password;$('live-share-password').textContent=value.password||'';shareGuard.clean();renderShareURLs()}
- let shareSources:LiveConfig|undefined;
+ function showShare(value:Share){input('live-share-enabled').checked=value.enabled;input('live-share-reset').checked=false;input('live-share-server-url').value=value.serverUrl||'';shareSecure=value.secure===true;$('live-share-status').textContent=`Benutzer: ${value.username} · ${value.enabled?(value.listening?'Freigabe aktiv':'Listener nicht verfügbar'):'Freigabe deaktiviert'} · Listener: ${value.address} · ${shareSecure?'verschlüsselt (RTSPS)':'unverschlüsselt (RTSP)'}`;$('live-share-secret').hidden=!value.password;$('live-share-password').textContent=value.password||'';shareGuard.clean();renderShareURLs()}
+ let shareSources:LiveConfig|undefined,shareSecure=false;
  function renderShareURLs(){
   const id=picker.value,container=$('live-share-urls');container.replaceChildren();if(!id||!shareSources)return;
-  const zoom=c.cameras().find(camera=>camera.id===id)?.viewMode==='dual',base=input('live-share-server-url').value.trim().replace(/\/$/,'')||'rtsp://<viewer-im-heimnetz>:8554';
+  const zoom=c.cameras().find(camera=>camera.id===id)?.viewMode==='dual',base=input('live-share-server-url').value.trim().replace(/\/$/,'')||(shareSecure?'rtsps':'rtsp')+'://<viewer-im-heimnetz>:8554';
   for(const key of liveKeys)if(shareSources.sources[key]&&(!key.startsWith('zoom')||zoom)){const view=key.startsWith('zoom')?'zoom':'wide',quality=key==='high'||key==='zoomHigh'?'high':'fast';const row=document.createElement('div');row.className='share-url-row';const code=document.createElement('code');code.textContent=`${base}/live/${encodeURIComponent(id)}/${view}/${quality}`;const copy=document.createElement('button');copy.type='button';copy.className='button secondary';copy.textContent='Kopieren';copy.setAttribute('aria-label',names[key]+' Adresse kopieren');copy.onclick=()=>void navigator.clipboard.writeText(code.textContent||'').then(()=>c.notify('Adresse kopiert.'),()=>c.notify('Kopieren nicht möglich. Adresse bitte markieren.'));row.append(code,copy);container.append(row)}
   if(!container.childElementCount)container.textContent='Noch keine Livequellen eingerichtet.';
  }

@@ -40,7 +40,10 @@ type stream struct {
 	done           chan struct{}
 	last           time.Time
 	created        time.Time
-	err            error
+	// fetched turns true with the first playlist or video request. A stream whose
+	// creating request was abandoned after the answer is never fetched.
+	fetched bool
+	err     error
 	// sourceChanged is set when the recording was modified while ffmpeg read it,
 	// so the output may end before the real end of the file.
 	sourceChanged bool
@@ -423,6 +426,18 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	encoder := a.playbackEncoder()
+	if encoder != "software" && !a.hardwareDecodeRefused(record.Codec) {
+		// Decoding and scaling on the GPU keeps a full-resolution H.265 conversion almost
+		// free for the CPU. A codec the GPU cannot decode falls back to software decoding.
+		if !attempt(encoder) {
+			return
+		}
+		a.hardwareDecodeBlocked.Store(record.Codec, time.Now().Add(hardwareRetry).Unix())
+		slog.Info("Hardware-Dekodierung nicht möglich; Software-Dekodierung übernimmt", "encoder", encoder, "codec", record.Codec)
+	}
+	if encoder != "software" {
+		encoder += "-upload"
+	}
 	if attempt(encoder) {
 		// Missing devices or drivers fail immediately. Skip the hardware encoder
 		// for a while instead of paying for a failed start with every stream.
@@ -437,6 +452,12 @@ var encoders = []string{"software", "vaapi", "qsv"}
 
 const hardwareRetry = 10 * time.Minute
 
+// hardwareDecodeRefused reports whether the GPU recently refused to decode the codec.
+func (a *App) hardwareDecodeRefused(codec string) bool {
+	until, ok := a.hardwareDecodeBlocked.Load(codec)
+	return ok && time.Now().Unix() < until.(int64)
+}
+
 // playbackEncoder returns the configured encoder unless it failed recently.
 func (a *App) playbackEncoder() string {
 	encoder := a.config().Encoder
@@ -446,15 +467,17 @@ func (a *App) playbackEncoder() string {
 	return encoder
 }
 
-// streamArgs builds the ffmpeg command line of one compatible playback stream
-// and returns it with the name of the output file inside dir. Hardware encoders
-// decode in software and upload the scaled frames, which works for every
-// source codec the software path accepts.
 // fullProfile converts originals the browser cannot decode (often H.265) without
 // reducing the resolution; it is not configurable because it mirrors the original.
 var fullProfile = StreamProfile{Scale: 100, FPS: 0, Bitrate: 6000}
 
+// streamArgs builds the ffmpeg command line of one compatible playback stream
+// and returns it with the name of the output file inside dir. "vaapi" and "qsv"
+// decode, scale and encode on the GPU. Their "-upload" variants decode in software
+// and upload the scaled frames, which works for every codec the software path accepts.
 func streamArgs(encoder, device string, profile StreamProfile, offset, duration, speed float64, transport, dir string) ([]string, string) {
+	encoder, upload := strings.CutSuffix(encoder, "-upload")
+	gpuDecode := encoder != "software" && !upload
 	factor := math.Max(1, speed)
 	// Full resolution in software needs more than one core to keep up with real time.
 	threads := "1"
@@ -462,25 +485,38 @@ func streamArgs(encoder, device string, profile StreamProfile, offset, duration,
 		threads = "0"
 	}
 	args := []string{"-nostdin", "-v", "error", "-threads", threads}
-	switch encoder {
-	case "vaapi":
+	switch {
+	case encoder == "vaapi" && gpuDecode:
+		args = append(args, "-hwaccel", "vaapi", "-hwaccel_device", device, "-hwaccel_output_format", "vaapi")
+	case encoder == "vaapi":
 		args = append(args, "-vaapi_device", device)
-	case "qsv":
+	case encoder == "qsv" && gpuDecode:
+		args = append(args, "-init_hw_device", "qsv=hw", "-filter_hw_device", "hw", "-hwaccel", "qsv", "-hwaccel_output_format", "qsv")
+	case encoder == "qsv":
 		args = append(args, "-init_hw_device", "qsv=hw", "-filter_hw_device", "hw")
 	}
 	args = append(args, "-ss", fmt.Sprintf("%.3f", offset), "-protocol_whitelist", "file,pipe,fd", "-format_whitelist", formats)
 	if speed >= 8 && offset == 0 {
 		args = append(args, "-skip_frame", "nokey")
 	}
-	vf := fmt.Sprintf("setpts=(PTS-STARTPTS)/%.3f,scale=trunc(iw*%d/100/2)*2:trunc(ih*%d/100/2)*2", factor, profile.Scale, profile.Scale)
+	size := fmt.Sprintf("trunc(iw*%d/100/2)*2:trunc(ih*%d/100/2)*2", profile.Scale, profile.Scale)
+	vf := fmt.Sprintf("setpts=(PTS-STARTPTS)/%.3f,", factor)
+	switch {
+	case encoder == "vaapi" && gpuDecode:
+		vf += fmt.Sprintf("scale_vaapi=w=trunc(iw*%d/100/2)*2:h=trunc(ih*%d/100/2)*2:format=nv12", profile.Scale, profile.Scale)
+	case encoder == "qsv" && gpuDecode:
+		vf += fmt.Sprintf("scale_qsv=w=trunc(iw*%d/100/2)*2:h=trunc(ih*%d/100/2)*2", profile.Scale, profile.Scale)
+	default:
+		vf += "scale=" + size
+	}
 	// FPS 0 keeps the source frame rate (full profile).
 	if profile.FPS > 0 {
 		vf += fmt.Sprintf(",fps=%d", profile.FPS)
 	}
-	switch encoder {
-	case "vaapi":
+	switch {
+	case encoder == "vaapi" && !gpuDecode:
 		vf += ",format=nv12,hwupload"
-	case "qsv":
+	case encoder == "qsv" && !gpuDecode:
 		vf += ",format=nv12,hwupload=extra_hw_frames=64,format=qsv"
 	}
 	args = append(args, "-i", "/proc/self/fd/3", "-t", fmt.Sprintf("%.3f", duration/factor), "-map", "0:v:0", "-map", "0:a:0?", "-af", audioTempo(factor), "-c:a", "aac", "-b:a", "96k", "-vf", vf)
@@ -529,6 +565,7 @@ func (a *App) streamFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.last = time.Now()
+	s.fetched = true
 	dir := s.dir
 	a.mediaMu.Unlock()
 	f, e := os.Open(filepath.Join(dir, name))
@@ -621,11 +658,17 @@ func (a *App) removeStream(id string) {
 		os.RemoveAll(s.dir)
 	}
 }
+
+// unfetchedStreamTTL ends a stream nobody requested after it was created, for example
+// because the page went away while the answer was on its way. It frees the encoder slot
+// long before the regular 90 s idle limit.
+const unfetchedStreamTTL = 15 * time.Second
+
 func (a *App) pruneStreams() {
 	a.mediaMu.Lock()
 	ids := []string{}
 	for id, s := range a.streams {
-		if time.Since(s.last) > 90*time.Second || time.Since(s.created) > 30*time.Minute {
+		if time.Since(s.last) > 90*time.Second || time.Since(s.created) > 30*time.Minute || !s.fetched && time.Since(s.created) > unfetchedStreamTTL {
 			ids = append(ids, id)
 		}
 	}

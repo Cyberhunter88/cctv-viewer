@@ -2,14 +2,17 @@ package viewer
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bluenviron/gortsplib/v4"
@@ -57,7 +60,7 @@ func validShareServerURL(raw string) bool {
 		return false
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "rtsp" || u.User != nil || u.Hostname() == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+	if err != nil || u.Scheme != "rtsp" && u.Scheme != "rtsps" || u.User != nil || u.Hostname() == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
 		return false
 	}
 	port, err := strconv.Atoi(u.Port())
@@ -83,7 +86,7 @@ func (a *App) liveShare(w http.ResponseWriter, r *http.Request) {
 		if in.ServerURL != nil {
 			settings.ServerURL = strings.TrimSpace(*in.ServerURL)
 			if !validShareServerURL(settings.ServerURL) {
-				fail(w, 400, "RTSP-Serveradresse muss rtsp://Host:Port ohne Pfad oder Zugangsdaten sein")
+				fail(w, 400, "RTSP-Serveradresse muss rtsp://Host:Port oder rtsps://Host:Port ohne Pfad oder Zugangsdaten sein")
 				return
 			}
 		}
@@ -114,7 +117,7 @@ func (a *App) liveShare(w http.ResponseWriter, r *http.Request) {
 	a.live.mu.Lock()
 	listening := a.live.gateway != nil
 	a.live.mu.Unlock()
-	jsonOut(w, 200, map[string]any{"enabled": settings.Enabled, "username": settings.Username, "password": generated, "hasPassword": settings.Password != "", "address": address, "listening": listening, "serverUrl": settings.ServerURL})
+	jsonOut(w, 200, map[string]any{"enabled": settings.Enabled, "username": settings.Username, "password": generated, "hasPassword": settings.Password != "", "address": address, "listening": listening, "serverUrl": settings.ServerURL, "secure": a.config().LiveRTSPSCert != ""})
 }
 
 type gatewayRoute struct {
@@ -149,6 +152,8 @@ type liveGateway struct {
 	share    liveShareSettings
 	shareErr error
 	shareAt  time.Time
+	// Unix seconds of the last loss warning, so a stalled reader cannot flood the log.
+	lossLogged atomic.Int64
 }
 
 func startLiveGateway(s *liveService, address string) (*liveGateway, error) {
@@ -156,6 +161,15 @@ func startLiveGateway(s *liveService, address string) (*liveGateway, error) {
 	g := &liveGateway{live: s, ctx: ctx, routes: map[string]*gatewayRoute{}, builds: map[string]*gatewayBuild{}, sessions: map[*gortsplib.ServerSession]string{}, cancel: cancel, done: make(chan struct{})}
 	// No UDP listeners: SETUP can only negotiate interleaved RTP over TCP.
 	g.server = &gortsplib.Server{Handler: g, RTSPAddress: address, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, WriteQueueSize: gatewayWriteQueue}
+	if cfg := s.app.config(); cfg.LiveRTSPSCert != "" {
+		// RTSPS encrypts the control channel and the interleaved media on the same port.
+		cert, e := tls.LoadX509KeyPair(cfg.LiveRTSPSCert, cfg.LiveRTSPSKey)
+		if e != nil {
+			cancel()
+			return nil, e
+		}
+		g.server.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+	}
 	if e := g.server.Start(); e != nil {
 		cancel()
 		return nil, e
@@ -331,7 +345,12 @@ func (g *liveGateway) buildRoute(id, view, quality string, linger time.Duration)
 	g.live.mu.Unlock()
 	u, _ := base.ParseURL("rtsp://" + address + "/" + name + "?pkt_size=" + strconv.Itoa(gatewayPacketSize))
 	tcp := gortsplib.TransportTCP
-	client := &gortsplib.Client{Transport: &tcp, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second}
+	// Sequence gaps and undecodable packets from go2rtc are lost before the share; they are
+	// counted apart from the share's own drops so a camera problem is told from a slow reader.
+	client := &gortsplib.Client{Transport: &tcp, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second,
+		OnPacketsLost: func(lost uint64) { g.upstreamLost(int64(lost), "packets missing from go2rtc") },
+		OnDecodeError: func(err error) { g.upstreamLost(1, err.Error()) },
+	}
 	if e = client.Start(u.Scheme, u.Host); e != nil {
 		return nil, e
 	}
@@ -344,6 +363,11 @@ func (g *liveGateway) buildRoute(id, view, quality string, linger time.Duration)
 	desc, _, e := client.Describe(u)
 	if e != nil {
 		return nil, e
+	}
+	// While go2rtc is still connecting to the camera it may describe a stream without
+	// media. Such a route must not be retained, or readers fail until it lingers out.
+	if len(desc.Medias) == 0 {
+		return nil, errors.New("source has no media yet")
 	}
 	if e = client.SetupAll(desc.BaseURL, desc.Medias); e != nil {
 		return nil, e
@@ -366,6 +390,25 @@ func (g *liveGateway) buildRoute(id, view, quality string, linger time.Duration)
 	go func() { _ = client.Wait(); close(r.failed) }()
 	return r, nil
 }
+func (g *liveGateway) upstreamLost(n int64, reason string) {
+	g.live.app.metrics.liveUpstreamLost.Add(n)
+	g.warnLoss("Live-Freigabe: Pakete vor der Freigabe verloren", "reason", reason, "lost", n)
+}
+
+// OnStreamWriteError reports packets a reader could not take, above all a full write
+// queue when Home Assistant reads slower than the camera sends. gortsplib drops them.
+func (g *liveGateway) OnStreamWriteError(ctx *gortsplib.ServerHandlerOnStreamWriteErrorCtx) {
+	g.live.app.metrics.liveDrops.Add(1)
+	g.warnLoss("Live-Freigabe: Paket an Home Assistant verworfen", "error", ctx.Error.Error())
+}
+
+func (g *liveGateway) warnLoss(message string, args ...any) {
+	now := time.Now().Unix()
+	if last := g.lossLogged.Load(); now-last >= 60 && g.lossLogged.CompareAndSwap(last, now) {
+		slog.Warn(message, args...)
+	}
+}
+
 func (g *liveGateway) OnDescribe(ctx *gortsplib.ServerHandlerOnDescribeCtx) (*base.Response, *gortsplib.ServerStream, error) {
 	if !g.authorize(ctx.Conn, ctx.Request) {
 		return &base.Response{StatusCode: base.StatusUnauthorized}, nil, liberrors.ErrServerAuth{}

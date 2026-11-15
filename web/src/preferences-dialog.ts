@@ -3,6 +3,9 @@ import {defaultView,type ViewState} from './view-state';
 interface Context {
  state:ViewState;notify:(message:string)=>void;scheduleResize:()=>void;setTimelineHeight:(height:number)=>void;
  resetSelection:()=>void;applyRail:()=>void;releaseTiles:()=>void;renderCameras:()=>void;saveView:()=>Promise<void>;
+ /** Captures and restores everything a reset changes, for "Rückgängig". */
+ snapshot:()=>unknown;restore:(snapshot:unknown)=>void;
+ notifyAction:(message:string,label:string,run:()=>void)=>void;
 }
 // Personal settings pages. Every valid change applies at once and is saved to the account;
 // number fields wait until typing pauses, invalid values are never stored.
@@ -53,11 +56,14 @@ export function initPreferencesDialog(c:Context){
  on('preferences-reset',()=>{
   if(!confirm('Persönliche Einstellungen und Kameraauswahl auf die Standardwerte zurücksetzen?'))return;
   clearTimeout(typingTimer);typingTimer=undefined;
+  const previous=c.snapshot();
   Object.assign(c.state,defaultView());delete c.state.railCollapsed;c.state.theme='system';c.resetSelection();
   for(const id of ['layout','quality','speed'] as const)$<HTMLSelectElement>(id).value=c.state[id];
   window.dispatchEvent(new CustomEvent('themecommit',{detail:'system'}));
   c.setTimelineHeight(c.state.timelineHeight);c.applyRail();applyPreferences();c.releaseTiles();c.renderCameras();syncPreferences();
-  status.textContent='';persist();c.notify('Persönliche Einstellungen zurückgesetzt.');
+  status.textContent='';persist();
+  // The reset is saved at once; the message offers to restore the previous settings.
+  c.notifyAction('Persönliche Einstellungen zurückgesetzt.','Rückgängig',()=>{c.restore(previous);syncPreferences();c.notify('Persönliche Einstellungen wiederhergestellt.')});
  });
  return {applyPreferences};
 }

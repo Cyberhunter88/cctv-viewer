@@ -8,7 +8,6 @@ import (
 	"image/jpeg"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -314,7 +313,7 @@ func testVideo(t *testing.T, file string, audio bool) {
 		args = append(args, "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=44100", "-c:a", "aac")
 	}
 	args = append(args, "-t", "3", "-c:v", "libx264", "-threads", "1", "-pix_fmt", "yuv420p", "-y", file)
-	if out, e := exec.Command("ffmpeg", args...).CombinedOutput(); e != nil {
+	if out, e := testCommand(t, "ffmpeg", args...).CombinedOutput(); e != nil {
 		t.Fatalf("fixture: %v %s", e, out)
 	}
 	past := time.Now().Add(-time.Minute)

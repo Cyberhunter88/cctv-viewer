@@ -83,6 +83,8 @@ steht weiterhin zur Verfügung; siehe [README](../README.md#mit-docker-compose-s
 Verbindungstest und die optionale Home-Assistant-Freigabe. `CTV_GO2RTC_PATH` wählt
 die lokale go2rtc-Binärdatei (Standard: `go2rtc` im PATH),
 `CTV_LIVE_RTSP_ADDRESS` den optionalen Listener (Standard `127.0.0.1:8554`).
+Mit `CTV_LIVE_RTSPS_CERT` und `CTV_LIVE_RTSPS_KEY` (PEM-Dateien, nur gemeinsam) spricht
+der Listener ab 0.19.0 ausschließlich RTSPS, also RTSP über TLS.
 Die einzelne `compose.yaml` bindet RTSP-Port 8554 standardmäßig nur an den Host.
 Für Home Assistant die erste Adresse im Portmapping `127.0.0.1:8554:8554/tcp`
 direkt auf die Heimnetz-IP ändern. Der
@@ -141,6 +143,6 @@ erforderlich; die verschlüsselten Konfigurationen sind dort nicht lesbar.
 
 ## Hardware-Encoding und zweiter Faktor (ab 0.14.0)
 
-- **Hardware-Encoding:** „Video-Encoder“ unter „Betrieb“ wählt Software (Vorgabe), VAAPI oder Intel Quick Sync für die reduzierte Wiedergabe. Voraussetzung sind ein in den Container durchgereichtes Gerät (`devices: ["/dev/dri:/dev/dri"]`), Zugriff des Containerbenutzers auf dessen Gruppe und ein FFmpeg mit passendem Treiber; das mitgelieferte Image enthält keine zusätzlichen Treiberpakete. Schlägt der Start fehl, übernimmt für zehn Minuten der Software-Encoder; der Zähler `encoderFallbacks` in den Metriken zeigt das an.
+- **Hardware-Encoding:** „Video-Encoder“ unter „Betrieb“ wählt Software (Vorgabe), VAAPI oder Intel Quick Sync für die reduzierte Wiedergabe. Voraussetzung sind ein in den Container durchgereichtes Gerät (`devices: ["/dev/dri:/dev/dri"]`), Zugriff des Containerbenutzers auf dessen Gruppe und ein FFmpeg mit passendem Treiber; das mitgelieferte Image enthält keine zusätzlichen Treiberpakete. Ab 0.19.0 dekodiert und skaliert die gewählte Hardware das Video ebenfalls, sodass auch eine Umwandlung in voller Auflösung (etwa H.265 im Chrome unter Linux) die CPU kaum belastet; auf einer Intel-GPU sank die CPU-Zeit für 1440p-H.265 auf etwa ein Zwanzigstel. Kann die GPU einen Codec nicht dekodieren, dekodiert für zehn Minuten die Software diesen Codec, der Hardware-Encoder bleibt aktiv. Schlägt auch das fehl, übernimmt für zehn Minuten der Software-Encoder; der Zähler `encoderFallbacks` in den Metriken zeigt das an. Mit `CTV_TEST_VAAPI=/dev/dri/renderD128` laufen die Go-Tests auch gegen eine echte VAAPI-GPU.
 - **Zweiter Faktor:** Lokale Konten richten unter „Mein Konto“ einen zeitbasierten Einmalcode (TOTP, 6 Stellen, 30 Sekunden) ein. Geht die Authenticator-App verloren, setzt ein Administrator den Faktor in der Benutzerverwaltung zurück; ist kein Administrator mehr anmeldbar, legt `cctv admin --recover` ein neues Administratorkonto an. Die Datenbank wechselt dabei auf Schema 7; ältere Programmversionen starten mit dieser Datenbank nicht mehr.
 - **Speicherbelegung:** `GET /api/admin/storage` (nur Administratoren) liefert Anzahl und Größe der indexierten Aufnahmen je Kamera sowie die letzten 30 Tage.

@@ -46,12 +46,15 @@ export const test=base.extend<{preferenceIsolation:void}>({
 export async function openPage(page:Page,path:string){
  if(new URL(page.url()).hash==='#'+path)return;
  const toggle=page.locator('#mobile-nav-toggle');
- if(await toggle.isVisible()&&await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();
+ const openMenu=async()=>{if(await toggle.isVisible()&&await toggle.getAttribute('aria-expanded')!=='true')await toggle.click()};
  const link=page.locator('a[data-page="'+path+'"]');
- const group=link.locator('xpath=ancestor::details');
- if(await group.count()&&!(await link.isVisible())){
-  if(await group.getAttribute('open')===null||await page.locator('#rail-toggle').getAttribute('aria-expanded')==='false'&&!(await toggle.isVisible()))await group.locator('summary').click();
+ // Settings and administration pages sit behind the single rail entry "Einstellungen".
+ if(!(await link.isVisible())&&/^(settings|admin)\//.test(path)){
+  await openMenu();await page.locator('#settings-entry').click();
+  await expect(page.locator('#settings-nav')).toBeVisible();
+  if(new URL(page.url()).hash==='#'+path)return;
  }
+ if(!(await link.isVisible()))await openMenu();
  await link.click();await expect(page).toHaveURL(new RegExp('#'+path+'$'));await expect(page.locator('.content-page[aria-busy=true]:visible')).toHaveCount(0);
 }
 export async function openNavigation(page:Page,id:string){

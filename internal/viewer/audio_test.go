@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -53,7 +52,7 @@ func TestAudioTransports(t *testing.T) {
 					if transport == "hls" {
 						name = "index.m3u8"
 					}
-					out, err := exec.Command("ffprobe", "-v", "error", "-show_streams", "-show_packets", "-of", "json", filepath.Join(stream.dir, name)).CombinedOutput()
+					out, err := testCommand(t, "ffprobe", "-v", "error", "-show_streams", "-show_packets", "-of", "json", filepath.Join(stream.dir, name)).CombinedOutput()
 					if err != nil {
 						t.Fatalf("probe: %v %s", err, out)
 					}
@@ -103,7 +102,7 @@ func TestAudioTransports(t *testing.T) {
 					if math.Abs(audioStart-videoStart) > .15 || math.Abs(audioEnd-videoEnd) > .4 {
 						t.Fatalf("A/V drift: audio %g..%g video %g..%g", audioStart, audioEnd, videoStart, videoEnd)
 					}
-					pcm, err := exec.Command("ffmpeg", "-nostdin", "-v", "error", "-i", filepath.Join(stream.dir, name), "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1").Output()
+					pcm, err := testCommand(t, "ffmpeg", "-nostdin", "-v", "error", "-i", filepath.Join(stream.dir, name), "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1").Output()
 					if err != nil {
 						t.Fatal(err)
 					}

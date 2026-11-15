@@ -1,7 +1,9 @@
 type Page={element:HTMLElement;title:string;admin?:boolean;group?:string;enter?:()=>void|Promise<void>;leave?:(next:string)=>boolean};
 const pages=new Map<string,Page>();
-let current='',historyIndex=0,isAdmin=()=>false,onLeaveRecordings=()=>{};
+let current='',lastSettings='settings/appearance',historyIndex=0,isAdmin=()=>false,onLeaveRecordings=()=>{};
 export const currentPage=()=>current;
+// Personal settings and administration share one rail entry and their own sub-navigation.
+export const isSettingsPage=(path:string)=>path.startsWith('settings/')||path.startsWith('admin/');
 export function registerPage(path:string,page:Page){pages.set(path,page);page.element.hidden=true}
 export function navigate(path:string){switchPage(path,false)}
 function switchPage(path:string,fromHistory:boolean){
@@ -22,6 +24,11 @@ function switchPage(path:string,fromHistory:boolean){
   if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');
   if(active){const group=link.closest('details');if(group)group.open=true}
  }
+ const settings=isSettingsPage(path);if(settings)lastSettings=path.startsWith('admin/cameras/')?'admin/cameras':path;
+ document.documentElement.classList.toggle('settings-open',settings);
+ const settingsNav=document.getElementById('settings-nav');if(settingsNav)settingsNav.hidden=!settings;
+ for(const link of document.querySelectorAll<HTMLAnchorElement>('[data-section="settings"]')){link.classList.toggle('active',settings);if(settings)link.setAttribute('aria-current','true');else link.removeAttribute('aria-current');link.href='#'+lastSettings}
+ document.querySelector('#settings-nav [aria-current=page]')?.scrollIntoView({block:'nearest',inline:'center'});
  document.documentElement.classList.remove('mobile-nav-open');
  document.getElementById('mobile-nav-toggle')?.setAttribute('aria-expanded','false');
  document.dispatchEvent(new CustomEvent('pagechange',{detail:path}));
@@ -32,7 +39,7 @@ function switchPage(path:string,fromHistory:boolean){
 export function startNavigation(admin:()=>boolean,pause:()=>void){
  isAdmin=admin;onLeaveRecordings=pause;
  for(const node of document.querySelectorAll<HTMLElement>('[data-admin]'))node.hidden=!isAdmin();
- document.addEventListener('click',event=>{const link=(event.target as Element).closest<HTMLAnchorElement>('a[data-page]');if(!link||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||event.button!==0)return;event.preventDefault();navigate(link.dataset.page!)});
+ document.addEventListener('click',event=>{const link=(event.target as Element).closest<HTMLAnchorElement>('a[data-page],a[data-section]');if(!link||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||event.button!==0)return;event.preventDefault();navigate(link.dataset.page??(pages.get(lastSettings)?.admin&&!isAdmin()?'settings/appearance':lastSettings))});
  window.addEventListener('hashchange',()=>switchPage(location.hash.slice(1)||'recordings',true));
  window.addEventListener('beforeunload',event=>{if(document.querySelector('[data-dirty="true"]')){event.preventDefault();event.returnValue=''}});
  switchPage(location.hash.slice(1)||'recordings',true);
