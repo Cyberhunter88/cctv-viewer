@@ -63,3 +63,23 @@ export function collapseTile(restoreFocus = true): boolean {
   document.dispatchEvent(new CustomEvent('tileexpandchange', { detail: null }));
   return true;
 }
+
+/**
+ * Live tiles fade their bars like recording tiles: after 2.5 s without movement while
+ * enlarged and playing. Recording tiles do the same in Tile.wake().
+ */
+export function attachIdleFade(tile: HTMLElement, playing: () => boolean) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const enlarged = () => document.fullscreenElement === tile || tile.classList.contains('expanded');
+  // Document listeners end with the tile, since live grids replace their tiles.
+  const listeners = new AbortController();
+  const wake = () => {
+    if (!tile.isConnected) { listeners.abort(); clearTimeout(timer); return; }
+    tile.classList.remove('idle');
+    clearTimeout(timer);
+    if (enlarged() && playing()) timer = setTimeout(() => { if (enlarged() && playing()) tile.classList.add('idle'); }, 2500);
+  };
+  for (const type of ['pointermove', 'pointerdown', 'keydown'] as const) tile.addEventListener(type, wake);
+  document.addEventListener('fullscreenchange', wake, { signal: listeners.signal });
+  document.addEventListener('tileexpandchange', wake, { signal: listeners.signal });
+}

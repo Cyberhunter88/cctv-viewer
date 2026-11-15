@@ -14,10 +14,11 @@ async function enterFullscreen(page:Page){
 
 test('question mark opens the shortcut overview and new keys control speed, sound and frames',async({page})=>{
  await login(page);await seekToRecording(page);
- await page.locator('#recordings .page-heading h1').click();
+ // Page shortcuts apply without focus; a focused timeline keeps its own arrow keys (WebKit keeps that focus on clicks).
+ await page.evaluate(()=>(document.activeElement as HTMLElement|null)?.blur());
  await page.keyboard.press('?');await expect(page.locator('#shortcut-help')).toBeVisible();
  await expect(page.locator('#shortcut-help .shortcut-list')).toContainText('Einzelbild zurück / vor');
- await page.keyboard.press('Escape');await expect(page.locator('#shortcut-help')).toBeHidden();await expect(page).toHaveURL(/#recordings$/);
+ await page.keyboard.press('Escape');await expect(page.locator('#shortcut-help')).toBeHidden();await expect(page).toHaveURL(/#recordings$/);await page.evaluate(()=>(document.activeElement as HTMLElement|null)?.blur());
  await expect(page.locator('#speed')).toHaveValue('1');
  await page.keyboard.press('ArrowUp');await expect(page.locator('#speed')).toHaveValue('2');
  await page.keyboard.press('ArrowDown');await page.keyboard.press('ArrowDown');await expect(page.locator('#speed')).toHaveValue('0.5');
@@ -27,7 +28,7 @@ test('question mark opens the shortcut overview and new keys control speed, soun
  await page.keyboard.press('m');await expect(audio).toHaveAttribute('aria-pressed','false');
  // A frame step pauses playback and moves the clock by a fraction of a second.
  await page.locator('#play').click();await expect(page.locator('#play')).toHaveAttribute('aria-label','Pause');
- await page.locator('#recordings .page-heading h1').click();
+ await page.evaluate(()=>(document.activeElement as HTMLElement|null)?.blur());
  const before=await page.locator('.camera-tile video').first().evaluate(v=>(v as HTMLVideoElement).currentTime);
  await page.keyboard.press('.');await expect(page.locator('#play')).toHaveAttribute('aria-label','Abspielen');
  await expect.poll(()=>page.locator('.camera-tile video').first().evaluate(v=>(v as HTMLVideoElement).currentTime)).not.toBe(before);

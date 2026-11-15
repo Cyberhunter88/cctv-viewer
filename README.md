@@ -372,8 +372,10 @@ Fehlermeldungen bleiben bis zum Schließen sichtbar und werden angesagt. Eine oh
 Browser-Vollbild vergrößerte Kachel sperrt den Hintergrund; Escape schließt sie und
 setzt den Fokus zurück. Bei reduzierter Bewegung entfallen Animationen.
 
-Änderungen auf der Einstellungsseite werden mit „Speichern“ übernommen. Kameraauswahl,
-Reihenfolge und Wiedergabeoptionen werden direkt gespeichert. Persönliche Einstellungen
+Änderungen auf der Einstellungsseite gelten ab 0.19.0 sofort und werden automatisch
+gespeichert; Zahlenfelder warten, bis die Eingabe pausiert, ungültige Werte werden nicht
+gespeichert. „Zurücksetzen“ stellt nach einer Rückfrage sofort die Standardwerte her.
+Kameraauswahl, Reihenfolge und Wiedergabeoptionen werden ebenfalls direkt gespeichert. Persönliche Einstellungen
 einschließlich Kameraauswahl und Reihenfolge sowie das Farbschema werden dauerhaft je Benutzerkonto auf dem Server
 gespeichert. Beim Anmelden oder Neuladen stehen sie auch auf anderen Geräten zur
 Verfügung; bereits offene Geräte behalten ihre Darstellung. Änderungen verschiedener
@@ -552,3 +554,9 @@ Tagesordnern die beiden vorherigen lokalen Tage.
 Ab 0.10.0: Livekameras in der Kameraverwaltung einrichten und unter **Liveansicht**
 unabhängig von den Aufnahmen auswählen. Einrichtung, geringe Verzögerung und
 optionale Heimnetz-Streamfreigabe: [docs/LIVE.md](docs/LIVE.md).
+
+Ab 0.19.0 ist die Liveansicht wie die Aufnahmen aufgebaut: eine Werkzeugzeile, Kamera-Chips
+mit dem Menü „Kameraaktionen“ (⋯) und Kacheln mit dem Kameranamen und einer LIVE-Marke im
+Bild. In der Fußleiste stehen links der Verbindungsstatus und rechts Qualität, Ton, Zoom,
+Neu verbinden und Vergrößern als Symbole. Doppelklick vergrößert, und im Vollbild blenden sich
+die Leisten wie bei Aufnahmen aus.

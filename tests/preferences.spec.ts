@@ -33,7 +33,7 @@ test('legacy settings migrate, personal preferences persist and reset',async({pa
  await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await expect(page.locator('#overview')).toBeHidden();await expect(page.locator('#timeline-viewport')).toHaveCSS('height','400px');expect(thumbs).toEqual([]);
  await expect(page.locator('.camera-tile').first()).toHaveAccessibleName('Testkamera-B');await open(page);await expect(page.locator('#pref-seekStep')).toHaveValue('30');await expect(page.locator('#pref-shortcuts')).not.toBeChecked();
  page.once('dialog',d=>d.dismiss());await page.locator('#preferences-reset').click();await expect(page.locator('#pref-density')).toHaveValue('compact');
- page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await expect(page.locator('#pref-density')).toHaveValue('comfortable');await expect(page.locator('#pref-showTimestamps')).toBeChecked();await expect(page.locator('#pref-shortcuts')).toBeChecked();await expect(page.locator('#theme')).toHaveValue('system');await expect(page.locator('#pref-seekStep')).toHaveValue('5');await expect(page.locator('#layout')).toHaveValue('2x2');await save(page);await expect(page.locator('#timeline-resize')).toHaveAttribute('aria-valuenow','240');await expect(page.locator('#layout')).toHaveValue('auto');await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#camera-filters .filter.selected')).toHaveCount(2);
+ page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await expect(page.locator('#pref-density')).toHaveValue('comfortable');await expect(page.locator('#pref-showTimestamps')).toBeChecked();await expect(page.locator('#pref-shortcuts')).toBeChecked();await expect(page.locator('#theme')).toHaveValue('system');await expect(page.locator('#pref-seekStep')).toHaveValue('5');await save(page);await expect(page.locator('#timeline-resize')).toHaveAttribute('aria-valuenow','240');await expect(page.locator('#layout')).toHaveValue('auto');await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#camera-filters .filter.selected')).toHaveCount(2);
 });
 test('shortcuts share the configured step and never interfere with forms',async({page})=>{
  await login(page);
@@ -130,7 +130,8 @@ test('fullscreen tile offers its own play and pause controls',async({page})=>{
  expect(await tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
  const before=await page.locator('#clock').textContent();
  await tile.locator('.tile-seek').last().click();await expect(page.locator('#clock')).not.toHaveText(before!);
- await video.dblclick();await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
+ // The picture may be hidden while the next frame loads after a seek, so the tile itself takes the double click.
+ await tile.dblclick();await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
  await expect(page.locator('#play')).toHaveAttribute('aria-label','Abspielen');
 });
 
@@ -186,7 +187,7 @@ test('account preferences cross devices, merge edits and keep server values abov
 test('save failures remain visible and retry persists the same changes',async({page})=>{
  await login(page);
  await page.route('**/api/preferences',async route=>{if(route.request().method()==='PATCH')await route.fulfill({status:503,json:{error:'synthetic preference storage failure'}});else await route.continue()});
- await open(page);await (await preferenceControl(page,'pref-density')).selectOption('compact');await page.locator('#preferences-save').click();
+ await open(page);await (await preferenceControl(page,'pref-density')).selectOption('compact');
  await expect(page.locator('#preference-status')).toContainText('nicht gespeichert');await expect(page.locator('#preferences-dialog')).toBeVisible();await expect(page.locator('#preferences-retry')).toBeVisible();
  await page.unroute('**/api/preferences');await page.locator('#preferences-retry').click();await expect(page.locator('#preferences-retry')).toBeHidden();
  await page.locator('#preferences-close').click();await page.reload();await expect(page.locator('#app')).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-density','compact');
@@ -239,7 +240,7 @@ test('settings page actions remain reachable in short windows',async({page},info
  await login(page);
  for(const theme of ['light','dark'])for(const width of [390,1366]){
   await page.setViewportSize({width,height:500});await open(page);await (await preferenceControl(page,'theme')).selectOption(theme);await save(page);await openPage(page,'settings/playback');
-  await page.locator('#preferences-save').scrollIntoViewIfNeeded();await expect(page.locator('#preferences-save')).toBeInViewport();
+  await page.locator('#preferences-reset').scrollIntoViewIfNeeded();await expect(page.locator('#preferences-reset')).toBeInViewport();
   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await expect(page.locator('#diagnostics-open')).toHaveCount(0);
   await page.screenshot({path:info.outputPath(`settings-${theme}-${width}.png`)});await page.locator('#preferences-close').click();
  }

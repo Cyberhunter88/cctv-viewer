@@ -51,10 +51,11 @@ test('direct links, history, draft guards and paused playback',async({page})=>{
  await openPage(page,'search');const position=await page.locator('#clock').textContent();await expect(page.locator('dialog[open]')).toHaveCount(0);await expect.poll(()=>page.locator('video').evaluateAll(videos=>videos.every(v=>(v as HTMLVideoElement).paused))).toBe(true);
  await page.goBack();await expect(page).toHaveURL(/#recordings$/);await expect(page.locator('#play')).toHaveAttribute('aria-label','Abspielen');await expect(page.locator('#clock')).toHaveText(position!);expect(await page.locator('#camera-filters .selected').allTextContents()).toEqual(selected);await expect(page.locator('#date')).toHaveValue('2026-10-14');
  await page.goForward();await expect(page.locator('#search-dialog')).toBeVisible();await page.reload();await expect(page.locator('#search-dialog')).toBeVisible();
- await openPage(page,'settings/appearance');await page.locator('#pref-density').selectOption('compact');await openPage(page,'settings/playback');await expect(page.locator('#pref-density')).toHaveValue('compact');await expect(page.locator('#preferences-save')).toBeEnabled();
- await page.goBack();await expect(page).toHaveURL(/#settings\/appearance$/);page.once('dialog',d=>d.dismiss());await page.goBack();await expect(page).toHaveURL(/#settings\/appearance$/);await expect(page.locator('#pref-density')).toHaveValue('compact');await openPage(page,'settings/playback');
- page.once('dialog',d=>d.dismiss());await page.locator('a[data-page=search]').click();await expect(page).toHaveURL(/#settings\/playback$/);await expect(page.locator('#pref-density')).toHaveValue('compact');
- page.once('dialog',d=>d.accept());await page.locator('a[data-page=search]').click();await expect(page).toHaveURL(/#search$/);
+ await openPage(page,'settings/appearance');await page.locator('#pref-density').selectOption('compact');await openPage(page,'settings/playback');await expect(page.locator('#pref-density')).toHaveValue('compact');await expect(page.locator('html')).toHaveAttribute('data-density','compact');
+ // Settings are saved at once, so history and links leave them without a confirmation.
+ let asked=false;const onDialog=(dialog:import('@playwright/test').Dialog)=>{asked=true;void dialog.dismiss()};page.on('dialog',onDialog);
+ await page.goBack();await expect(page).toHaveURL(/#settings\/appearance$/);await page.locator('a[data-page=search]').click();await expect(page).toHaveURL(/#search$/);
+ page.off('dialog',onDialog);expect(asked).toBe(false);await expect(page.locator('html')).toHaveAttribute('data-density','compact');
  await page.goto('/#admin/operation');await expect(page.locator('#operation-panel')).toBeVisible();await expect(page.locator('#operation-form input[name=cacheMB]')).not.toHaveValue('');
  await page.goto('/#unknown');await expect(page).toHaveURL(/#recordings$/);
 });

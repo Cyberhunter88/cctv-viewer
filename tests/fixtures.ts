@@ -14,7 +14,9 @@ export async function cameraMutation(page:Page,send:()=>Promise<APIResponse>){
 
 // Successful page saves finish asynchronously after the account API reply.
 export async function savePreferences(page:Page){
- if(await page.locator('#preferences-save').isEnabled())await page.locator('#preferences-save').click();else await page.locator('#preferences-close').click();
+ // Settings save on every change; wait until the account has them, then return to recordings.
+ await expect(page.locator('#preference-status')).not.toHaveText(/werden gespeichert/);
+ await page.locator('#preferences-close').click();
  await expect(page.locator('#preferences-dialog')).toBeHidden();
  await expect(page).toHaveURL(/#recordings$/);
 }

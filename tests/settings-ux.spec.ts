@@ -6,7 +6,7 @@ async function login(page:Page){
 }
 async function openPreferences(page:Page){await openNavigation(page,'preferences-button')}
 
-test('preferences are drafts until saved, including theme, reset and validation',async({page})=>{
+test('preferences apply and save immediately, including theme, reset and validation',async({page})=>{
  await page.emulateMedia({colorScheme:'light'});await login(page);
  // Delay account writes so UI updates cannot stand in for durable storage.
  await page.route('**/api/preferences',async route=>{
@@ -14,27 +14,33 @@ test('preferences are drafts until saved, including theme, reset and validation'
   const response=await route.fetch(),body=await response.body(),status=response.status(),headers=response.headers();await new Promise(resolve=>setTimeout(resolve,250));await route.fulfill({status,headers,body});
  });
  const session=await(await page.request.get('/api/session')).json();
- const stored=()=>page.evaluate(key=>localStorage.getItem('cctv-view:'+key),session.preferenceKey);
+ const account=async()=>(await(await page.request.get('/api/preferences')).json())||{};
  // A custom grid shows the column field, the remaining numeric preference for the validation check.
  const customSaved=page.waitForResponse(response=>response.url().endsWith('/api/preferences')&&response.request().method()==='PATCH'&&response.ok());await page.locator('#layout').selectOption('custom');await customSaved;
- await openPreferences(page);await expect(page.locator('#preferences-save')).toBeDisabled();
- const before=await stored();
- await (await preferenceControl(page,'pref-density')).selectOption('compact');await (await preferenceControl(page,'theme')).selectOption('dark');await (await preferenceControl(page,'aspect')).selectOption('4/3');await (await preferenceControl(page,'pref-showTimestamps')).uncheck();
- await expect(page.locator('html')).toHaveAttribute('data-density','comfortable');await expect(page.locator('html')).toHaveAttribute('data-theme','light');await expect(page.locator('body')).not.toHaveClass(/hide-showTimestamps/);expect(await stored()).toBe(before);
- // System theme updates must not overwrite a user's unsaved selection.
- await page.emulateMedia({colorScheme:'dark'});await page.emulateMedia({colorScheme:'light'});await page.evaluate(()=>window.dispatchEvent(new StorageEvent('storage',{key:'cctv-theme',newValue:null})));await expect(page.locator('#theme')).toHaveValue('dark');
- page.once('dialog',d=>d.dismiss());await page.keyboard.press('Escape');await expect(page.locator('#preferences-dialog')).toBeVisible();await expect(page.locator('#pref-density')).toHaveValue('compact');
- page.once('dialog',d=>d.accept());await page.locator('#preferences-cancel').click();await expect(page.locator('#preferences-dialog')).toBeHidden();
- await openPreferences(page);await expect(page.locator('#pref-density')).toHaveValue('comfortable');await expect(page.locator('#aspect')).toHaveValue('auto');await expect(page.locator('#theme')).toHaveValue('system');await expect(page.locator('#preferences-save')).toBeDisabled();
- await (await preferenceControl(page,'grid-columns')).fill('20');await page.locator('#preferences-save').click();await expect(page.locator('#preferences-dialog')).toBeVisible();expect(await stored()).toBe(before);
- await (await preferenceControl(page,'grid-columns')).fill('3');await (await preferenceControl(page,'pref-density')).selectOption('compact');await (await preferenceControl(page,'theme')).selectOption('dark');await (await preferenceControl(page,'aspect')).selectOption('4/3');await persistPreferences(page);
- await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await page.reload();await expect(page.locator('#app')).toBeVisible();
- await openPreferences(page);await expect(page.locator('#aspect')).toHaveValue('4/3');await expect(page.locator('#grid-columns')).toHaveValue('3');await expect(page.locator('#preferences-save')).toBeDisabled();
- page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
- page.once('dialog',d=>d.accept());await page.locator('#preferences-close').click();await openPreferences(page);await expect(page.locator('#aspect')).toHaveValue('4/3');await expect(page.locator('#pref-density')).toHaveValue('compact');
- page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await persistPreferences(page);await expect(page.locator('html')).toHaveAttribute('data-density','comfortable');await expect(page.locator('html')).toHaveAttribute('data-theme','light');
+ await openPreferences(page);await expect(page.locator('#preferences-save')).toHaveCount(0);await expect(page.locator('#preferences-cancel')).toHaveCount(0);
+ const saved=(check:(body:Record<string,unknown>)=>boolean)=>page.waitForResponse(response=>response.url().endsWith('/api/preferences')&&response.request().method()==='PATCH'&&check(response.request().postDataJSON())&&response.ok());
+ let write=saved(body=>body.density==='compact');await (await preferenceControl(page,'pref-density')).selectOption('compact');
+ await expect(page.locator('html')).toHaveAttribute('data-density','compact');await write;
+ write=saved(body=>body.theme==='dark');await (await preferenceControl(page,'theme')).selectOption('dark');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await write;
+ write=saved(body=>body.showTimestamps===false);await (await preferenceControl(page,'aspect')).selectOption('4/3');await (await preferenceControl(page,'pref-showTimestamps')).uncheck();await write;
+ await expect(page.locator('body')).toHaveClass(/hide-showTimestamps/);await expect(page.locator('#preference-status')).toHaveText('Alle Änderungen gespeichert.');
+ // System theme updates must not overwrite the saved choice.
+ await page.emulateMedia({colorScheme:'dark'});await page.emulateMedia({colorScheme:'light'});await expect(page.locator('#theme')).toHaveValue('dark');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+ // Leaving never asks for confirmation; there is no draft to lose.
+ let asked=false;const onDialog=(dialog:import('@playwright/test').Dialog)=>{asked=true;void dialog.dismiss()};page.on('dialog',onDialog);
+ await page.keyboard.press('Escape');await expect(page.locator('#preferences-dialog')).toBeHidden();page.off('dialog',onDialog);expect(asked).toBe(false);
+ // Invalid numbers are reported and never stored; a valid value is saved after typing pauses.
+ await (await preferenceControl(page,'grid-columns')).fill('20');await expect(page.locator('#preference-status')).toContainText('Ungültiger Wert',{timeout:3000});expect((await account()).columns).not.toBe(20);
+ write=saved(body=>body.columns===3);await (await preferenceControl(page,'grid-columns')).fill('3');await write;
+ await page.reload();await expect(page.locator('#app')).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+ await openPreferences(page);await expect(page.locator('#aspect')).toHaveValue('4/3');await expect(page.locator('#grid-columns')).toHaveValue('3');
+ // Declining the reset keeps everything; accepting applies and saves the defaults at once.
+ page.once('dialog',d=>d.dismiss());await page.locator('#preferences-reset').click();await expect(page.locator('html')).toHaveAttribute('data-density','compact');
+ write=saved(body=>body.density==='comfortable'&&body.theme==='system');page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await write;
+ await expect(page.locator('html')).toHaveAttribute('data-density','comfortable');await expect(page.locator('html')).toHaveAttribute('data-theme','light');await expect(page.locator('#aspect')).toHaveValue('auto');
+ expect(session.preferenceKey).toBeTruthy();
  const qualitySaved=page.waitForResponse(response=>response.url().endsWith('/api/preferences')&&response.request().method()==='PATCH'&&response.request().postDataJSON().quality==='balanced'&&response.ok());
- await page.locator('#quality').selectOption('balanced');await qualitySaved;await page.reload();await expect(page.locator('#quality')).toHaveValue('balanced');
+ await persistPreferences(page);await page.locator('#quality').selectOption('balanced');await qualitySaved;await page.reload();await expect(page.locator('#quality')).toHaveValue('balanced');
  await page.unrouteAll({behavior:'wait'});
 });
 

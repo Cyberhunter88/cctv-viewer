@@ -20,6 +20,7 @@ import {initPreferencesDialog} from './preferences-dialog';
 import {collapseTile,expandedTile,toggleEnlarged} from './expanded-tile';
 import {wrapChipWithMoveButtons,createReorderToggle} from './chip-order';
 import {initShortcutHelp} from './shortcuts';
+import {popoverMenu} from './popover-menu';
 import type {Camera,ViewDetection,Scan,Day} from './types';
 interface Session {preferenceKey:string;name:string;role:'admin'|'viewer';csrf:string;kind:'local'|'oidc'}
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -67,13 +68,6 @@ for(const group of document.querySelectorAll<HTMLDetailsElement>('#rail-nav .nav
  });
 }
 matchMedia('(max-width:1100px)').addEventListener('change',applyRail);
-// Disclosure menus close on Escape, on an outside click and after an action was chosen.
-function popoverMenu(menu:HTMLDetailsElement){
- const summary=menu.querySelector('summary')!;
- document.addEventListener('keydown',e=>{if(e.key==='Escape'&&menu.open){e.preventDefault();menu.open=false;summary.focus()}});
- document.addEventListener('click',e=>{if(e.target instanceof Node&&!menu.contains(e.target))menu.open=false});
- menu.addEventListener('click',e=>{if(e.target instanceof Element&&e.target.closest('summary')===null&&e.target.closest('button'))menu.open=false});
-}
 const accountMenu=$<HTMLDetailsElement>('account-menu');
 accountMenu.querySelector('summary')!.addEventListener('click',e=>{if($('password-button').hidden)e.preventDefault()});
 popoverMenu(accountMenu);popoverMenu($<HTMLDetailsElement>('selection-menu'));
