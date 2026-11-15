@@ -18,6 +18,7 @@ type StreamProfile struct {
 }
 type Config struct {
 	Go2RTCPath, LiveRTSPAddress                          string
+	LiveRTSPSCert, LiveRTSPSKey                          string
 	Encoder, VAAPIDevice                                 string
 	AutoScan                                             bool
 	AutoScanMinutes                                      int
@@ -66,6 +67,11 @@ func LoadConfig() (Config, error) {
 	var err error
 	c.Go2RTCPath = env("CTV_GO2RTC_PATH", "go2rtc")
 	c.LiveRTSPAddress = env("CTV_LIVE_RTSP_ADDRESS", "127.0.0.1:8554")
+	// With a certificate and key the Home Assistant share speaks RTSPS (RTSP over TLS) only.
+	c.LiveRTSPSCert, c.LiveRTSPSKey = os.Getenv("CTV_LIVE_RTSPS_CERT"), os.Getenv("CTV_LIVE_RTSPS_KEY")
+	if (c.LiveRTSPSCert == "") != (c.LiveRTSPSKey == "") {
+		return c, errors.New("CTV_LIVE_RTSPS_CERT und CTV_LIVE_RTSPS_KEY nur gemeinsam setzen")
+	}
 	c.OIDCSecret, err = Secret("CTV_OIDC_CLIENT_SECRET")
 	if err != nil {
 		return c, err

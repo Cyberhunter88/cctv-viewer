@@ -2,6 +2,7 @@ package viewer
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -57,7 +58,7 @@ func validShareServerURL(raw string) bool {
 		return false
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "rtsp" || u.User != nil || u.Hostname() == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+	if err != nil || u.Scheme != "rtsp" && u.Scheme != "rtsps" || u.User != nil || u.Hostname() == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
 		return false
 	}
 	port, err := strconv.Atoi(u.Port())
@@ -83,7 +84,7 @@ func (a *App) liveShare(w http.ResponseWriter, r *http.Request) {
 		if in.ServerURL != nil {
 			settings.ServerURL = strings.TrimSpace(*in.ServerURL)
 			if !validShareServerURL(settings.ServerURL) {
-				fail(w, 400, "RTSP-Serveradresse muss rtsp://Host:Port ohne Pfad oder Zugangsdaten sein")
+				fail(w, 400, "RTSP-Serveradresse muss rtsp://Host:Port oder rtsps://Host:Port ohne Pfad oder Zugangsdaten sein")
 				return
 			}
 		}
@@ -114,7 +115,7 @@ func (a *App) liveShare(w http.ResponseWriter, r *http.Request) {
 	a.live.mu.Lock()
 	listening := a.live.gateway != nil
 	a.live.mu.Unlock()
-	jsonOut(w, 200, map[string]any{"enabled": settings.Enabled, "username": settings.Username, "password": generated, "hasPassword": settings.Password != "", "address": address, "listening": listening, "serverUrl": settings.ServerURL})
+	jsonOut(w, 200, map[string]any{"enabled": settings.Enabled, "username": settings.Username, "password": generated, "hasPassword": settings.Password != "", "address": address, "listening": listening, "serverUrl": settings.ServerURL, "secure": a.config().LiveRTSPSCert != ""})
 }
 
 type gatewayRoute struct {
@@ -156,6 +157,15 @@ func startLiveGateway(s *liveService, address string) (*liveGateway, error) {
 	g := &liveGateway{live: s, ctx: ctx, routes: map[string]*gatewayRoute{}, builds: map[string]*gatewayBuild{}, sessions: map[*gortsplib.ServerSession]string{}, cancel: cancel, done: make(chan struct{})}
 	// No UDP listeners: SETUP can only negotiate interleaved RTP over TCP.
 	g.server = &gortsplib.Server{Handler: g, RTSPAddress: address, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, WriteQueueSize: gatewayWriteQueue}
+	if cfg := s.app.config(); cfg.LiveRTSPSCert != "" {
+		// RTSPS encrypts the control channel and the interleaved media on the same port.
+		cert, e := tls.LoadX509KeyPair(cfg.LiveRTSPSCert, cfg.LiveRTSPSKey)
+		if e != nil {
+			cancel()
+			return nil, e
+		}
+		g.server.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+	}
 	if e := g.server.Start(); e != nil {
 		cancel()
 		return nil, e
@@ -344,6 +354,11 @@ func (g *liveGateway) buildRoute(id, view, quality string, linger time.Duration)
 	desc, _, e := client.Describe(u)
 	if e != nil {
 		return nil, e
+	}
+	// While go2rtc is still connecting to the camera it may describe a stream without
+	// media. Such a route must not be retained, or readers fail until it lingers out.
+	if len(desc.Medias) == 0 {
+		return nil, errors.New("source has no media yet")
 	}
 	if e = client.SetupAll(desc.BaseURL, desc.Medias); e != nil {
 		return nil, e

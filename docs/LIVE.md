@@ -107,7 +107,15 @@ bestehen, sodass ein erneuter Abruf ohne neuen Verbindungsaufbau startet.
 Nicht übertragene Pakete zählt `liveGatewayDrops` in `GET /api/admin/metrics`. Erst der letzte Betrachter beendet die Quelle.
 Das Zurücksetzen des Freigabepassworts beendet bestehende Freigabeverbindungen.
 RTSP ist unverschlüsselt und für das Heimnetz/VPN bestimmt; Port 8554 nicht ins
-Internet weiterleiten. Die go2rtc-Verwaltungsoberfläche wird nicht veröffentlicht.
+Internet weiterleiten.
+
+**Verschlüsselt (RTSPS, ab 0.19.0):** Mit `CTV_LIVE_RTSPS_CERT` und `CTV_LIVE_RTSPS_KEY`
+(Zertifikat und Schlüssel als PEM-Dateien, etwa per Docker-Volume eingebunden) nimmt der
+Listener nur noch RTSPS an; unverschlüsselte Anfragen bleiben unbeantwortet. Die Adressen
+lauten dann `rtsps://…:8554/live/<kamera-id>/wide/fast`, die Oberfläche zeigt den Modus
+unter **Streamfreigabe**. Home Assistant prüft das Zertifikat: Es muss zum Hostnamen in der
+Adresse passen und von einer vertrauten Stelle stammen. Bei einem selbst signierten
+Zertifikat in der Generic Camera **SSL-Zertifikat überprüfen** ausschalten. Die go2rtc-Verwaltungsoberfläche wird nicht veröffentlicht.
 
 ### Flüssige Wiedergabe in Home Assistant
 

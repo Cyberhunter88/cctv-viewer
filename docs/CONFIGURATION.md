@@ -83,6 +83,8 @@ steht weiterhin zur Verfügung; siehe [README](../README.md#mit-docker-compose-s
 Verbindungstest und die optionale Home-Assistant-Freigabe. `CTV_GO2RTC_PATH` wählt
 die lokale go2rtc-Binärdatei (Standard: `go2rtc` im PATH),
 `CTV_LIVE_RTSP_ADDRESS` den optionalen Listener (Standard `127.0.0.1:8554`).
+Mit `CTV_LIVE_RTSPS_CERT` und `CTV_LIVE_RTSPS_KEY` (PEM-Dateien, nur gemeinsam) spricht
+der Listener ab 0.19.0 ausschließlich RTSPS, also RTSP über TLS.
 Die einzelne `compose.yaml` bindet RTSP-Port 8554 standardmäßig nur an den Host.
 Für Home Assistant die erste Adresse im Portmapping `127.0.0.1:8554:8554/tcp`
 direkt auf die Heimnetz-IP ändern. Der
