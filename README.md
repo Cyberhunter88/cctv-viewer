@@ -6,6 +6,7 @@ Die Viewer-Funktionen orientieren sich an einem festen Stand des CCTV Timeline
 Viewers und sind eigenständig in Go/TypeScript umgesetzt. Unser Layout bleibt erhalten.
 
 - Datumsauswahl, Aufnahmegrenzen, Übersichtstimeline, Zoom und verstellbare Timeline-Höhe
+- Vollbild mit eigener Wiedergabeleiste, Bild-in-Bild und Tastenübersicht (`?`)
 - Automatische und feste Raster bis 4 × 4, eigene Raster bis 8 × 8 und Kameraseiten
 - Kameraauswahl und Reihenfolge per Ziehen; manueller oder automatischer Hotspot
 - Original, Ausgewogen und Schnell; Wiedergabe von 0,25× bis 16×
@@ -315,13 +316,15 @@ Die Untermenüs unter „Einstellungen“ öffnen die persönlichen Einstellunge
 „Alle auswählen“ und „Auswahl aufheben“; Seitenangaben zeigen die sichtbaren Kameras.
 
 Unter „Einstellungen“ können alle Benutzer Farbschema, Oberflächendichte, Raster,
-Seitenverhältnis, Vorladen und Hotspot wählen. Kameranamen, Zeitstempel, Codec,
-Tagesübersicht und Vorschaubilder lassen sich einzeln ein- und ausblenden.
-Ausgeblendete Vorschaubilder werden nicht geladen. Die Timeline-Höhe ist zwischen
-100 und 650 Pixeln einstellbar. Tastenkürzel lassen sich abschalten; Pfeiltasten
-springen wahlweise 5, 10 oder 30 Sekunden, mit Umschalt immer 60 Sekunden.
-Eine Tastenübersicht steht auf der Einstellungsseite. Eingabefelder behalten ihre
-normale Tastaturbedienung.
+Seitenverhältnis, Vorladen und Hotspot wählen. Zeitstempel, Tagesübersicht und die
+Vorschau beim Überfahren der Zeitleiste lassen sich einzeln ein- und ausblenden;
+eine ausgeblendete Vorschau wird nicht geladen. Die Timeline-Höhe wird am Trenner
+über der Zeitleiste zwischen 100 und 650 Pixeln eingestellt und bleibt gespeichert.
+Tastenkürzel lassen sich abschalten; Pfeiltasten springen wahlweise 5, 10 oder
+30 Sekunden, mit Umschalt immer 60 Sekunden. `,` und `.` gehen ein Einzelbild
+zurück oder vor und halten dabei an, ↑/↓ ändern die Geschwindigkeit, M schaltet den
+Ton der gewählten Kamera. `?` öffnet eine Übersicht aller Tastenkürzel, die auch auf
+der Einstellungsseite steht. Eingabefelder behalten ihre normale Tastaturbedienung.
 
 ### Erscheinungsbild (ab 0.18.0)
 
@@ -331,6 +334,28 @@ Schriftgrößen sind als gemeinsame Variablen definiert und gelten für Hell, Du
 die kompakte Oberflächendichte. Aufnahmen, Zeitleiste, Einstellungen, Suche und
 Verwaltung verwenden dieselben Schaltflächen, Chips, Karten und Seitenköpfe. Unter
 Windows mit hohem Kontrast bleiben Ränder und Auswahl sichtbar.
+
+### Kompakte Oberfläche und Vollbild-Steuerung (ab 0.19.0)
+
+Datum, Qualität und Rasteransicht stehen in einer Zeile über den Kamera-Chips.
+Seltene Aktionen wie „Alle auswählen“, „Auswahl aufheben“ und „Reihenfolge ändern“
+liegen im Menü „Kameraaktionen“ (⋯). Entfallen sind gespeicherte Ansichten, der
+Vorschaubild-Streifen unter der Zeitleiste (die Vorschau erscheint beim Überfahren),
+die Legende der Zeitleiste sowie die Schalter für Kameranamen und Codec. Ältere
+gespeicherte Werte dazu werden ignoriert. Codec, Aufnahmestatus
+und Kachel-Schaltflächen erscheinen mit der Maus erst beim Überfahren oder bei
+Fokus; auf Touch-Geräten bleiben sie sichtbar. Seitenleiste, Kontomenü und
+Einstellungen nutzen denselben ruhigen Stil.
+
+Im Vollbild und in der vergrößerten Ansicht hat jedes Kamerabild eine eigene
+Wiedergabeleiste mit Abspielen/Pause und 10 Sekunden zurück/vor. Ein Klick auf das
+Bild schaltet zwischen Abspielen und Pause um, ein Doppelklick schließt das Vollbild.
+Leertaste und K funktionieren dort auch, wenn eine Schaltfläche der Kachel den Fokus hat.
+Im Vollbild liegen Name und Wiedergabeleiste über dem Bild und blenden sich nach
+2,5 Sekunden ohne Bewegung aus, solange die Wiedergabe läuft. Jede Kachel bietet
+Bild-in-Bild, sofern der Browser es unterstützt. Im Hotspot-Raster markiert ein Symbol
+vor dem Kameranamen, dass ein Klick darauf die große Kachel wählt. Die Oberfläche
+bringt ein Web-App-Manifest mit und lässt sich so als App installieren.
 
 ### Barrierefreiheit (ab 0.17.0, erweitert in 0.18.0)
 
@@ -347,8 +372,10 @@ Fehlermeldungen bleiben bis zum Schließen sichtbar und werden angesagt. Eine oh
 Browser-Vollbild vergrößerte Kachel sperrt den Hintergrund; Escape schließt sie und
 setzt den Fokus zurück. Bei reduzierter Bewegung entfallen Animationen.
 
-Änderungen auf der Einstellungsseite werden mit „Speichern“ übernommen. Kameraauswahl,
-Reihenfolge und Wiedergabeoptionen werden direkt gespeichert. Persönliche Einstellungen
+Änderungen auf der Einstellungsseite gelten ab 0.19.0 sofort und werden automatisch
+gespeichert; Zahlenfelder warten, bis die Eingabe pausiert, ungültige Werte werden nicht
+gespeichert. „Zurücksetzen“ stellt nach einer Rückfrage sofort die Standardwerte her.
+Kameraauswahl, Reihenfolge und Wiedergabeoptionen werden ebenfalls direkt gespeichert. Persönliche Einstellungen
 einschließlich Kameraauswahl und Reihenfolge sowie das Farbschema werden dauerhaft je Benutzerkonto auf dem Server
 gespeichert. Beim Anmelden oder Neuladen stehen sie auch auf anderen Geräten zur
 Verfügung; bereits offene Geräte behalten ihre Darstellung. Änderungen verschiedener
@@ -372,9 +399,11 @@ Original ist die Standardauswahl für Weitwinkel und Zoom. Unterstützte MP4/MOV
 werden unverändert mit HTTP-Range geliefert. Auflösung,
 Bildrate und Bitrate entsprechen dabei der Datei auf dem NAS. Bestehende persönliche
 Qualitätseinstellungen werden einmalig auf Original umgestellt; spätere Änderungen
-bleiben gespeichert. Bei nicht unterstützten Quellformaten muss ein reduziertes
-Profil ausdrücklich ausgewählt werden.
-Bei inkompatiblen Codecs oder Containern Ausgewogen oder Schnell wählen:
+bleiben gespeichert. Kann der Browser das Original nicht abspielen (typisch H.265 in
+Chrome unter Linux), wandelt der Server es ab 0.19.0 automatisch in H.264 um, ohne
+Auflösung oder Bildrate zu verringern. Die Kachel zeigt dann „· umgewandelt“ neben
+dem Codec. Diese Umwandlung braucht mehr CPU als die reduzierten Profile; bei vielen
+Kameras gleichzeitig hilft ein Hardware-Encoder oder Ausgewogen bzw. Schnell:
 
 | Profil | Skalierung | FPS | Maximale Bitrate |
 |---|---:|---:|---:|
@@ -525,3 +554,9 @@ Tagesordnern die beiden vorherigen lokalen Tage.
 Ab 0.10.0: Livekameras in der Kameraverwaltung einrichten und unter **Liveansicht**
 unabhängig von den Aufnahmen auswählen. Einrichtung, geringe Verzögerung und
 optionale Heimnetz-Streamfreigabe: [docs/LIVE.md](docs/LIVE.md).
+
+Ab 0.19.0 ist die Liveansicht wie die Aufnahmen aufgebaut: eine Werkzeugzeile, Kamera-Chips
+mit dem Menü „Kameraaktionen“ (⋯) und Kacheln mit dem Kameranamen und einer LIVE-Marke im
+Bild. In der Fußleiste stehen links der Verbindungsstatus und rechts Qualität, Ton, Zoom,
+Neu verbinden und Vergrößern als Symbole. Doppelklick vergrößert, und im Vollbild blenden sich
+die Leisten wie bei Aufnahmen aus.

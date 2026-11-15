@@ -65,6 +65,19 @@ func TestRetiredAlertSettingsAreIgnoredOnLoad(t *testing.T) {
 	}
 }
 
+func TestFullProfileKeepsResolutionAndFrameRate(t *testing.T) {
+	args, _ := streamArgs("software", "", fullProfile, 0, 60, 1, "mp4", filepath.Join("cache", "hls-x"))
+	joined := strings.Join(args, " ")
+	for _, part := range []string{"-nostdin -v error -threads 0 ", "scale=trunc(iw*100/100/2)*2:trunc(ih*100/100/2)*2 -c:v libx264", "-threads 0 -crf 20 -maxrate 6000k"} {
+		if !strings.Contains(joined, part) {
+			t.Fatalf("missing %q in %s", part, joined)
+		}
+	}
+	if strings.Contains(joined, "fps=") {
+		t.Fatalf("full profile must keep the source frame rate: %s", joined)
+	}
+}
+
 func TestStreamArgumentsPerEncoder(t *testing.T) {
 	profile := StreamProfile{Scale: 50, FPS: 15, Bitrate: 1200}
 	dir := filepath.Join("cache", "hls-x")

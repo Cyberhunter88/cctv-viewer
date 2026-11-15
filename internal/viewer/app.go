@@ -323,13 +323,14 @@ type staticAsset struct {
 }
 
 var staticAssetTypes = map[string]string{
-	"index.html":    "text/html; charset=utf-8",
-	"app.js":        "text/javascript; charset=utf-8",
-	"chunks/hls.js": "text/javascript; charset=utf-8",
-	"theme.js":      "text/javascript; charset=utf-8",
-	"style.css":     "text/css; charset=utf-8",
-	"favicon.svg":   "image/svg+xml",
-	"favicon.ico":   "image/x-icon",
+	"index.html":           "text/html; charset=utf-8",
+	"app.js":               "text/javascript; charset=utf-8",
+	"chunks/hls.js":        "text/javascript; charset=utf-8",
+	"theme.js":             "text/javascript; charset=utf-8",
+	"style.css":            "text/css; charset=utf-8",
+	"favicon.svg":          "image/svg+xml",
+	"manifest.webmanifest": "application/manifest+json",
+	"favicon.ico":          "image/x-icon",
 }
 
 // staticAssets reads the embedded files once and prepares their compressed

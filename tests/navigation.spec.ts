@@ -1,4 +1,4 @@
-import {test,expect,openPage,type Page} from './fixtures';
+import {test,expect,openPage,seekToRecording,type Page} from './fixtures';
 test.beforeEach(async({context},info)=>{const hash=[...info.testId].reduce((n,c)=>(Math.imul(n,31)+c.charCodeAt(0))>>>0,0);await context.setExtraHTTPHeaders({'X-Forwarded-For':`2001:db8:2::${(hash>>>16).toString(16)}:${(hash&65535).toString(16)}`})});
 async function login(page:Page){await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible()}
 
@@ -46,15 +46,16 @@ test('settings and administration pages use matching menu names and back actions
 });
 
 test('direct links, history, draft guards and paused playback',async({page})=>{
- await login(page);await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen');await page.locator('.thumb').first().click();await page.locator('#play').click();await expect(page.locator('#play')).toHaveAttribute('aria-label','Pause');
+ await login(page);await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen');await seekToRecording(page);await page.locator('#play').click();await expect(page.locator('#play')).toHaveAttribute('aria-label','Pause');
  const selected=await page.locator('#camera-filters .selected').allTextContents();
  await openPage(page,'search');const position=await page.locator('#clock').textContent();await expect(page.locator('dialog[open]')).toHaveCount(0);await expect.poll(()=>page.locator('video').evaluateAll(videos=>videos.every(v=>(v as HTMLVideoElement).paused))).toBe(true);
  await page.goBack();await expect(page).toHaveURL(/#recordings$/);await expect(page.locator('#play')).toHaveAttribute('aria-label','Abspielen');await expect(page.locator('#clock')).toHaveText(position!);expect(await page.locator('#camera-filters .selected').allTextContents()).toEqual(selected);await expect(page.locator('#date')).toHaveValue('2026-10-14');
  await page.goForward();await expect(page.locator('#search-dialog')).toBeVisible();await page.reload();await expect(page.locator('#search-dialog')).toBeVisible();
- await openPage(page,'settings/appearance');await page.locator('#pref-density').selectOption('compact');await openPage(page,'settings/playback');await expect(page.locator('#pref-density')).toHaveValue('compact');await expect(page.locator('#preferences-save')).toBeEnabled();
- await page.goBack();await expect(page).toHaveURL(/#settings\/appearance$/);page.once('dialog',d=>d.dismiss());await page.goBack();await expect(page).toHaveURL(/#settings\/appearance$/);await expect(page.locator('#pref-density')).toHaveValue('compact');await openPage(page,'settings/playback');
- page.once('dialog',d=>d.dismiss());await page.locator('a[data-page=search]').click();await expect(page).toHaveURL(/#settings\/playback$/);await expect(page.locator('#pref-density')).toHaveValue('compact');
- page.once('dialog',d=>d.accept());await page.locator('a[data-page=search]').click();await expect(page).toHaveURL(/#search$/);
+ await openPage(page,'settings/appearance');await page.locator('#pref-density').selectOption('compact');await openPage(page,'settings/playback');await expect(page.locator('#pref-density')).toHaveValue('compact');await expect(page.locator('html')).toHaveAttribute('data-density','compact');
+ // Settings are saved at once, so history and links leave them without a confirmation.
+ let asked=false;const onDialog=(dialog:import('@playwright/test').Dialog)=>{asked=true;void dialog.dismiss()};page.on('dialog',onDialog);
+ await page.goBack();await expect(page).toHaveURL(/#settings\/appearance$/);await page.locator('a[data-page=search]').click();await expect(page).toHaveURL(/#search$/);
+ page.off('dialog',onDialog);expect(asked).toBe(false);await expect(page.locator('html')).toHaveAttribute('data-density','compact');
  await page.goto('/#admin/operation');await expect(page.locator('#operation-panel')).toBeVisible();await expect(page.locator('#operation-form input[name=cacheMB]')).not.toHaveValue('');
  await page.goto('/#unknown');await expect(page).toHaveURL(/#recordings$/);
 });

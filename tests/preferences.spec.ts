@@ -1,4 +1,4 @@
-import {openPage,openNavigation,preferenceControl} from './fixtures';
+import {openPage,openNavigation,preferenceControl,seekToRecording} from './fixtures';
 import {test,expect,savePreferences as save,type Page} from './fixtures';
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.40'}});
 // Each case uses a distinct synthetic client; the expanded suite must not
@@ -26,12 +26,14 @@ test('legacy settings migrate, personal preferences persist and reset',async({pa
  await login(page);const session=await legacyAccount(page);
  await page.evaluate(key=>localStorage.setItem('cctv-view:'+key,JSON.stringify({layout:'4',quality:'compatible',cameras:['Testkamera-B'],order:['Testkamera-B','Testkamera-A'],timelineHeight:300})),session.preferenceKey);await page.reload();
  await expect(page.locator('#layout')).toHaveValue('2x2');await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#camera-filters .filter').first()).toHaveText('Testkamera-B');await open(page);
- await expect(page.locator('#pref-showNames')).toBeChecked();await (await preferenceControl(page,'pref-density')).selectOption('compact');await (await preferenceControl(page,'pref-showNames')).uncheck();await (await preferenceControl(page,'pref-showTimestamps')).uncheck();await (await preferenceControl(page,'pref-showCodec')).uncheck();await (await preferenceControl(page,'pref-showOverview')).uncheck();await (await preferenceControl(page,'pref-showThumbnails')).uncheck();await (await preferenceControl(page,'pref-shortcuts')).uncheck();await (await preferenceControl(page,'pref-seekStep')).selectOption('30');await (await preferenceControl(page,'pref-timelineHeight')).fill('400');await page.locator('#pref-timelineHeight').dispatchEvent('change');await (await preferenceControl(page,'theme')).selectOption('dark');await save(page);
+ await (await preferenceControl(page,'pref-density')).selectOption('compact');await (await preferenceControl(page,'pref-showTimestamps')).uncheck();await (await preferenceControl(page,'pref-showOverview')).uncheck();await (await preferenceControl(page,'pref-showThumbnails')).uncheck();await (await preferenceControl(page,'pref-shortcuts')).uncheck();await (await preferenceControl(page,'pref-seekStep')).selectOption('30');await (await preferenceControl(page,'theme')).selectOption('dark');await save(page);
+ // The timeline height is set at its separator only (300 px from the legacy value, 20 px per step).
+ await page.locator('#timeline-resize').focus();for(let step=0;step<5;step++)await page.keyboard.press('ArrowDown');await expect(page.locator('#timeline-resize')).toHaveAttribute('aria-valuenow','400');
  const thumbs:string[]=[];page.on('request',r=>{if(r.url().includes('/thumbnail'))thumbs.push(r.url())});await page.reload();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen');
- await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await expect(page.locator('#overview')).toBeHidden();await expect(page.locator('#thumbnails')).toBeHidden();await expect(page.locator('.thumb')).toHaveCount(0);await expect(page.locator('#timeline-viewport')).toHaveCSS('height','400px');expect(thumbs).toEqual([]);
+ await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await expect(page.locator('#overview')).toBeHidden();await expect(page.locator('#timeline-viewport')).toHaveCSS('height','400px');expect(thumbs).toEqual([]);
  await expect(page.locator('.camera-tile').first()).toHaveAccessibleName('Testkamera-B');await open(page);await expect(page.locator('#pref-seekStep')).toHaveValue('30');await expect(page.locator('#pref-shortcuts')).not.toBeChecked();
  page.once('dialog',d=>d.dismiss());await page.locator('#preferences-reset').click();await expect(page.locator('#pref-density')).toHaveValue('compact');
- page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await expect(page.locator('#pref-density')).toHaveValue('comfortable');await expect(page.locator('#pref-showNames')).toBeChecked();await expect(page.locator('#pref-shortcuts')).toBeChecked();await expect(page.locator('#theme')).toHaveValue('system');await expect(page.locator('#pref-seekStep')).toHaveValue('5');await expect(page.locator('#layout')).toHaveValue('2x2');await expect(page.locator('#pref-timelineHeight')).toHaveValue('240');await save(page);await expect(page.locator('#layout')).toHaveValue('auto');await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#camera-filters .filter.selected')).toHaveCount(2);
+ page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await expect(page.locator('#pref-density')).toHaveValue('comfortable');await expect(page.locator('#pref-showTimestamps')).toBeChecked();await expect(page.locator('#pref-shortcuts')).toBeChecked();await expect(page.locator('#theme')).toHaveValue('system');await expect(page.locator('#pref-seekStep')).toHaveValue('5');await save(page);await expect(page.locator('#timeline-resize')).toHaveAttribute('aria-valuenow','240');await expect(page.locator('#layout')).toHaveValue('auto');await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#camera-filters .filter.selected')).toHaveCount(2);
 });
 test('shortcuts share the configured step and never interfere with forms',async({page})=>{
  await login(page);
@@ -44,8 +46,8 @@ test('shortcuts share the configured step and never interfere with forms',async(
  await open(page);await (await preferenceControl(page,'pref-shortcuts')).uncheck();await save(page);
  // The focused timeline sliders stay keyboard operable (WCAG 2.1.1); only global single-key shortcuts are disabled.
  await page.locator('#timeline').focus();await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText('08:31:00');await page.locator('#overview').focus();await page.keyboard.press('ArrowLeft');await expect(page.locator('#clock')).toHaveText(after!);await page.evaluate(()=>(document.activeElement as HTMLElement|null)?.blur());await page.keyboard.press('ArrowRight');await expect(page.locator('#clock')).toHaveText(after!);
- await open(page);await (await preferenceControl(page,'pref-shortcuts')).check();await (await preferenceControl(page,'pref-timelineHeight')).focus();await page.keyboard.press('ArrowDown');await expect(page.locator('#clock')).toHaveText(after!);page.once('dialog',d=>d.accept());await page.keyboard.press('Escape');await expect(page.locator('#preferences-dialog')).toBeHidden();await expect(page).toHaveURL(/#recordings$/);
- await page.locator('#select-none').click();await expect(page.locator('#video-grid')).toContainText('Keine Kameras ausgewählt');await expect(page.locator('#camera-range')).toHaveText('Keine Kamera ausgewählt');await page.locator('#select-all').click();await expect(page.locator('.camera-tile')).toHaveCount(2);
+ await open(page);await (await preferenceControl(page,'pref-shortcuts')).check();await (await preferenceControl(page,'pref-seekStep')).focus();await page.keyboard.press('ArrowDown');await expect(page.locator('#clock')).toHaveText(after!);page.once('dialog',d=>d.accept());await page.keyboard.press('Escape');await expect(page.locator('#preferences-dialog')).toBeHidden();await expect(page).toHaveURL(/#recordings$/);
+ await page.locator('#selection-menu summary').click();await page.locator('#select-none').click();await expect(page.locator('#selection-menu')).not.toHaveAttribute('open','');await expect(page.locator('#video-grid')).toContainText('Keine Kameras ausgewählt');await expect(page.locator('#camera-range')).toHaveText('Keine Kamera ausgewählt');await page.locator('#selection-menu summary').click();await page.locator('#select-all').click();await expect(page.locator('.camera-tile')).toHaveCount(2);
  await page.unrouteAll({behavior:'wait'});
 });
 for(const role of ['admin','viewer'])test(`${role} responsive shell and settings in both themes`,async({page},info)=>{
@@ -93,7 +95,7 @@ test('original migration, collapsible rail, account placement and laptop control
 
 test('native fullscreen uses the actual tile and preserves original playback',async({page})=>{
  await login(page);await page.setViewportSize({width:1366,height:768});
- await page.locator('.thumb').first().click();const tile=page.locator('.camera-tile').first(),video=tile.locator('video');
+ await seekToRecording(page);const tile=page.locator('.camera-tile').first(),video=tile.locator('video');
  await expect.poll(()=>video.evaluate(v=>v.readyState)).toBeGreaterThanOrEqual(2);
  await page.locator('#play').click();await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(1);
  const src=await video.getAttribute('src');expect(src).toMatch(/\/api\/recordings\/.+\/file$/);
@@ -105,6 +107,32 @@ test('native fullscreen uses the actual tile and preserves original playback',as
  await page.keyboard.press('Escape');await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
  await page.locator('#recordings .page-heading h1').click();await page.keyboard.press('f');await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
  await page.evaluate(()=>document.exitFullscreen());
+});
+
+test('fullscreen tile offers its own play and pause controls',async({page})=>{
+ await login(page);await page.setViewportSize({width:1366,height:768});
+ await seekToRecording(page);const tile=page.locator('.camera-tile').first(),video=tile.locator('video'),toggle=tile.locator('.tile-play');
+ await expect.poll(()=>video.evaluate(v=>v.readyState)).toBeGreaterThanOrEqual(2);
+ await expect(toggle).toBeHidden();
+ await page.locator('#play').click();await expect.poll(()=>video.evaluate(v=>!v.paused)).toBe(true);
+ await tile.locator('.tile-expand').click();await expect.poll(()=>tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
+ await expect(toggle).toBeVisible();await expect(toggle).toHaveAttribute('aria-label','Pause');
+ // The control pauses the shared playback, like the page transport.
+ await toggle.click();await expect(page.locator('#play')).toHaveAttribute('aria-label','Abspielen');await expect(toggle).toHaveAttribute('aria-label','Abspielen');
+ await expect.poll(()=>video.evaluate(v=>v.paused)).toBe(true);
+ await toggle.click();await expect(page.locator('#play')).toHaveAttribute('aria-label','Pause');
+ // A single click on the picture toggles playback; a double click still closes fullscreen.
+ await video.click();await expect(page.locator('#play')).toHaveAttribute('aria-label','Abspielen');
+ await video.click();await expect(page.locator('#play')).toHaveAttribute('aria-label','Pause');
+ // Space pauses even while a tile button has focus, without closing fullscreen.
+ await tile.locator('.tile-expand').focus();await page.keyboard.press(' ');
+ await expect(page.locator('#play')).toHaveAttribute('aria-label','Abspielen');
+ expect(await tile.evaluate(el=>document.fullscreenElement===el)).toBe(true);
+ const before=await page.locator('#clock').textContent();
+ await tile.locator('.tile-seek').last().click();await expect(page.locator('#clock')).not.toHaveText(before!);
+ // The picture may be hidden while the next frame loads after a seek, so the tile itself takes the double click.
+ await tile.dblclick();await expect.poll(()=>page.evaluate(()=>document.fullscreenElement===null)).toBe(true);
+ await expect(page.locator('#play')).toHaveAttribute('aria-label','Abspielen');
 });
 
 test('settings pages scroll in short windows without horizontal overflow',async({page},info)=>{
@@ -144,22 +172,22 @@ test('account preferences cross devices, merge edits and keep server values abov
   await open(page);await (await preferenceControl(page,'pref-density')).selectOption('compact');await (await preferenceControl(page,'theme')).selectOption('dark');await (await preferenceControl(page,'pref-seekStep')).selectOption('30');await save(page);await expect(page.locator('#preferences-dialog')).toBeHidden();
   await expect(second.locator('html')).toHaveAttribute('data-density','comfortable');
   // The second device edits a different field from its older snapshot.
-  await open(second);await (await preferenceControl(second,'pref-showCodec')).uncheck();await save(second);await expect(second.locator('#preferences-dialog')).toBeHidden();
+  await open(second);await (await preferenceControl(second,'pref-showTimestamps')).uncheck();await save(second);await expect(second.locator('#preferences-dialog')).toBeHidden();
   await second.reload();await expect(second.locator('#app')).toBeVisible();
-  await expect(second.locator('html')).toHaveAttribute('data-density','compact');await expect(second.locator('html')).toHaveAttribute('data-theme','dark');await expect(second.locator('body')).toHaveClass(/hide-showCodec/);
+  await expect(second.locator('html')).toHaveAttribute('data-density','compact');await expect(second.locator('html')).toHaveAttribute('data-theme','dark');await expect(second.locator('body')).toHaveClass(/hide-showTimestamps/);
   await expect(second.locator('#layout')).toHaveValue('3x2');await expect(second.locator('#camera-filters .selected')).toHaveText('Testkamera-B');
   const session=await(await page.request.get('/api/session')).json();
   await page.evaluate(key=>localStorage.setItem('cctv-view:'+key,JSON.stringify({density:'comfortable',theme:'light'})),session.preferenceKey);
-  await page.reload();await expect(page.locator('#app')).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('body')).toHaveClass(/hide-showCodec/);
+  await page.reload();await expect(page.locator('#app')).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('body')).toHaveClass(/hide-showTimestamps/);
   await open(page);await expect(page.locator('#pref-seekStep')).toHaveValue('30');page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await save(page);await expect(page.locator('#preferences-dialog')).toBeHidden();
-  await second.reload();await expect(second.locator('#app')).toBeVisible();await expect(second.locator('html')).toHaveAttribute('data-density','comfortable');await expect(second.locator('body')).not.toHaveClass(/hide-showCodec/);
+  await second.reload();await expect(second.locator('#app')).toBeVisible();await expect(second.locator('html')).toHaveAttribute('data-density','comfortable');await expect(second.locator('body')).not.toHaveClass(/hide-showTimestamps/);
  }finally{await secondContext.close()}
 });
 
 test('save failures remain visible and retry persists the same changes',async({page})=>{
  await login(page);
  await page.route('**/api/preferences',async route=>{if(route.request().method()==='PATCH')await route.fulfill({status:503,json:{error:'synthetic preference storage failure'}});else await route.continue()});
- await open(page);await (await preferenceControl(page,'pref-density')).selectOption('compact');await page.locator('#preferences-save').click();
+ await open(page);await (await preferenceControl(page,'pref-density')).selectOption('compact');
  await expect(page.locator('#preference-status')).toContainText('nicht gespeichert');await expect(page.locator('#preferences-dialog')).toBeVisible();await expect(page.locator('#preferences-retry')).toBeVisible();
  await page.unroute('**/api/preferences');await page.locator('#preferences-retry').click();await expect(page.locator('#preferences-retry')).toBeHidden();
  await page.locator('#preferences-close').click();await page.reload();await expect(page.locator('#app')).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-density','compact');
@@ -212,7 +240,7 @@ test('settings page actions remain reachable in short windows',async({page},info
  await login(page);
  for(const theme of ['light','dark'])for(const width of [390,1366]){
   await page.setViewportSize({width,height:500});await open(page);await (await preferenceControl(page,'theme')).selectOption(theme);await save(page);await openPage(page,'settings/playback');
-  await page.locator('#preferences-save').scrollIntoViewIfNeeded();await expect(page.locator('#preferences-save')).toBeInViewport();
+  await page.locator('#preferences-reset').scrollIntoViewIfNeeded();await expect(page.locator('#preferences-reset')).toBeInViewport();
   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await expect(page.locator('#diagnostics-open')).toHaveCount(0);
   await page.screenshot({path:info.outputPath(`settings-${theme}-${width}.png`)});await page.locator('#preferences-close').click();
  }

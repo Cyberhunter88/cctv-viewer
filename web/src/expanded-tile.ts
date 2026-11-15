@@ -3,7 +3,7 @@
 // focus stays inside the tile, and closing returns focus to the trigger.
 let expanded: HTMLElement | undefined, opener: HTMLElement | undefined;
 let inertNodes: HTMLElement[] = [];
-const keepActive = (node: Element) => node.id === 'toast' || node.id === 'toast-region' || node.id === 'toast-alert';
+const keepActive = (node: Element) => node.id === 'shortcut-help' || node.id === 'toast' || node.id === 'toast-region' || node.id === 'toast-alert';
 
 export function expandedTile(): HTMLElement | undefined {
   return expanded?.isConnected ? expanded : undefined;
@@ -28,6 +28,25 @@ export function expandTile(tile: HTMLElement, trigger?: HTMLElement) {
   document.dispatchEvent(new CustomEvent('tileexpandchange', { detail: tile }));
 }
 
+/**
+ * Shared by recordings and live tiles: closes an open fullscreen or overlay, otherwise
+ * opens native fullscreen and falls back to the overlay when the browser refuses it.
+ * Focus moves into a fullscreen tile so Space does not re-press the trigger button.
+ */
+export async function toggleEnlarged(tile: HTMLElement, trigger?: HTMLElement) {
+  if (document.fullscreenElement) { await document.exitFullscreen(); return; }
+  if (expandedTile() === tile) { collapseTile(); return; }
+  if (document.fullscreenEnabled && tile.requestFullscreen) {
+    try {
+      await tile.requestFullscreen();
+      tile.tabIndex = -1;
+      tile.focus({ preventScroll: true });
+      return;
+    } catch { /* falls back to the overlay below */ }
+  }
+  expandTile(tile, trigger);
+}
+
 /** Returns true if an expanded tile was closed. */
 export function collapseTile(restoreFocus = true): boolean {
   const tile = expanded;
@@ -43,4 +62,24 @@ export function collapseTile(restoreFocus = true): boolean {
   if (restoreFocus && target?.isConnected) target.focus({ preventScroll: true });
   document.dispatchEvent(new CustomEvent('tileexpandchange', { detail: null }));
   return true;
+}
+
+/**
+ * Live tiles fade their bars like recording tiles: after 2.5 s without movement while
+ * enlarged and playing. Recording tiles do the same in Tile.wake().
+ */
+export function attachIdleFade(tile: HTMLElement, playing: () => boolean) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const enlarged = () => document.fullscreenElement === tile || tile.classList.contains('expanded');
+  // Document listeners end with the tile, since live grids replace their tiles.
+  const listeners = new AbortController();
+  const wake = () => {
+    if (!tile.isConnected) { listeners.abort(); clearTimeout(timer); return; }
+    tile.classList.remove('idle');
+    clearTimeout(timer);
+    if (enlarged() && playing()) timer = setTimeout(() => { if (enlarged() && playing()) tile.classList.add('idle'); }, 2500);
+  };
+  for (const type of ['pointermove', 'pointerdown', 'keydown'] as const) tile.addEventListener(type, wake);
+  document.addEventListener('fullscreenchange', wake, { signal: listeners.signal });
+  document.addEventListener('tileexpandchange', wake, { signal: listeners.signal });
 }

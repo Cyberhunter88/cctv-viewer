@@ -5,11 +5,11 @@ test('live navigation and empty selection persist independently from recordings'
  await login(page);const recorded=await page.locator('#camera-filters .selected').allTextContents();
  await openPage(page,'live');await expect(page.locator('#live-page h1')).toHaveText('Liveansicht');
  const saved=page.waitForResponse(r=>r.url().endsWith('/api/preferences')&&r.request().method()==='PATCH'&&Array.isArray(r.request().postDataJSON().liveCameras)&&r.request().postDataJSON().liveCameras.length===0&&r.ok());
- await page.locator('#live-select-none').click();await saved;
+ await page.locator('#live-selection-menu summary').click();await page.locator('#live-select-none').click();await saved;
  await expect(page.locator('#live-empty')).toContainText('Keine Kameras ausgewählt');await expect(page.locator('#live-grid video')).toHaveCount(0);
  await page.reload();await expect(page.locator('#live-empty')).toContainText('Keine Kameras ausgewählt');
  await openPage(page,'recordings');expect(await page.locator('#camera-filters .selected').allTextContents()).toEqual(recorded);
- await openPage(page,'live');await page.locator('#live-select-all').click();await expect(page.locator('#live-camera-filters .selected')).toHaveCount(2);
+ await openPage(page,'live');await page.locator('#live-selection-menu summary').click();await page.locator('#live-select-all').click();await expect(page.locator('#live-camera-filters .selected')).toHaveCount(2);
  const first=await page.locator('#live-camera-filters .filter').first().textContent();
  await page.locator('#live-camera-filters .filter').first().focus();await page.keyboard.press('Alt+ArrowRight');
  await expect(page.locator('#live-camera-filters .filter').last()).toHaveText(first!);
@@ -69,5 +69,5 @@ test('real live stream plays through HTTPS fallback, supports zoom and releases 
 
 test('live controls fit mobile light and dark layouts',async({page})=>{
  await page.setViewportSize({width:360,height:800});await login(page);await openPage(page,'live');
- for(const theme of ['light','dark']){await page.evaluate(value=>document.documentElement.dataset.theme=value,theme);await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await expect(page.locator('#live-select-all')).toBeVisible()}
+ for(const theme of ['light','dark']){await page.evaluate(value=>document.documentElement.dataset.theme=value,theme);await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.locator('#live-selection-menu summary').click();await expect(page.locator('#live-select-all')).toBeVisible();const panel=await page.locator('#live-selection-menu .popover-panel').boundingBox();expect(panel!.x).toBeGreaterThanOrEqual(0);expect(panel!.x+panel!.width).toBeLessThanOrEqual(360);await page.keyboard.press('Escape');await expect(page.locator('#live-select-all')).toBeHidden()}
 });

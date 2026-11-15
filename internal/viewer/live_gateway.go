@@ -155,7 +155,7 @@ func startLiveGateway(s *liveService, address string) (*liveGateway, error) {
 	ctx, cancel := context.WithCancel(s.app.ctx)
 	g := &liveGateway{live: s, ctx: ctx, routes: map[string]*gatewayRoute{}, builds: map[string]*gatewayBuild{}, sessions: map[*gortsplib.ServerSession]string{}, cancel: cancel, done: make(chan struct{})}
 	// No UDP listeners: SETUP can only negotiate interleaved RTP over TCP.
-	g.server = &gortsplib.Server{Handler: g, RTSPAddress: address, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
+	g.server = &gortsplib.Server{Handler: g, RTSPAddress: address, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, WriteQueueSize: gatewayWriteQueue}
 	if e := g.server.Start(); e != nil {
 		cancel()
 		return nil, e
@@ -211,9 +211,17 @@ func (g *liveGateway) prune() {
 		r.close()
 	}
 }
+
 // Reconnecting readers (Home Assistant) reuse a retained route and skip the
 // Describe/Setup/Play round trip and the wait for the next keyframe.
 const (
+	// Each Home Assistant session may queue this many packets. A camera main stream keyframe
+	// spans several hundred packets, so the library default of 256 drops parts of it as soon
+	// as the reader stalls briefly, which shows up as smearing until the next keyframe.
+	gatewayWriteQueue = 2048
+	// gortsplib sends at most 1472 bytes per RTP packet. Cameras may send larger packets over
+	// RTSP/TCP; go2rtc splits H.264/H.265 to this size without re-encoding.
+	gatewayPacketSize = 1400
 	gatewayLingerIdle = 60 * time.Second
 	gatewayLingerOff  = 10 * time.Second
 	gatewayShareTTL   = 5 * time.Second
@@ -321,7 +329,7 @@ func (g *liveGateway) buildRoute(id, view, quality string, linger time.Duration)
 	g.live.mu.Lock()
 	address := g.live.rtsp
 	g.live.mu.Unlock()
-	u, _ := base.ParseURL("rtsp://" + address + "/" + name)
+	u, _ := base.ParseURL("rtsp://" + address + "/" + name + "?pkt_size=" + strconv.Itoa(gatewayPacketSize))
 	tcp := gortsplib.TransportTCP
 	client := &gortsplib.Client{Transport: &tcp, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second}
 	if e = client.Start(u.Scheme, u.Host); e != nil {

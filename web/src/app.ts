@@ -12,19 +12,19 @@ import {attachTimelineControls} from './timeline-controls';
 import {initManagement} from './management';
 import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,timelineRowAt,keyboardSeekTarget,type Recording} from './timeline';
 import {initSearchPage,type SearchPage,type SearchResult} from './search-page';
-import {initSavedViews} from './saved-views';
 import {initCameraEditor} from './camera-editor';
 import {createTimelineView} from './timeline-view';
 import {initCameraList} from './camera-list';
 import {initCameraBatch} from './camera-batch';
 import {initPreferencesDialog} from './preferences-dialog';
-import {expandTile,collapseTile,expandedTile} from './expanded-tile';
+import {collapseTile,expandedTile,toggleEnlarged} from './expanded-tile';
 import {wrapChipWithMoveButtons,createReorderToggle} from './chip-order';
+import {initShortcutHelp} from './shortcuts';
+import {popoverMenu} from './popover-menu';
 import type {Camera,ViewDetection,Scan,Day} from './types';
 interface Session {preferenceKey:string;name:string;role:'admin'|'viewer';csrf:string;kind:'local'|'oidc'}
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 let session:Session, cameras:Camera[]=[],records:Recording[]=[],playableRecords:Recording[]=[],displayedRecords:Recording[]=[],selected=new Set<string>(),from=0,to=0,cursor=0,viewStart=0,viewEnd=0,playing=false,scanRunning=false,loadGeneration=0,dayLoadPending=false;
-let thumbGeneration=0,thumbKey='';const thumbURLs:string[]=[];
 const tiles=new Map<string,Tile>();
 const openZoom=new Set<string>();
 let audioTile:Tile|undefined;
@@ -39,18 +39,14 @@ let toastTimer:ReturnType<typeof setTimeout>|undefined;
 
 let fullscreenGridPending=false;
 async function toggleFullscreen(tile:HTMLElement){
- try{
-  if(document.fullscreenElement){await document.exitFullscreen();return}
-  if(document.fullscreenEnabled&&tile.requestFullscreen)await tile.requestFullscreen();
-  else if(expandedTile()===tile)collapseTile();
-  else expandTile(tile,tile.querySelector<HTMLElement>('.tile-expand')||undefined);
- }catch{notify('Vollbild konnte nicht geöffnet werden. Bitte erneut versuchen.')}
+ try{await toggleEnlarged(tile,tile.querySelector<HTMLElement>('.tile-expand')||undefined)}
+ catch{notify('Vollbild konnte nicht geschlossen werden. Bitte erneut versuchen.')}
 }
 // Keeps the expand buttons of the overlay fallback in sync with the expanded tile.
-document.addEventListener('tileexpandchange',()=>{for(const button of document.querySelectorAll<HTMLElement>('#video-grid .tile-expand')){const open=button.closest('.camera-tile')===expandedTile();button.setAttribute('aria-label',open?'Vergrößerte Ansicht schließen':'Ansicht vergrößern');setControlIcon(button,open?'collapse':'expand')}});
+document.addEventListener('tileexpandchange',()=>{for(const tile of tiles.values())tile.wake();for(const button of document.querySelectorAll<HTMLElement>('#video-grid .tile-expand')){const open=button.closest('.camera-tile')===expandedTile();button.setAttribute('aria-label',open?'Vergrößerte Ansicht schließen':'Ansicht vergrößern');setControlIcon(button,open?'collapse':'expand')}});
 document.addEventListener('fullscreenchange',()=>{
  if(!document.fullscreenElement&&fullscreenGridPending){fullscreenGridPending=false;renderGrid();update()}
- for(const tile of tiles.values()){const active=document.fullscreenElement===tile.container;const button=tile.container.querySelector('.tile-expand');if(button){button.setAttribute('aria-label',active?'Vollbild schließen':document.fullscreenEnabled?'Vollbild öffnen':'Ansicht vergrößern');setControlIcon(button,active?'collapse':'expand')}tile.applyAspect()}
+ for(const tile of tiles.values()){const active=document.fullscreenElement===tile.container;const button=tile.container.querySelector('.tile-expand');if(button){button.setAttribute('aria-label',active?'Vollbild schließen':document.fullscreenEnabled?'Vollbild öffnen':'Ansicht vergrößern');setControlIcon(button,active?'collapse':'expand')}tile.applyAspect();tile.wake()}
 });
 // Without an explicit choice (.rail-auto) the stylesheet collapses the rail by media query,
 // so the layout never lags behind a resize; the classes only carry an explicit choice.
@@ -74,10 +70,8 @@ for(const group of document.querySelectorAll<HTMLDetailsElement>('#rail-nav .nav
 matchMedia('(max-width:1100px)').addEventListener('change',applyRail);
 const accountMenu=$<HTMLDetailsElement>('account-menu');
 accountMenu.querySelector('summary')!.addEventListener('click',e=>{if($('password-button').hidden)e.preventDefault()});
-function closeAccount(){if(!accountMenu.open)return;accountMenu.open=false;accountMenu.querySelector('summary')!.focus()}
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&accountMenu.open){e.preventDefault();closeAccount()}});
-document.addEventListener('click',e=>{if(e.target instanceof Node&&!accountMenu.contains(e.target))accountMenu.open=false});
-for(const id of ['password-button','logout'])$(id).addEventListener('click',()=>{accountMenu.open=false});
+popoverMenu(accountMenu);popoverMenu($<HTMLDetailsElement>('selection-menu'));
+$('logout').addEventListener('click',()=>{accountMenu.open=false});
 
 let preferenceWriter:PreferenceWriter|undefined;
 function preferenceSnapshot():Record<string,unknown>{
@@ -140,14 +134,15 @@ function ordered(){return order.map(id=>cameras.find(c=>c.id===id)).filter((c):c
 function grid(){return gridSize($<HTMLSelectElement>('layout').value,state.columns,state.rows,selected.size,$('video-grid').clientWidth||innerWidth,ordered().some(c=>c.viewMode==='dual'&&openZoom.has(c.id)))}
 function visiblePageCapacity(){const [cols,rows]=grid();return pageCapacity($<HTMLSelectElement>('layout').value,cols,rows)}
 function visible():Camera[]{const all=ordered(),capacity=visiblePageCapacity();page=clamp(page,0,Math.max(0,Math.ceil(all.length/capacity)-1));return all.slice(page*capacity,(page+1)*capacity)}
-function pause(){playing=false;playbackClock.stop();$('play').textContent='▶';$('play').setAttribute('aria-label','Abspielen');tiles.forEach(t=>t.paused());renderPosition()}
-function play(){if(!playableRecords.length||!visible().length){notify('Für diese Auswahl sind keine Aufnahmen vorhanden.');return}if(!visible().some(c=>recordingAt(displayedRecords,c.id,cursor))){const next=nextRecording(displayedRecords,visible().map(c=>c.id),cursor);if(next===undefined){notify('Keine weiteren Aufnahmen an diesem Tag.');return}cursor=next}playing=true;$('play').textContent='Ⅱ';$('play').setAttribute('aria-label','Pause');tiles.forEach(t=>t.retry());update();if(!document.hidden&&currentPage()==='recordings')playbackClock.start()}
+function pause(){playing=false;playbackClock.stop();$('play').textContent='▶';$('play').setAttribute('aria-label','Abspielen');tiles.forEach(t=>{t.paused();t.setPlaying(false)});renderPosition()}
+function play(){if(!playableRecords.length||!visible().length){notify('Für diese Auswahl sind keine Aufnahmen vorhanden.');return}if(!visible().some(c=>recordingAt(displayedRecords,c.id,cursor))){const next=nextRecording(displayedRecords,visible().map(c=>c.id),cursor);if(next===undefined){notify('Keine weiteren Aufnahmen an diesem Tag.');return}cursor=next}playing=true;$('play').textContent='Ⅱ';$('play').setAttribute('aria-label','Pause');tiles.forEach(t=>{t.retry();t.setPlaying(true)});update();if(!document.hidden&&currentPage()==='recordings')playbackClock.start()}
 function seek(time:number){playbackClock.reset();lastHotspotCursor=undefined;cursor=clamp(time,from,to-.001);update();updateSliders(true)}
 const tileContext:TileContext={
  state,cursor:()=>cursor,playing:()=>playing,speed,quality:()=>$<HTMLSelectElement>('quality').value,
  recordings:()=>records,playableRecordings:()=>playableRecords,audioTile:()=>audioTile,setAudioTile:tile=>{audioTile=tile},
  selectHotspot:id=>{hotspot=id;state.autoHotspot=false;$<HTMLInputElement>('auto-hotspot').checked=false;renderGrid();saveView()},
- toggleFullscreen,notify,request:api
+ toggleFullscreen,notify,request:api,
+ togglePlay:()=>{if(playing)pause();else play()},seekBy:seconds=>seek(cursor+seconds)
 };
 function synchronizeTiles(){
  if(!from)return;
@@ -201,13 +196,13 @@ function renderGrid(){
  const active=visible();for(const[id,t]of tiles)if(!active.some(c=>c.id===t.camera.id&& (c.viewMode==='dual'?(t.view==='wide'||t.view==='zoom'&&openZoom.has(c.id)):!t.view))){t.destroy();tiles.delete(id)}
  const gridElement=$('video-grid'),[cols]=grid();gridElement.className='video-grid';gridElement.style.gridTemplateColumns=`repeat(${cols},minmax(0,1fr))`;
  gridElement.replaceChildren();
- const isHotspot=$<HTMLSelectElement>('layout').value==='hotspot';if(!active.some(c=>c.id===hotspot))hotspot=active[0]?.id;
+ const isHotspot=$<HTMLSelectElement>('layout').value==='hotspot';$('video-grid').classList.toggle('hotspot-layout',isHotspot);if(!active.some(c=>c.id===hotspot))hotspot=active[0]?.id;
  for(const c of active){
   const group=element('div','camera-group');group.id='camera-group-'+c.id;group.classList.toggle('dual',c.viewMode==='dual');group.classList.toggle('zoom-open',openZoom.has(c.id));group.classList.toggle('hotspot-primary',isHotspot&&c.id===hotspot&&cols>1&&grid()[1]>1);
   let zoomToggle:HTMLButtonElement|undefined;
   if(c.viewMode==='dual' && c.supportsZoom !== false){
    const toggle=element('button','zoom-toggle',openZoom.has(c.id)?'Zoom schließen':'Zoom anzeigen');toggle.type='button';toggle.id='zoom-toggle-'+c.id;toggle.setAttribute('aria-label',`${c.name}: ${toggle.textContent}`);toggle.setAttribute('aria-expanded',String(openZoom.has(c.id)));toggle.setAttribute('aria-controls',group.id);
-   toggle.onclick=async()=>{if(document.fullscreenElement)await document.exitFullscreen();if(openZoom.has(c.id))openZoom.delete(c.id);else openZoom.add(c.id);page=Math.floor(ordered().findIndex(camera=>camera.id===c.id)/visiblePageCapacity());renderGrid();update();void thumbnails();$(toggle.id).focus()};toggle.ondblclick=e=>e.stopPropagation();zoomToggle=toggle;
+   toggle.onclick=async()=>{if(document.fullscreenElement)await document.exitFullscreen();if(openZoom.has(c.id))openZoom.delete(c.id);else openZoom.add(c.id);page=Math.floor(ordered().findIndex(camera=>camera.id===c.id)/visiblePageCapacity());renderGrid();update();$(toggle.id).focus()};toggle.ondblclick=e=>e.stopPropagation();zoomToggle=toggle;
   }
   for(const view of c.viewMode==='dual'?(c.supportsZoom===false?['wide']:(openZoom.has(c.id)?['wide','zoom']:['wide'])):[undefined]){
    const key=c.id+':'+(view||'single');if(!tiles.has(key))tiles.set(key,new Tile(c,view,tileContext));const tile=tiles.get(key)!;tile.camera=c;tile.container.querySelector('.zoom-toggle')?.remove();if(view==='wide'&&zoomToggle)tile.audioButton.before(zoomToggle);group.append(tile.container);tile.applyAspect();tile.video.preload=state.preload as 'metadata'|'auto';
@@ -224,7 +219,7 @@ function renderGrid(){
 function renderCameras(){
  lastHotspotCursor=undefined;playableRecords=playbackRecordings(records,cameras); const filters=$('camera-filters');filters.replaceChildren();for(const id of order){const camera=cameras.find(c=>c.id===id);if(!camera)continue;const b=element('button','filter'+(selected.has(id)?' selected':''),camera.name);b.setAttribute('aria-pressed',String(selected.has(id)));b.draggable=true;b.ondragstart=e=>e.dataTransfer?.setData('text/plain',id);b.ondragover=e=>e.preventDefault();b.ondrop=e=>{e.preventDefault();const source=e.dataTransfer?.getData('text/plain');if(!source||!order.includes(source))return;order=moveCamera(order,source,id);renderCameras();saveView()};b.id='recording-filter-'+id;b.title='Reihenfolge mit Alt + Pfeil links/rechts ändern';b.setAttribute('aria-keyshortcuts','Alt+ArrowLeft Alt+ArrowRight');b.onkeydown=e=>{if(!e.altKey||!['ArrowLeft','ArrowRight'].includes(e.key))return;const target=order.indexOf(id)+(e.key==='ArrowLeft'?-1:1);if(target<0||target>=order.length)return;e.preventDefault();order=moveCamera(order,id,order[target]);renderCameras();document.getElementById('recording-filter-'+id)?.focus({preventScroll:true});saveView()};b.onclick=()=>{if(selected.has(id))selected.delete(id);else selected.add(id);page=0;renderCameras();saveView()};
   const index=order.indexOf(id);filters.append(reorderMode?wrapChipWithMoveButtons(b,camera.name,index,order.length,delta=>{const focusId=`${b.id}-move-${delta<0?'left':'right'}`;order=moveCamera(order,id,order[index+delta]);renderCameras();saveView();const next=document.getElementById(focusId) as HTMLButtonElement|null;(next&&!next.disabled?next:document.getElementById(b.id))?.focus({preventScroll:true})}):b)}
- renderGrid();savedViews.sync();$('empty').hidden=cameras.length!==0;$('timeline-section').hidden=cameras.length===0;$('playback-controls').hidden=cameras.length===0;$('add-first').hidden=session.role!=='admin';update();void thumbnails();
+ renderGrid();$('empty').hidden=cameras.length!==0;$('timeline-section').hidden=cameras.length===0;$('playback-controls').hidden=cameras.length===0;$('add-first').hidden=session.role!=='admin';update();
 }
 function setScan(scan:Scan){
  scanRunning=scan.running;scanCompletion=scan.completion??scanCompletion;
@@ -247,7 +242,7 @@ async function loadDay(reset=true,signal?:AbortSignal){
   if(signal?.aborted||generation!==loadGeneration||date!==dateInput.value)return;
   loadedScanCompletion=completionAtStart;records=data.recordings;playableRecords=playbackRecordings(records,cameras);from=data.from;to=data.to;setScan(data.scan);refreshDisplayedRecords();
   if(reset){const ids=new Set(visible().map(c=>c.id));cursor=firstRecordingStart(displayedRecords.filter(r=>ids.has(r.cameraId)),from);viewStart=from;viewEnd=to}
-  $('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;$('latest-recording').hidden=records.length>0||!cameras.length;update();void thumbnails();refreshRange();
+  $('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;$('latest-recording').hidden=records.length>0||!cameras.length;update();refreshRange();
  }finally{if(reset&&generation===loadGeneration)dayLoadPending=false}
 }
 async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');for(const id of openZoom)if(!cameras.some(c=>c.id===id&&c.viewMode==='dual'))openZoom.delete(id);order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList();livePage.refresh()}
@@ -269,13 +264,6 @@ function scheduleResize(gridChanged=false){
  resizeFrame=requestAnimationFrame(()=>{resizeFrame=0;const rebuild=gridResizePending;gridResizePending=false;if(!session||!from)return;if(rebuild)renderGrid();draw();refreshRange()});
 }
 new ResizeObserver(()=>scheduleResize()).observe(canvas.parentElement!);
-async function thumbnails(){const root=$('thumbnails'),ids=visible().map(c=>c.id),items=state.showThumbnails?displayedRecords.filter(r=>ids.includes(r.cameraId)).sort((a,b)=>a.start-b.start):[];const sample=items.filter((_,i)=>i%Math.max(1,Math.ceil(items.length/8))===0).slice(0,8);
- // Scan refreshes and layout changes usually keep the same sample; reloading it would only flicker.
- const key=sample.map(record=>record.id).join(',');if(key===thumbKey&&root.childElementCount===sample.length)return;
- thumbKey=key;const generation=++thumbGeneration;for(const url of thumbURLs)URL.revokeObjectURL(url);thumbURLs.length=0;root.replaceChildren();
- const pairs=sample.map(record=>{const button=element('button','thumb'),img=element('img'),label=element('span','',clock(record.start));img.alt='Vorschau '+clock(record.start);button.title=clock(record.start);button.append(img,label);button.onclick=()=>seek(record.start);root.append(button);return{record,img}});
- await Promise.allSettled(pairs.map(async({record,img})=>{try{const response=await fetch('/api/recordings/'+record.id+'/thumbnail');if(!response.ok)throw new Error('thumbnail');const blob=await response.blob();if(generation!==thumbGeneration)return;const url=URL.createObjectURL(blob);thumbURLs.push(url);img.src=url}catch{if(generation===thumbGeneration)thumbKey=''}}));
-}
 const dialog=$('camera-dialog'),cameraForm=$<HTMLFormElement>('camera-form');
 let cameraSaving=false;
 const cameraList=initCameraList({
@@ -353,7 +341,7 @@ async function boot(){
  const saved=validView(remote,cameras.map(c=>c.id));
  for(const id of ['layout','quality','speed'] as const)$<HTMLSelectElement>(id).value=saved[id]||defaultView()[id];
 
- delete state.railCollapsed;delete state.hotspot;delete state.views;
+ delete state.railCollapsed;delete state.hotspot;
  Object.assign(state,defaultView(),saved);state.theme=saved.theme||'system';window.dispatchEvent(new CustomEvent('themecommit',{detail:state.theme}));applyRail();hotspot=saved.hotspot;if(saved.cameras)selected=new Set([...saved.cameras,...(saved.order?cameras.filter(c=>!saved.order!.includes(c.id)).map(c=>c.id):[])]);if(saved.order)order=[...saved.order,...order.filter(id=>!saved.order!.includes(id))];for(const id of ['preload','aspect'] as const)$<HTMLSelectElement>(id).value=state[id];$<HTMLInputElement>('grid-columns').value=String(state.columns);$<HTMLInputElement>('grid-rows').value=String(state.rows);$<HTMLInputElement>('auto-hotspot').checked=state.autoHotspot;applyPreferences();setTimelineHeight(state.timelineHeight);renderCameras();await loadDay();
  const initialSnapshot=preferenceSnapshot();
  // Remember the server's known cameras so the next edit also saves newly
@@ -374,11 +362,6 @@ const {applyPreferences}=initPreferencesDialog({
  resetSelection:()=>{selected=new Set(cameras.map(c=>c.id));order=cameras.map(c=>c.id);hotspot=undefined;page=0},
  applyRail,releaseTiles:()=>tiles.forEach(t=>t.release()),renderCameras:()=>renderCameras(),saveView:()=>saveView()
 });
-const savedViews=initSavedViews({
- views:()=>state.views||[],setViews:views=>{state.views=views;saveView()},notify,
- current:()=>({selected,layout:$<HTMLSelectElement>('layout').value,columns:state.columns,rows:state.rows}),
- apply:view=>{selected=new Set(view.cameras.filter(id=>cameras.some(c=>c.id===id)));$<HTMLSelectElement>('layout').value=view.layout;state.columns=view.columns;state.rows=view.rows;$<HTMLInputElement>('grid-columns').value=String(view.columns);$<HTMLInputElement>('grid-rows').value=String(view.rows);page=0;renderCameras();saveView()}
-});
 $('select-none').after(createReorderToggle('reorder-cameras',()=>reorderMode,()=>{reorderMode=!reorderMode;$('reorder-hint').hidden=!reorderMode;renderCameras()}));
 on('select-all',()=>{selected=new Set(cameras.map(c=>c.id));page=0;renderCameras();saveView()});
 on('select-none',()=>{selected.clear();page=0;renderCameras();saveView()});
@@ -388,7 +371,7 @@ on('rebuild-index',async()=>{if(!confirm('Den abgeleiteten Index und Vorschaubil
 overview.onpointerdown=e=>{overview.setPointerCapture(e.pointerId);seek(from+clamp((e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth,0,1)*(to-from));const span=viewEnd-viewStart;viewStart=clamp(cursor-span/2,from,to-span);viewEnd=viewStart+span;draw()};
 overview.onpointermove=e=>{if(e.buttons===1){const span=viewEnd-viewStart,start=clamp(from+(e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth*(to-from)-span/2,from,to-span);viewStart=start;viewEnd=start+span;draw()}};
 overview.onkeydown=e=>{if(e.ctrlKey||e.metaKey||e.altKey)return;const target=keyboardSeekTarget(e.key,e.shiftKey,cursor,from,to,state.seekStep);if(target!==undefined){e.preventDefault();seek(target)}};
-function setTimelineHeight(height:number){state.timelineHeight=Math.round(clamp(height,100,650));$('timeline-viewport').style.height=state.timelineHeight+'px';$<HTMLInputElement>('pref-timelineHeight').value=String(state.timelineHeight);resize.setAttribute('aria-valuenow',String(state.timelineHeight));resize.setAttribute('aria-valuetext',`${state.timelineHeight} Pixel`);draw()}
+function setTimelineHeight(height:number){state.timelineHeight=Math.round(clamp(height,100,650));$('timeline-viewport').style.height=state.timelineHeight+'px';resize.setAttribute('aria-valuenow',String(state.timelineHeight));resize.setAttribute('aria-valuetext',`${state.timelineHeight} Pixel`);draw()}
 let resizeStart=0,resizeHeight=0;const resize=$('timeline-resize');resize.onpointerdown=e=>{resize.setPointerCapture(e.pointerId);resizeStart=e.clientY;resizeHeight=state.timelineHeight};resize.onpointermove=e=>{if(!resize.hasPointerCapture(e.pointerId))return;setTimelineHeight(resizeHeight+e.clientY-resizeStart)};resize.onpointerup=()=>saveView();resize.onkeydown=e=>{if(['ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();setTimelineHeight(state.timelineHeight+(e.key==='ArrowDown'?20:-20));saveView()}};
 let observedGridWidth=-1;
 new ResizeObserver(([entry])=>{const width=entry.contentRect.width;if(width===observedGridWidth)return;observedGridWidth=width;scheduleResize(true)}).observe($('video-grid'));
@@ -406,14 +389,29 @@ on('latest-recording',async()=>{
  }catch(e){notify((e as Error).message)}finally{button.disabled=false}
 });
 
+const shortcutHelp=initShortcutHelp();
+on('shortcut-help-open',()=>shortcutHelp.open());
+// The tile a single-camera shortcut acts on: fullscreen, focused, hotspot, then the first one.
+function shortcutTile(target?:HTMLElement){
+ const element=document.fullscreenElement||expandedTile()||target?.closest('.camera-tile')||document.querySelector('.camera-group.hotspot-primary .camera-tile')||document.querySelector('#video-grid .camera-tile');
+ return [...tiles.values()].find(tile=>tile.container===element);
+}
+function changeSpeed(step:number){
+ const select=$<HTMLSelectElement>('speed'),index=clamp(select.selectedIndex+step,0,select.options.length-1);
+ if(index===select.selectedIndex)return;
+ select.selectedIndex=index;select.dispatchEvent(new Event('change',{bubbles:true}));notify('Geschwindigkeit '+select.options[index].text);
+}
 document.addEventListener('keydown',e=>{
+ if(shortcutHelp.isOpen)return;
  if(e.key==='Escape'&&document.fullscreenElement)void document.exitFullscreen().catch(()=>notify('Vollbild konnte nicht geschlossen werden.'));
  // Closing an expanded tile consumes Escape, so the page does not also navigate away.
  if(e.key==='Escape'&&collapseTile()){e.preventDefault();return}
  const target=e.target instanceof HTMLElement?e.target:undefined;
  const tag=target?.tagName;
  if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA'||tag==='CANVAS'||target?.isContentEditable)return;
- if(target?.closest('button,a,summary,[role="button"],[role="link"]')&&!(e.key.toLowerCase()==='f'&&target.closest('.camera-tile')))return;
+ // Inside an enlarged tile its buttons do not swallow the playback shortcuts; Enter still activates them.
+ const enlarged=target?.closest<HTMLElement>('.camera-tile');const inViewer=!!enlarged&&(document.fullscreenElement===enlarged||enlarged.classList.contains('expanded'));
+ if(target?.closest('button,a,summary,[role="button"],[role="link"]')&&!inViewer&&!(e.key.toLowerCase()==='f'&&target.closest('.camera-tile')))return;
  if(currentPage()!=='recordings'||e.defaultPrevented||e.ctrlKey||e.metaKey||e.altKey||!state.shortcuts||!session)return;
  if(e.key===' '||e.key==='Spacebar'||e.code==='Space'||e.key==='k'||e.key==='K'){
   e.preventDefault();
@@ -434,6 +432,15 @@ document.addEventListener('keydown',e=>{
   e.preventDefault();
   const primary=document.fullscreenElement||target?.closest('.camera-tile')||document.querySelector('.camera-group.hotspot-primary .camera-tile')||document.querySelector('.camera-tile');
   if(primary instanceof HTMLElement)void toggleFullscreen(primary);
+ }else if(e.key==='?'){
+  e.preventDefault();shortcutHelp.open();
+ }else if(e.key==='m'||e.key==='M'){
+  e.preventDefault();shortcutTile(target)?.audioButton.click();
+ }else if(e.key==='ArrowUp'||e.key==='ArrowDown'){
+  e.preventDefault();changeSpeed(e.key==='ArrowUp'?1:-1);
+ }else if(e.key===','||e.key==='.'){
+  // Single frames at the usual 25 fps of camera recordings; stepping always pauses first.
+  e.preventDefault();if(playing)pause();seek(cursor+(e.key===','?-.04:.04));
  }
 });
 
