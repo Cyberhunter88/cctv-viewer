@@ -118,6 +118,8 @@ func TestLiveGatewayDropCounterIsExported(t *testing.T) {
 func TestLiveGatewayCountsReaderAndUpstreamLoss(t *testing.T) {
 	a := testApp(t)
 	g := &liveGateway{live: a.live}
+	// The test triggers the losses on purpose; keep their warning out of the log.
+	g.lossLogged.Store(time.Now().Unix())
 	g.OnStreamWriteError(&gortsplib.ServerHandlerOnStreamWriteErrorCtx{Error: liberrors.ErrServerWriteQueueFull{}})
 	g.OnStreamWriteError(&gortsplib.ServerHandlerOnStreamWriteErrorCtx{Error: liberrors.ErrServerWriteQueueFull{}})
 	g.upstreamLost(5, "test")
