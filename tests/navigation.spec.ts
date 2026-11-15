@@ -57,7 +57,10 @@ test('direct links, history, draft guards and paused playback',async({page})=>{
  await page.goBack();await expect(page).toHaveURL(/#settings\/appearance$/);await page.locator('a[data-page=search]').click();await expect(page).toHaveURL(/#search$/);
  page.off('dialog',onDialog);expect(asked).toBe(false);await expect(page.locator('html')).toHaveAttribute('data-density','compact');
  await page.goto('/#admin/operation');await expect(page.locator('#operation-panel')).toBeVisible();await expect(page.locator('#operation-form input[name=cacheMB]')).not.toHaveValue('');
- await page.goto('/#unknown');await expect(page).toHaveURL(/#recordings$/);
+ // Operating figures are shown and refreshed only while the page is open.
+ await expect(page.locator('#operation-metrics')).toContainText('Wiedergabesitzungen');await expect(page.locator('#operation-metrics')).toContainText('Verlorene Pakete der Freigabe');
+ let polls=0;page.on('request',r=>{if(r.url().endsWith('/api/admin/metrics'))polls++});
+ await page.goto('/#unknown');await expect(page).toHaveURL(/#recordings$/);const after=polls;await page.waitForTimeout(6000);expect(polls).toBe(after);
 });
 
 test('local user lifecycle and session revocation through the GUI',async({page,browser})=>{
