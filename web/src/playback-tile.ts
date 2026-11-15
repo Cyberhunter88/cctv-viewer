@@ -82,6 +82,8 @@ export class Tile {
   playButton = element('button', 'tile-play');
   flash = element('div', 'tile-flash');
   clickTimer?: ReturnType<typeof setTimeout>;
+  /** Position a paused picture was last moved to; reset whenever a new source loads. */
+  pausedTarget?: number;
   flashTimer?: ReturnType<typeof setTimeout>;
   /** True while the tile is shown in native fullscreen or the expanded fallback overlay. */
   enlarged() { return document.fullscreenElement === this.container || this.container.classList.contains('expanded'); }
@@ -359,6 +361,7 @@ export class Tile {
     this.hls = undefined;
     this.video.pause();
     this.video.removeAttribute('src');
+    this.pausedTarget = undefined;
     this.video.load();
     if (this.stream) {
       const id = this.stream;
@@ -381,6 +384,7 @@ export class Tile {
     this.container.remove();
   }
   async load(record: Recording, recovering = false) {
+    this.pausedTarget = undefined;
     const different = this.record?.id !== record.id;
     this.release();
     if (different && !recovering) {
@@ -509,7 +513,16 @@ export class Tile {
       }
       return;
     }
-    if (this.video.readyState >= 1 && Math.abs(this.video.currentTime - target) > .65 / this.factor) {
+    // While playing, small drift is corrected by the playback rate. A paused picture follows
+    // every new cursor position exactly, so single-frame steps (, and .) are visible; it seeks
+    // once per position, because browsers may report a time rounded to the nearest frame.
+    // Pausing keeps the shown frame as the starting point instead of jumping to the cursor.
+    const paused = !this.context.playing(), drift = Math.abs(this.video.currentTime - target) > .65 / this.factor;
+    if (!paused) this.pausedTarget = undefined;
+    else if (this.pausedTarget === undefined && !drift && this.video.readyState >= 1) this.pausedTarget = target;
+    const moved = paused && this.pausedTarget !== undefined ? Math.abs(target - this.pausedTarget) > .001 : drift;
+    if (this.video.readyState >= 1 && moved && Math.abs(this.video.currentTime - target) > .001) {
+      if (paused) this.pausedTarget = target;
       try {
         this.conceal();
         this.reveal();
