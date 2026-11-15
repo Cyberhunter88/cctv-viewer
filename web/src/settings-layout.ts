@@ -17,11 +17,4 @@ export function initSettingsLayout(){
    for(const button of form.querySelectorAll<HTMLButtonElement>('button[type=submit]'))button.classList.add('settings-submit');
   }
  }
- const nav=document.getElementById('rail-nav');
- if(nav&&!nav.querySelector('[data-page="admin/live-share"]')){
-  const camera=nav.querySelector('[data-page="admin/cameras"]')!;
-  const link=document.createElement('a');link.href='#admin/live-share';link.dataset.page='admin/live-share';link.className='rail-item';link.setAttribute('aria-label','Streamfreigabe');link.title='Streamfreigabe';link.innerHTML='<span class="rail-symbol" aria-hidden="true">↗</span><span class="rail-label">Streamfreigabe</span>';camera.after(link);
-  const title=document.createElement('span');title.className='nav-section-label';title.textContent='Ansichten';nav.prepend(title);
-  const personal=nav.querySelector('details:not([data-admin]) summary .rail-label');if(personal){personal.textContent='Meine Einstellungen';const summary=personal.closest('summary')!;summary.setAttribute('aria-label','Meine Einstellungen');summary.title='Meine Einstellungen'}
- }
 }

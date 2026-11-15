@@ -209,6 +209,39 @@
  }
 
  /* Content pages (settings, management, search) */
+ /* Rail: three views and one settings entry, pinned to the bottom of the list. */
+ .rail nav { flex:1 1 auto; }
+ .rail-settings { margin-top:auto; }
+ .rail-item.rail-settings.active::before { top:10px; bottom:10px; }
+
+ /* Settings sub-navigation: a quiet second column beside the settings pages (desktop),
+    a scrolling strip of chips above them (tablet and phone). */
+ .settings-nav { display:flex; flex-direction:column; gap:var(--space-5); }
+ .settings-nav[hidden] { display:none; }
+ .settings-nav-title { margin:0 0 calc(var(--space-2) * -1); padding:0 var(--space-3); font-size:17px; font-weight:700; color:var(--text); }
+ .settings-nav-group { display:flex; flex-direction:column; gap:2px; }
+ .settings-nav-group[hidden] { display:none; }
+ .settings-nav-label { padding:0 var(--space-3) var(--space-1); color:var(--muted); font-size:11px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; }
+ .settings-link { display:flex; align-items:center; gap:10px; min-height:38px; padding:7px var(--space-3); border-radius:var(--radius-s); color:var(--muted); font-size:14px; text-decoration:none; white-space:nowrap; transition:background-color .12s ease,color .12s ease; }
+ .settings-link:hover { background:var(--surface); color:var(--text); }
+ .settings-link[aria-current=page] { background:var(--selected); color:var(--text); font-weight:650; }
+ .settings-link[aria-current=page] .settings-link-icon { color:var(--accent); }
+ .settings-link-icon { display:inline-flex; flex:none; width:18px; height:18px; }
+ .settings-link-icon svg { width:18px; height:18px; }
+ @media (min-width:901px) {
+  :root.settings-open .workspace { padding-left:240px; }
+  .settings-nav { position:fixed; z-index:15; top:0; bottom:0; left:var(--nav-width); width:240px; overflow-y:auto; overscroll-behavior:contain; padding:var(--space-6) var(--space-3); border-right:1px solid var(--line); background:var(--background); }
+ }
+ @media (max-width:900px) {
+  .settings-nav { position:sticky; z-index:15; top:0; flex-direction:row; align-items:center; gap:var(--space-4); overflow-x:auto; scrollbar-width:none; padding:var(--space-2) var(--shell-space); border-bottom:1px solid var(--line); background:var(--background); }
+  .settings-nav::-webkit-scrollbar { display:none; }
+  .settings-nav-title { display:none; }
+  .settings-nav-group { flex-direction:row; align-items:center; gap:var(--space-1); }
+  .settings-nav-label { padding:0 var(--space-1) 0 0; }
+  .settings-link { min-height:36px; padding:6px 12px; border:1px solid var(--line); border-radius:999px; }
+  .settings-link[aria-current=page] { border-color:var(--accent-line); }
+ }
+
  .content-page { min-width:0; width:100%; max-width:1200px; margin:0 auto; padding:var(--space-6) var(--shell-space); }
  .content-page > .dialog-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:var(--space-4); margin-bottom:var(--space-5); padding-bottom:var(--space-4); border-bottom:1px solid var(--line); }
  .content-page > .dialog-heading h2 { margin:0; font-size:26px; }
@@ -825,7 +858,7 @@
  }
  /* Windows high contrast: keep edges and the selected state visible. */
  @media (forced-colors:active) {
-  .filter.selected,.rail-item.active,.settings-tabs button[aria-selected=true] { outline:2px solid Highlight; outline-offset:-2px; }
+  .filter.selected,.rail-item.active,.settings-link[aria-current=page],.settings-tabs button[aria-selected=true] { outline:2px solid Highlight; outline-offset:-2px; }
   .camera-tile,.archive-controls,.timeline-section { border:1px solid CanvasText; }
   .preferences-sections > section:not([hidden]) ~ section:not([hidden]) { border-top:1px solid CanvasText; }
   .secure-dot,.camera-status::before { forced-color-adjust:none; }

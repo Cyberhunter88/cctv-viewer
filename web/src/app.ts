@@ -59,13 +59,6 @@ function applyRail(){
  scheduleResize();
 }
 on('rail-toggle',()=>{state.railCollapsed=!railCollapsed();applyRail();saveView()});
-for(const group of document.querySelectorAll<HTMLDetailsElement>('#rail-nav .nav-group')){
- group.querySelector('summary')?.addEventListener('click',event=>{
-  if(!railCollapsed()||matchMedia('(max-width:700px)').matches)return;
-  event.preventDefault();group.open=true;state.railCollapsed=false;applyRail();saveView();
-  group.querySelector<HTMLAnchorElement>('.nav-submenu a')?.focus();
- });
-}
 matchMedia('(max-width:1100px)').addEventListener('change',applyRail);
 const accountMenu=$<HTMLDetailsElement>('account-menu');
 accountMenu.querySelector('summary')!.addEventListener('click',e=>{if($('password-button').hidden)e.preventDefault()});

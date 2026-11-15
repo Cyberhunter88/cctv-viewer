@@ -534,7 +534,11 @@ Neustart sowie schreibgeschützte Aufnahme-Mounts und erstellt AMD64/ARM64-Image
 
 Über „Einstellungen → Darstellung“ stehen System, Hell und Dunkel zur Verfügung;
 auch die Anmeldung bietet eine Farbschema-Auswahl. Die Auswahl wird
-lokal gespeichert. Die linke Seitenleiste lässt sich ein- und ausklappen. Das
+lokal gespeichert. Die linke Seitenleiste lässt sich ein- und ausklappen. Ab 0.19.1
+enthält sie nur Liveansicht, Aufnahmen, Suche und einen Eintrag „Einstellungen“;
+die persönlichen Einstellungen und die Verwaltung haben dort eine eigene
+Unternavigation (auf Tablet und Handy als scrollbare Leiste), und der Eintrag öffnet
+wieder die zuletzt besuchte Einstellungsseite. Das
 Kontomenü mit Passwortänderung und Abmelden befindet sich unten in der Seitenleiste;
 auf Mobilgeräten ist es in der horizontalen Navigation erreichbar. Der Vollbildknopf,
 ein Doppelklick auf die Aufnahme oder die Taste F öffnen echtes Browser-Vollbild;
