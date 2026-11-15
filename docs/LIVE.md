@@ -104,10 +104,39 @@ Betrachtern geteilt. Home Assistant kann den Stream weiter verwenden, wenn im
 Viewer keine Kamera geöffnet ist. Nach dem Trennen bleibt die Route
 bei „Bei Bedarf“ zehn Sekunden, bei Nachlauf und „Dauerhaft bereit“ 60 Sekunden
 bestehen, sodass ein erneuter Abruf ohne neuen Verbindungsaufbau startet.
-Nicht übertragene Pakete zählt `cctv_live_gateway_write_errors_total`. Erst der letzte Betrachter beendet die Quelle.
+Nicht übertragene Pakete zählt `liveGatewayDrops` in `GET /api/admin/metrics`. Erst der letzte Betrachter beendet die Quelle.
 Das Zurücksetzen des Freigabepassworts beendet bestehende Freigabeverbindungen.
 RTSP ist unverschlüsselt und für das Heimnetz/VPN bestimmt; Port 8554 nicht ins
 Internet weiterleiten. Die go2rtc-Verwaltungsoberfläche wird nicht veröffentlicht.
+
+### Flüssige Wiedergabe in Home Assistant
+
+Die Kette Kamera → go2rtc → Viewer-Freigabe → Home Assistant überträgt das Video
+ohne Umwandlung und ausschließlich über TCP. Ab 0.19.0 gilt außerdem:
+
+- go2rtc teilt H.264/H.265 für die Freigabe in RTP-Pakete von höchstens 1400 Byte
+  auf, ohne neu zu kodieren. Kameras, die über RTSP/TCP größere Pakete senden,
+  wurden vorher in der Freigabe verworfen; Home Assistant zeigte dann kein oder ein
+  verschmiertes Bild.
+- Jede Home-Assistant-Verbindung puffert bis zu 2048 Pakete. So passt ein
+  Schlüsselbild des Hauptstreams auch dann vollständig hinein, wenn Home Assistant
+  kurz langsamer liest.
+
+Für ein ruhiges Bild außerdem:
+
+- In der Kamera ein festes Schlüsselbild-Intervall (I-Frame) von etwa einer Sekunde,
+  also gleich der Bildrate, und eine feste Bildrate einstellen.
+- In Home Assistant **RTSP-Transport TCP** wählen. Meldet Home Assistant Zeitstempel-
+  oder DTS-Fehler (häufig bei Reolink), unter den erweiterten Optionen der Generic
+  Camera **Wallclock als Zeitstempel verwenden** einschalten.
+- Für Dashboards den Nebenstream (`…/fast`) nutzen; den Hauptstream (`…/high`)
+  nur dort, wo die volle Auflösung gebraucht wird.
+- Mit „60 Sekunden Nachlauf“ oder „Dauerhaft bereit“ startet ein erneuter Abruf
+  ohne neuen Kameraverbindungsaufbau.
+
+Verlorene Pakete zählt `liveGatewayDrops` in `GET /api/admin/metrics` (nur
+Administratoren). Bleibt der Wert bei laufender Wiedergabe
+bei 0, liegen Ruckler nicht in der Freigabe, sondern bei Kamera, Netz oder Home Assistant.
 
 Dokumentation: [Home Assistant Generic Camera](https://www.home-assistant.io/integrations/generic/).
 Die Verwendung der generischen Streamquelle umfasst keine Reolink-Ereignisse,
