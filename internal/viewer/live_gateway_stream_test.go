@@ -44,7 +44,7 @@ func newGatewayFixture(t *testing.T, packetSize int, configure func(*App)) gatew
 	dir := t.TempDir()
 	source := filepath.Join(dir, "camera.mp4")
 	// Large keyframes at 720p: a single frame spans many packets, as with a camera main stream.
-	encode := exec.Command("ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=15", "-t", "30", "-c:v", "libx264", "-threads", "2", "-g", "15", "-bf", "0", "-b:v", "6M", "-maxrate", "6M", "-bufsize", "2M", "-y", source)
+	encode := testCommand(t, "ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=15", "-t", "30", "-c:v", "libx264", "-threads", "2", "-g", "15", "-bf", "0", "-b:v", "6M", "-maxrate", "6M", "-bufsize", "2M", "-y", source)
 	if out, e := encode.CombinedOutput(); e != nil {
 		t.Fatal(e, string(out))
 	}

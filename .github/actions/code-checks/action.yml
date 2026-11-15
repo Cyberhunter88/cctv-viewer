@@ -63,10 +63,11 @@ runs:
     - id: vet
       shell: bash
       run: go vet ./...
+    # The timeout prints a goroutine dump of a hanging test well before the job limit.
     - id: race
       name: Go-Race-Tests
       shell: bash
-      run: go test -race ./...
+      run: go test -race -timeout 8m ./...
     - id: python
       shell: bash
       run: python3 -m unittest discover -s scripts -p 'test_*.py'

@@ -229,7 +229,7 @@ func TestLiveSyntheticRestream(t *testing.T) {
 	}
 	dir := t.TempDir()
 	source := filepath.Join(dir, "camera.mp4")
-	cmd := exec.Command("ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=10", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000", "-t", "20", "-c:v", "libx264", "-threads", "1", "-g", "10", "-bf", "0", "-c:a", "aac", "-y", source)
+	cmd := testCommand(t, "ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=10", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000", "-t", "20", "-c:v", "libx264", "-threads", "1", "-g", "10", "-bf", "0", "-c:a", "aac", "-y", source)
 	if out, e := cmd.CombinedOutput(); e != nil {
 		t.Fatal(e, string(out))
 	}

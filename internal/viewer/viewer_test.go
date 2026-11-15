@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -206,7 +205,7 @@ func fixture(t *testing.T, a *App, codec string) Camera {
 		args = append(args, "-x265-params", "pools=none:frame-threads=1:log-level=error")
 	}
 	args = append(args, "-y", file)
-	if out, e := exec.Command("ffmpeg", args...).CombinedOutput(); e != nil {
+	if out, e := testCommand(t, "ffmpeg", args...).CombinedOutput(); e != nil {
 		t.Fatalf("fixture: %s %v", out, e)
 	}
 	past := time.Now().Add(-time.Minute)

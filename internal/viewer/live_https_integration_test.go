@@ -29,7 +29,7 @@ func TestLiveHTTPSFLVPreloadIntegration(t *testing.T) {
 		t.Skip("CTV_TEST_GO2RTC required")
 	}
 	file := filepath.Join(t.TempDir(), "synthetic.flv")
-	if output, err := exec.Command("ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=10", "-t", "3", "-c:v", "libx264", "-threads", "1", "-g", "10", "-bf", "0", "-f", "flv", "-y", file).CombinedOutput(); err != nil {
+	if output, err := testCommand(t, "ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=10", "-t", "3", "-c:v", "libx264", "-threads", "1", "-g", "10", "-bf", "0", "-f", "flv", "-y", file).CombinedOutput(); err != nil {
 		t.Fatal(err, string(output))
 	}
 	var connections atomic.Int32

@@ -55,7 +55,7 @@ func videoFromPicture(t *testing.T, file string, picture image.Image) {
 	if err = f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("ffmpeg", "-nostdin", "-v", "error", "-loop", "1", "-framerate", "2", "-i", imageFile, "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-threads", "1", "-y", file)
+	cmd := testCommand(t, "ffmpeg", "-nostdin", "-v", "error", "-loop", "1", "-framerate", "2", "-i", imageFile, "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-threads", "1", "-y", file)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("ffmpeg: %v %s", err, output)
 	}

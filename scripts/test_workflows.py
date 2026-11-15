@@ -69,7 +69,7 @@ class WorkflowContractTest(unittest.TestCase):
 
     def test_race_tests_run_unconditionally_for_pr_and_main(self):
         code = self.shared
-        self.assertRegex(code, r"name: Go-Race-Tests\n      shell: bash\n      run: go test -race \./\.\.\.")
+        self.assertRegex(code, r"name: Go-Race-Tests\n      shell: bash\n      run: go test -race -timeout 8m \./\.\.\.")
         self.assertNotRegex(code, r"run: go test \./\.\.\.")
 
     def test_release_job_contract_matches_workflow_names_and_browser_matrix(self):
@@ -144,7 +144,7 @@ class WorkflowContractTest(unittest.TestCase):
         main = self.job('code-checks')
         pr = self.job('code-checks', pr=True)
         for check in ('npm ci && npm run typecheck && npm test && npm run build',
-                      'go vet ./...', 'go test -race ./...',
+                      'go vet ./...', 'go test -race -timeout 8m ./...',
                       "python3 -m unittest discover -s scripts -p 'test_*.py'",
                       '"$RUNNER_TEMP/actionlint"', 'shellcheck scripts/promote_image.sh scripts/smoke.sh'):
             self.assertIn(check, self.shared)

@@ -22,7 +22,7 @@ func TestGPUDecodeAndFallbackOnRealHardware(t *testing.T) {
 	source := func(name string, codec ...string) string {
 		path := filepath.Join(dir, name)
 		args := append([]string{"-nostdin", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=25", "-t", "3"}, codec...)
-		if out, e := exec.Command("ffmpeg", append(args, "-y", path)...).CombinedOutput(); e != nil {
+		if out, e := testCommand(t, "ffmpeg", append(args, "-y", path)...).CombinedOutput(); e != nil {
 			t.Fatal(e, string(out))
 		}
 		return path
@@ -41,7 +41,7 @@ func TestGPUDecodeAndFallbackOnRealHardware(t *testing.T) {
 			return e
 		}
 		defer f.Close()
-		cmd := exec.Command("ffmpeg", args...)
+		cmd := testCommand(t, "ffmpeg", args...)
 		cmd.ExtraFiles = []*os.File{f}
 		if b, e := cmd.CombinedOutput(); e != nil {
 			return &exec.ExitError{ProcessState: cmd.ProcessState, Stderr: b}
@@ -88,7 +88,7 @@ func TestStreamsDecodeOnTheGPUAndFallBackPerCodec(t *testing.T) {
 		if source.codec == "libx265" {
 			args = append(args, "-preset", "ultrafast", "-x265-params", "log-level=error", "-tag:v", "hvc1")
 		}
-		if out, e := exec.Command("ffmpeg", append(args, "-y", path)...).CombinedOutput(); e != nil {
+		if out, e := testCommand(t, "ffmpeg", append(args, "-y", path)...).CombinedOutput(); e != nil {
 			t.Fatal(e, string(out))
 		}
 		// Recently modified files count as still being written and are not indexed yet.

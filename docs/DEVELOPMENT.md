@@ -60,17 +60,29 @@ Run `node scripts/check-secrets.mjs --history` for a read-only audit of all loca
 
 ## Browser-Tests ohne Google Chrome
 
-`playwright.config.ts` startet standardmäßig den Kanal `chrome` (Google Chrome unter
-`/opt/google/chrome`). Unter CachyOS oder ohne Chrome-Installation das von Playwright
-geladene Chromium verwenden:
+`playwright.config.ts` startet Google Chrome, wenn es installiert ist, sonst das von
+Playwright geladene Chromium (`npx playwright install chromium`). Unter CachyOS genügt
+daher `npm run test:browser`. `CTV_TEST_BROWSER` wählt weiterhin einen beliebigen
+Chromium-Pfad. WebKit startet unter CachyOS nicht direkt; dafür gibt es
+`scripts/test_webkit_container.sh` (siehe unten).
+
+## WebKit-Tests im Container
 
 ```bash
-npx playwright install chromium
-CTV_TEST_BROWSER="$(ls -d ~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome | tail -n 1)" npm run test:browser
+scripts/test_webkit_container.sh                      # alle Browser-Tests mit WebKit
+scripts/test_webkit_container.sh tests/live.spec.ts   # einzelne Datei
 ```
 
-Unter PowerShell `$env:CTV_TEST_BROWSER` auf die `chrome.exe` im Playwright-Cache
-setzen.
+Das Skript baut Frontend und einen statischen Server, startet das offizielle Playwright-Image
+passend zur gesperrten Playwright-Version und installiert darin ffmpeg und Python. Es braucht
+Docker oder Podman. So fallen WebKit-Fehler schon vor der CI auf.
+
+## Go-Tests mit echtem Live-Dienst und GPU
+
+`CTV_TEST_GO2RTC` (Pfad zu einer mit `scripts/build_go2rtc.sh` gebauten go2rtc-Binärdatei)
+aktiviert die Live- und Freigabe-Integrationstests, `CTV_TEST_VAAPI=/dev/dri/renderD128` die
+Tests der Hardware-Dekodierung. Ein hängender Test bricht mit `go test -timeout 8m` samt
+Goroutine-Ausgabe ab; die CI nutzt dasselbe Limit.
 
 ## Archivsuche messen
 
