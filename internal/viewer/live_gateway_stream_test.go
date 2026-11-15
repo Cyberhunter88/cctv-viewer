@@ -106,20 +106,20 @@ func newGatewayFixture(t *testing.T, packetSize int, configure func(*App)) gatew
 }
 
 // frames decodes five seconds from the share like Home Assistant's stream worker and
-// returns the number of decoded frames. A reader joins mid-GOP, so the frames before the
-// first keyframe may not decode; everything after it must arrive.
-func (f gatewayFixture) frames(t *testing.T, scheme string, options ...string) (int, error) {
+// returns the number of decoded frames and ffmpeg's error output. A reader joins mid-GOP,
+// so the frames before the first keyframe may not decode; everything after it must arrive.
+func (f gatewayFixture) frames(t *testing.T, scheme string, options ...string) (int, string, error) {
 	t.Helper()
 	// Home Assistant retries a stream that could not be opened; so does this reader, once.
-	frames, err := f.read(scheme, options...)
+	frames, stderr, err := f.read(scheme, options...)
 	if frames == 0 && err != nil && strings.Contains(err.Error(), "Error opening input") {
 		t.Log("first open failed, retrying like Home Assistant:", err)
-		frames, err = f.read(scheme, options...)
+		frames, stderr, err = f.read(scheme, options...)
 	}
-	return frames, err
+	return frames, stderr, err
 }
 
-func (f gatewayFixture) read(scheme string, options ...string) (int, error) {
+func (f gatewayFixture) read(scheme string, options ...string) (int, string, error) {
 	u := &url.URL{Scheme: scheme, Host: f.app.cfg.LiveRTSPAddress, Path: "/live/camera/wide/fast", User: url.UserPassword("homeassistant", f.password)}
 	readCtx, readCancel := context.WithTimeout(f.ctx, 20*time.Second)
 	defer readCancel()
@@ -128,8 +128,9 @@ func (f gatewayFixture) read(scheme string, options ...string) (int, error) {
 	var stderr strings.Builder
 	reader.Stderr = &stderr
 	out, err := reader.Output()
+	errors := strings.ReplaceAll(stderr.String(), f.password, "[redacted]")
 	if err != nil {
-		err = fmt.Errorf("%w: %s", err, strings.ReplaceAll(stderr.String(), f.password, "[redacted]"))
+		err = fmt.Errorf("%w: %s", err, errors)
 	}
 	frames := 0
 	for _, line := range strings.Split(string(out), "\n") {
@@ -137,7 +138,7 @@ func (f gatewayFixture) read(scheme string, options ...string) (int, error) {
 			frames, _ = strconv.Atoi(strings.TrimSpace(value))
 		}
 	}
-	return frames, err
+	return frames, errors, err
 }
 
 // TestLiveGatewayForwardsLargeCameraPackets reproduces a camera that sends RTP packets
@@ -147,12 +148,11 @@ func TestLiveGatewayForwardsLargeCameraPackets(t *testing.T) {
 	f := newGatewayFixture(t, 8000, nil)
 	// 5 s at 15 fps are 75 frames; at most one GOP (15 frames) may precede the first keyframe.
 	// Before the fix the share delivered no frame at all.
-	if frames, err := f.frames(t, "rtsp"); err != nil || frames < 58 {
-		t.Fatalf("gateway delivered %d of 75 frames (%d packets dropped): %v", frames, f.app.metrics.liveDrops.Load(), err)
+	frames, stderr, err := f.frames(t, "rtsp")
+	if err != nil || frames < 58 {
+		t.Fatalf("gateway delivered %d of 75 frames: %v", frames, err)
 	}
-	if drops := f.app.metrics.liveDrops.Load(); drops != 0 {
-		t.Fatalf("gateway dropped %d packets", drops)
-	}
+	f.assertLossless(t, frames, stderr)
 }
 
 // TestLiveGatewaySpeaksRTSPSWithCertificate checks the encrypted share: with a certificate
@@ -163,9 +163,11 @@ func TestLiveGatewaySpeaksRTSPSWithCertificate(t *testing.T) {
 	writeTestCertificate(t, certFile, keyFile)
 	f := newGatewayFixture(t, 1400, func(a *App) { a.cfg.LiveRTSPSCert, a.cfg.LiveRTSPSKey = certFile, keyFile })
 	// ffmpeg verifies the certificate like Home Assistant; the test trusts its own CA.
-	if frames, err := f.frames(t, "rtsps", "-tls_verify", "1", "-ca_file", certFile); err != nil || frames < 58 {
+	frames, stderr, err := f.frames(t, "rtsps", "-tls_verify", "1", "-ca_file", certFile)
+	if err != nil || frames < 58 {
 		t.Fatalf("RTSPS share delivered %d of 75 frames: %v", frames, err)
 	}
+	f.assertLossless(t, frames, stderr)
 	// A plain RTSP request reaches a TLS listener and must not get an RTSP answer.
 	conn, err := net.DialTimeout("tcp", f.app.cfg.LiveRTSPAddress, 2*time.Second)
 	if err != nil {
@@ -177,6 +179,55 @@ func TestLiveGatewaySpeaksRTSPSWithCertificate(t *testing.T) {
 	answer := make([]byte, 64)
 	if n, _ := conn.Read(answer); strings.HasPrefix(string(answer[:n]), "RTSP/1.0") {
 		t.Fatal("unencrypted RTSP was answered while RTSPS is configured")
+	}
+}
+
+// TestLiveGatewayFeedsConcurrentReadersWithoutLoss opens the share twice at once, as when
+// Home Assistant streams a camera while it records or takes a snapshot. Both readers share
+// one route and must each receive clean video.
+func TestLiveGatewayFeedsConcurrentReadersWithoutLoss(t *testing.T) {
+	f := newGatewayFixture(t, 1400, nil)
+	type result struct {
+		frames int
+		stderr string
+		err    error
+	}
+	results := make(chan result, 2)
+	for range 2 {
+		go func() {
+			frames, stderr, err := f.frames(t, "rtsp")
+			results <- result{frames, stderr, err}
+		}()
+	}
+	for range 2 {
+		r := <-results
+		if r.err != nil || r.frames < 58 {
+			t.Fatalf("concurrent reader got %d of 75 frames: %v", r.frames, r.err)
+		}
+		f.assertLossless(t, r.frames, r.stderr)
+	}
+	f.app.live.mu.Lock()
+	gateway := f.app.live.gateway
+	f.app.live.mu.Unlock()
+	gateway.mu.Lock()
+	routes := len(gateway.routes)
+	gateway.mu.Unlock()
+	if routes != 1 {
+		t.Fatalf("two readers of one camera opened %d routes", routes)
+	}
+}
+
+// assertLossless fails when any packet was lost on the way to the readers, whether between
+// go2rtc and the share or in a reader's write queue.
+func (f gatewayFixture) assertLossless(t *testing.T, frames int, stderr string) {
+	t.Helper()
+	t.Logf("decoded %d of 75 frames", frames)
+	// Any damaged packet shows up as a decoder message such as "error while decoding MB".
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("reader saw damaged video:\n%s", stderr)
+	}
+	if drops, upstream := f.app.metrics.liveDrops.Load(), f.app.metrics.liveUpstreamLost.Load(); drops != 0 || upstream != 0 {
+		t.Fatalf("share lost packets: %d at the readers, %d before the share", drops, upstream)
 	}
 }
 

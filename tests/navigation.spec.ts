@@ -58,7 +58,7 @@ test('direct links, history, draft guards and paused playback',async({page})=>{
  page.off('dialog',onDialog);expect(asked).toBe(false);await expect(page.locator('html')).toHaveAttribute('data-density','compact');
  await page.goto('/#admin/operation');await expect(page.locator('#operation-panel')).toBeVisible();await expect(page.locator('#operation-form input[name=cacheMB]')).not.toHaveValue('');
  // Operating figures are shown and refreshed only while the page is open.
- await expect(page.locator('#operation-metrics')).toContainText('Wiedergabesitzungen');await expect(page.locator('#operation-metrics')).toContainText('Verlorene Pakete der Freigabe');
+ await expect(page.locator('#operation-metrics')).toContainText('Wiedergabesitzungen');await expect(page.locator('#operation-metrics')).toContainText('Verlorene Pakete der Freigabe');await expect(page.locator('#operation-metrics')).toContainText('Vor der Freigabe verlorene Pakete');
  let polls=0;page.on('request',r=>{if(r.url().endsWith('/api/admin/metrics'))polls++});
  await page.goto('/#unknown');await expect(page).toHaveURL(/#recordings$/);const after=polls;await page.waitForTimeout(6000);expect(polls).toBe(after);
 });

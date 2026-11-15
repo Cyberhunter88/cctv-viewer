@@ -17,6 +17,7 @@ type counters struct {
 	loginFailures    atomic.Int64
 	encoderFallbacks atomic.Int64
 	liveDrops        atomic.Int64
+	liveUpstreamLost atomic.Int64
 }
 
 func (a *App) metricValues() map[string]int64 {
@@ -41,8 +42,10 @@ func (a *App) metricValues() map[string]int64 {
 		"encoderFallbacks": a.metrics.encoderFallbacks.Load(),
 		"loginSuccess":     a.metrics.loginSuccess.Load(),
 		"loginFailures":    a.metrics.loginFailures.Load(),
-		// Live packets the RTSP share could not hand to a reader.
+		// Live packets the RTSP share could not hand to a reader, including full write queues.
 		"liveGatewayDrops": a.metrics.liveDrops.Load(),
+		// Packets missing or undecodable between go2rtc and the share, i.e. before it.
+		"liveUpstreamLost": a.metrics.liveUpstreamLost.Load(),
 		"scanWarnings":     int64(warnings),
 	}
 }

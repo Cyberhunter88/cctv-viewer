@@ -55,9 +55,9 @@ export function initManagement(c:Context){
   if($('operation-panel').offsetParent===null||document.hidden)return;
   try{
    const m=await c.api<Record<string,number>>('/api/admin/metrics');
-   const rows:[string,string][]=[['Aktive Umwandlungen',`${m.encoding} von ${m.encodingLimit||'unbegrenzt'}`],['Wiedergabesitzungen',String(m.streamSessions)],['Temporärer Videospeicher',`${megabytes(m.temporaryBytes)} von ${megabytes(m.temporaryBudget)}`],['Encoder-Ausweichstarts',String(m.encoderFallbacks)],['Verlorene Pakete der Freigabe',String(m.liveGatewayDrops)],['Fehlgeschlagene Umwandlungen',String(m.streamFailures)],['Laufzeit',duration(m.uptimeSeconds)]];
+   const rows:[string,string][]=[['Aktive Umwandlungen',`${m.encoding} von ${m.encodingLimit||'unbegrenzt'}`],['Wiedergabesitzungen',String(m.streamSessions)],['Temporärer Videospeicher',`${megabytes(m.temporaryBytes)} von ${megabytes(m.temporaryBudget)}`],['Encoder-Ausweichstarts',String(m.encoderFallbacks)],['Verlorene Pakete der Freigabe',String(m.liveGatewayDrops)],['Vor der Freigabe verlorene Pakete',String(m.liveUpstreamLost??0)],['Fehlgeschlagene Umwandlungen',String(m.streamFailures)],['Laufzeit',duration(m.uptimeSeconds)]];
    $('operation-metrics').replaceChildren(...rows.flatMap(([label,value])=>{const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;return [dt,dd]}));
-   $('operation-metrics-hint').textContent=m.liveGatewayDrops>0?'Verlorene Pakete führen in Home Assistant zu Bildfehlern; siehe „Flüssige Wiedergabe in Home Assistant“ in docs/LIVE.md.':m.encoderFallbacks>0?'Der Hardware-Encoder ist ausgefallen; der Software-Encoder hat übernommen.':'';
+   $('operation-metrics-hint').textContent=m.liveGatewayDrops>0?'Home Assistant liest langsamer, als die Kamera sendet; verworfene Pakete führen zu Bildfehlern. Siehe „Flüssige Wiedergabe in Home Assistant“ in docs/LIVE.md.':m.liveUpstreamLost>0?'Pakete fehlen schon zwischen Kamera, go2rtc und Freigabe; Kamera und Netz prüfen. Siehe docs/LIVE.md.':m.encoderFallbacks>0?'Der Hardware-Encoder ist ausgefallen; der Software-Encoder hat übernommen.':'';
   }catch{}
   metricsTimer=setTimeout(()=>void loadMetrics(),5000);
  }
