@@ -3,6 +3,8 @@ package viewer
 import "testing"
 
 func TestRTSPSCertificateAndKeyBelongTogether(t *testing.T) {
+	// The default base URL is http://localhost, which needs the development switch.
+	t.Setenv("CTV_DEV_HTTP", "true")
 	t.Setenv("CTV_LIVE_RTSPS_CERT", "/certs/share.crt")
 	t.Setenv("CTV_LIVE_RTSPS_KEY", "")
 	if _, e := LoadConfig(); e == nil {
