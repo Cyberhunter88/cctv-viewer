@@ -40,7 +40,10 @@ type stream struct {
 	done           chan struct{}
 	last           time.Time
 	created        time.Time
-	err            error
+	// fetched turns true with the first playlist or video request. A stream whose
+	// creating request was abandoned after the answer is never fetched.
+	fetched bool
+	err     error
 	// sourceChanged is set when the recording was modified while ffmpeg read it,
 	// so the output may end before the real end of the file.
 	sourceChanged bool
@@ -529,6 +532,7 @@ func (a *App) streamFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.last = time.Now()
+	s.fetched = true
 	dir := s.dir
 	a.mediaMu.Unlock()
 	f, e := os.Open(filepath.Join(dir, name))
@@ -621,11 +625,17 @@ func (a *App) removeStream(id string) {
 		os.RemoveAll(s.dir)
 	}
 }
+
+// unfetchedStreamTTL ends a stream nobody requested after it was created, for example
+// because the page went away while the answer was on its way. It frees the encoder slot
+// long before the regular 90 s idle limit.
+const unfetchedStreamTTL = 15 * time.Second
+
 func (a *App) pruneStreams() {
 	a.mediaMu.Lock()
 	ids := []string{}
 	for id, s := range a.streams {
-		if time.Since(s.last) > 90*time.Second || time.Since(s.created) > 30*time.Minute {
+		if time.Since(s.last) > 90*time.Second || time.Since(s.created) > 30*time.Minute || !s.fetched && time.Since(s.created) > unfetchedStreamTTL {
 			ids = append(ids, id)
 		}
 	}
