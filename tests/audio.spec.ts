@@ -14,7 +14,8 @@ async function setup(page:Page,dual=false){
  await page.reload();await page.locator('#date').fill('2026-10-14');
  if(dual){await expect(page.locator('video')).toHaveCount(1);await page.locator('.zoom-toggle').click()}
  await expect(page.locator('video')).toHaveCount(2);
- return async()=>{await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));for(const id of ids)expect((await cameraMutation(page,()=>page.request.delete('/api/cameras/'+id,{headers}))).ok()).toBe(true)};
+ // A crashed browser tab must not keep the test cameras, or every later test sees them.
+ return async()=>{await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide'))).catch(()=>{});for(const id of ids)expect((await cameraMutation(page,()=>page.request.delete('/api/cameras/'+id,{headers}))).ok()).toBe(true)};
  }catch(error){for(const id of ids)await cameraMutation(page,()=>page.request.delete('/api/cameras/'+id,{headers}));throw error}
 }
 async function audible(page:Page,index:number|undefined){
