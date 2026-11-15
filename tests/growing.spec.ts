@@ -9,16 +9,16 @@ test('a recording that is still being written shows a waiting state and then pla
   if(growing.has(id)&&conflicts<2){conflicts++;await route.fulfill({status:409,headers:{'Retry-After':'5'},contentType:'application/json',body:'{"error":"Aufnahme wird gerade geschrieben oder wurde geändert"}'});return}
   await route.continue();
  });
- await page.goto('/');
- await page.locator('#login-form input[name=username]').fill('browser');
- await page.locator('#login-form input[name=password]').fill('synthetic browser test password');
- await page.locator('#login-form button').click();
+ // The recordings are marked as growing before the app loads them, so no early request consumes a conflict.
+ await page.goto('/');await expect(page.locator('#login')).toBeVisible();
+ const signedIn=await page.request.post('/auth/local',{headers:{Origin:new URL(page.url()).origin},data:{username:'browser',password:'synthetic browser test password'}});
+ expect(signedIn.ok(),await signedIn.text()).toBe(true);
+ // The day may still be indexing, as the interface waits for "2 Aufnahmen" further below.
+ await expect.poll(async()=>{const day=await(await page.request.get('/api/day?date=2026-10-14')).json();for(const r of day.recordings||[])if(r.cameraId==='Testkamera-A')growing.add(r.id);return growing.size},{timeout:20000}).toBeGreaterThan(0);
+ await page.reload();
  await expect(page.locator('#app')).toBeVisible();
  await page.locator('#date').fill('2026-10-14');
  await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen',{timeout:20000});
- const day=await(await page.request.get('/api/day?date=2026-10-14')).json();
- for(const r of day.recordings)if(r.cameraId==='Testkamera-A')growing.add(r.id);
- expect(growing.size).toBeGreaterThan(0);
  await page.locator('#layout').selectOption('2x2');
  await page.locator('#quality').selectOption('native');
  await page.locator('#play').click();
