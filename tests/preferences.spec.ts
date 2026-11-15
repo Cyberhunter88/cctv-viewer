@@ -84,7 +84,7 @@ test('original migration, collapsible rail, account placement and laptop control
   await page.setViewportSize({width,height:width===1366?768:900});
   await open(page);await (await preferenceControl(page,'theme')).selectOption(theme);await save(page);
   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  const grid=await page.locator('#video-grid').boundingBox(),transport=await page.locator('#playback-controls').boundingBox();expect(transport!.y).toBeGreaterThanOrEqual(grid!.y+grid!.height);await expect(page.locator('#timeline-section > #playback-controls')).toHaveCount(1);
+  const {gridBottom,transportTop}=await page.evaluate(()=>({gridBottom:document.querySelector('#video-grid')!.getBoundingClientRect().bottom,transportTop:document.querySelector('#playback-controls')!.getBoundingClientRect().top}));expect(transportTop).toBeGreaterThanOrEqual(gridBottom);await expect(page.locator('#timeline-section > #playback-controls')).toHaveCount(1);
   await account.locator('summary').click();await expect(page.locator('#logout')).toBeVisible();
   const menu=await account.locator('.account-actions').boundingBox();expect(menu!.x).toBeGreaterThanOrEqual(0);expect(menu!.y).toBeGreaterThanOrEqual(0);expect(menu!.x+menu!.width).toBeLessThanOrEqual(width);expect(menu!.y+menu!.height).toBeLessThanOrEqual(width===1366?768:900);
   await page.screenshot({path:info.outputPath(`account-${theme}-${width}.png`)});await page.keyboard.press('Escape');

@@ -28,8 +28,9 @@ test('archive and settings pages fit phones, landscape, tablets and desktop',asy
   for(const [width,height] of [[360,780],[390,844],[844,390],[768,1024],[1366,768],[1920,1080]]){
    await page.setViewportSize({width,height});
    await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-   const grid=await page.locator('#video-grid').boundingBox(),controls=await page.locator('#playback-controls').boundingBox();
-   expect(controls!.y).toBeGreaterThanOrEqual(grid!.y+grid!.height);
+   // Both boxes come from one layout pass; the grid is rebuilt in the next animation frame after a resize.
+   const {gridBottom,controlsTop}=await page.evaluate(()=>{const grid=document.querySelector('#video-grid')!.getBoundingClientRect(),controls=document.querySelector('#playback-controls')!.getBoundingClientRect();return {gridBottom:grid.bottom,controlsTop:controls.top}});
+   expect(controlsTop).toBeGreaterThanOrEqual(gridBottom);
    await expect(page.locator('#timeline-section > #playback-controls')).toHaveCount(1);
    await expect(page.locator('#playback-controls')).toHaveCSS('position','static');
    if(width<=700){

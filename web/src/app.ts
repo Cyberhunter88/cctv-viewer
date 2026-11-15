@@ -52,17 +52,21 @@ document.addEventListener('fullscreenchange',()=>{
  if(!document.fullscreenElement&&fullscreenGridPending){fullscreenGridPending=false;renderGrid();update()}
  for(const tile of tiles.values()){const active=document.fullscreenElement===tile.container;const button=tile.container.querySelector('.tile-expand');if(button){button.setAttribute('aria-label',active?'Vollbild schließen':document.fullscreenEnabled?'Vollbild öffnen':'Ansicht vergrößern');setControlIcon(button,active?'collapse':'expand')}tile.applyAspect()}
 });
+// Without an explicit choice (.rail-auto) the stylesheet collapses the rail by media query,
+// so the layout never lags behind a resize; the classes only carry an explicit choice.
+function railCollapsed(){return state.railCollapsed??matchMedia('(max-width:1100px)').matches}
 function applyRail(){
- const collapsed=state.railCollapsed??matchMedia('(max-width:1100px)').matches;
- document.documentElement.classList.toggle('rail-collapsed',collapsed);
+ const collapsed=railCollapsed(),root=document.documentElement.classList;
+ root.toggle('rail-auto',state.railCollapsed==null);
+ root.toggle('rail-collapsed',state.railCollapsed===true);
  $('rail-toggle').setAttribute('aria-expanded',String(!collapsed));
  $('rail-toggle').setAttribute('aria-label',collapsed?'Seitenleiste ausklappen':'Seitenleiste einklappen');
  scheduleResize();
 }
-on('rail-toggle',()=>{state.railCollapsed=!(state.railCollapsed??matchMedia('(max-width:1100px)').matches);applyRail();saveView()});
+on('rail-toggle',()=>{state.railCollapsed=!railCollapsed();applyRail();saveView()});
 for(const group of document.querySelectorAll<HTMLDetailsElement>('#rail-nav .nav-group')){
  group.querySelector('summary')?.addEventListener('click',event=>{
-  if(!document.documentElement.classList.contains('rail-collapsed')||matchMedia('(max-width:700px)').matches)return;
+  if(!railCollapsed()||matchMedia('(max-width:700px)').matches)return;
   event.preventDefault();group.open=true;state.railCollapsed=false;applyRail();saveView();
   group.querySelector<HTMLAnchorElement>('.nav-submenu a')?.focus();
  });
