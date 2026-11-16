@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remove obsolete GitHub Actions runs and branch caches; preview unless --apply is given."""
+"""Remove obsolete GitHub Actions runs and caches; preview unless --apply is given."""
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
@@ -43,16 +43,42 @@ def select_runs(runs, now, keep_days=30, keep_successful=10, current_run_id=None
                   and r["id"] != current_run_id and timestamp(r["updated_at"]) < cutoff)
 
 
-def select_caches(caches, now, pull_days=2, branch_days=7):
-    """Caches of pull requests and feature branches; main caches are never touched."""
+# Tool caches whose key ends in a version or hash. A newer entry of the same family
+# on the same ref replaces the older ones. BuildKit blobs share no such family.
+VERSIONED_CACHE = re.compile(r"((?:setup-go|node-cache|playwright|actionlint)-.+)-[^-]+")
+PULL_REF = re.compile(r"refs/pull/([0-9]+)/(?:merge|head)")
+
+
+def superseded_caches(caches):
+    """Older entries of a versioned tool cache that a newer entry on the same ref replaced."""
+    newest = {}
     result = []
+    for cache in sorted(caches, key=lambda c: (timestamp(c["created_at"]), c["id"]), reverse=True):
+        match = VERSIONED_CACHE.fullmatch(cache["key"])
+        if not match:
+            continue
+        family = (cache["ref"], match.group(1))
+        if family in newest:
+            result.append(cache["id"])
+        else:
+            newest[family] = cache["id"]
+    return result
+
+
+def select_caches(caches, now, open_pulls=None, pull_days=2, branch_days=7):
+    """Stale or closed PR/branch caches and superseded tool caches; current main caches stay."""
+    result = set(superseded_caches(caches))
     for cache in caches:
         ref, accessed = cache["ref"], timestamp(cache["last_accessed_at"])
         if ref == "refs/heads/main":
             continue
-        days = pull_days if re.fullmatch(r"refs/pull/[0-9]+/(?:merge|head)", ref) else branch_days
+        pull = PULL_REF.fullmatch(ref)
+        if pull and open_pulls is not None and int(pull.group(1)) not in open_pulls:
+            result.add(cache["id"])
+            continue
+        days = pull_days if pull else branch_days
         if accessed < now - timedelta(days=days):
-            result.append(cache["id"])
+            result.add(cache["id"])
     return sorted(result)
 
 
@@ -64,10 +90,13 @@ def housekeeping(repository, apply=False, now=None, keep_days=30, current_run_id
             for r in page["workflow_runs"]]
     caches = [c for page in api(f"repos/{repository}/actions/caches?per_page=100")
               for c in page["actions_caches"]]
+    open_pulls = {p["number"] for page in api(f"repos/{repository}/pulls?state=open&per_page=100") for p in page}
     old_runs = select_runs(runs, now, keep_days, current_run_id=current_run_id)[:MAX_DELETIONS]
-    old_caches = select_caches(caches, now)[:MAX_DELETIONS]
-    lines = [f"## Aufräumen\n\nAlte Workflow-Läufe: {len(old_runs)} · Branch-Caches: {len(old_caches)} · "
-             f"Modus: {'Löschen' if apply else 'Vorschau'}\n"]
+    old_caches = select_caches(caches, now, open_pulls)[:MAX_DELETIONS]
+    selected = set(old_caches)
+    freed = sum(c.get("size_in_bytes", 0) for c in caches if c["id"] in selected) / 1024 ** 2
+    lines = [f"## Aufräumen\n\nAlte Workflow-Läufe: {len(old_runs)} · Caches: {len(old_caches)} "
+             f"({freed:.0f} MiB) · Modus: {'Löschen' if apply else 'Vorschau'}\n"]
     if apply:
         for identifier in old_runs:
             api(f"repos/{repository}/actions/runs/{identifier}", method="DELETE")

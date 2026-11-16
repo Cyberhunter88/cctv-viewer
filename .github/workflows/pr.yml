@@ -63,13 +63,18 @@ jobs:
           name: browser-test-server
           path: bin
       - run: chmod +x bin/cctv bin/go2rtc
+      # Chrome is the system channel outside ~/.cache/ms-playwright; only WebKit
+      # benefits. One exact key per Playwright version, without restore-keys, so
+      # old browser revisions are never carried into a new cache entry.
+      - id: playwright-version
+        if: matrix.browser == 'webkit'
+        run: echo "version=$(node -p 'require("./node_modules/playwright-core/package.json").version')" >> "$GITHUB_OUTPUT"
       - name: Playwright Cache
+        if: matrix.browser == 'webkit'
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            playwright-${{ matrix.browser }}-
+          key: playwright-webkit-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
       - name: Browser- und Systemabhängigkeiten installieren
         run: |
           bash scripts/install_browser_ci_tools.sh ${{ matrix.browser }}

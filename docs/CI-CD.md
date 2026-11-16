@@ -32,7 +32,7 @@ Der stabile Abschlusscheck heißt **Anwendung prüfen**. Bei einem PR muss er Co
 
 Der Eigentümer prüft den PR, wartet auf grüne Checks und mergt ihn **selbst**. Kein Workflow führt einen Merge durch.
 
-Der Push des tatsächlichen Merge-Commits auf `main` führt die Code-Prüfungen erneut aus. Chrome und WebKit werden ausschließlich vor dem Merge im PR geprüft; der erforderliche PR-Abschlusscheck und der aktuelle Branch-Stand sichern diesen Übergang ab. Anschließend bauen die vorhandenen nativen Runner `ubuntu-24.04` und `ubuntu-24.04-arm` je ein Image für `linux/amd64` und `linux/arm64`. Der architekturspezifische BuildKit-Cache bleibt aktiv. Jeder Build wird per Digest heruntergeladen und auf seinem nativen Runner mit `scripts/smoke.sh` geprüft:
+Der Push des tatsächlichen Merge-Commits auf `main` führt die Code-Prüfungen erneut aus. Chrome und WebKit werden ausschließlich vor dem Merge im PR geprüft; der erforderliche PR-Abschlusscheck und der aktuelle Branch-Stand sichern diesen Übergang ab. Anschließend bauen die vorhandenen nativen Runner `ubuntu-24.04` und `ubuntu-24.04-arm` je ein Image für `linux/amd64` und `linux/arm64`. Der architekturspezifische BuildKit-Cache bleibt aktiv. npm-, Go-Modul- und Go-Build-Caches liegen im Dockerfile in lokalen Cache-Mounts; dadurch exportiert `mode=max` nur Zwischenergebnisse und nicht bei jedem Push erneut mehrere hundert MiB Build-Cache. Im PR nutzt ausschließlich WebKit einen Playwright-Cache, gebunden an die genaue Playwright-Version und ohne Fallback-Schlüssel; Chrome läuft über den systemweit installierten Kanal. Jeder Build wird per Digest heruntergeladen und auf seinem nativen Runner mit `scripts/smoke.sh` geprüft:
 
 - Start, Anmeldung, persistente Sitzung nach Neustart und Healthcheck;
 - Benutzer ohne Root-Rechte und nur lesbare Originalaufnahmen;
@@ -116,9 +116,9 @@ Nach erfolgreicher Veröffentlichung läuft im Release-Workflow der Job **Aufrä
 
 1. überholte interne Versionen im Build-Paket (mindestens 30 Tage alt, außerhalb der zehn neuesten Main-Commits und der Release-Digests);
 2. historische interne `build-*`/`candidate-*`-Einträge im Release-Paket (mindestens 14 Tage);
-3. alte Workflow-Läufe (über 30 Tage, die zehn neuesten erfolgreichen Läufe je Workflow bleiben) und Caches von PRs/Feature-Branches (PR-Caches nach 2, Branch-Caches nach 7 Tagen ohne Zugriff; Main-Caches bleiben).
+3. alte Workflow-Läufe (über 30 Tage, die zehn neuesten erfolgreichen Läufe je Workflow bleiben) und Caches: Caches geschlossener PRs sofort, offene PR-Caches nach 2 und Branch-Caches nach 7 Tagen ohne Zugriff. Von versionierten Werkzeug-Caches (`setup-go-*`, `node-cache-*`, `playwright-*`, `actionlint-*`) bleibt je Ref nur der neueste Eintrag, auch auf `main`. Die aktuellen Main-Caches und alle BuildKit-Einträge auf `main` bleiben; deren Ablauf übernimmt GitHub nach sieben Tagen ohne Zugriff.
 
-Den eigenen Lauf ignoriert die Ruheprüfung über `--ignore-run-id`; andere wartende oder laufende CI-/Release-Läufe brechen die Registry-Bereinigung weiterhin ab. Pläne liegen 14 Tage als Artefakt `release-cleanup-report` vor. Der Workflow **Alte Läufe und Caches aufräumen** (`housekeeping.yml`) führt Punkt 3 sonntags automatisch aus und lässt sich manuell als Vorschau oder mit **apply** starten; er berührt keine Pakete. Lokal: `python3 scripts/housekeeping.py --repository Cyberhunter88/cctv-viewer` (Vorschau ohne `--apply`).
+Den eigenen Lauf ignoriert die Ruheprüfung über `--ignore-run-id`; andere wartende oder laufende CI-/Release-Läufe brechen die Registry-Bereinigung weiterhin ab. Pläne liegen 14 Tage als Artefakt `release-cleanup-report` vor. Der Workflow **Alte Läufe und Caches aufräumen** (`housekeeping.yml`) führt Punkt 3 täglich automatisch aus und lässt sich manuell als Vorschau oder mit **apply** starten; er berührt keine Pakete. Lokal: `python3 scripts/housekeeping.py --repository Cyberhunter88/cctv-viewer` (Vorschau ohne `--apply`).
 
 ### Alte interne GHCR-Einträge gezielt bereinigen
 
