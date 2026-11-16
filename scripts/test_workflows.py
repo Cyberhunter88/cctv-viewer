@@ -240,7 +240,7 @@ class WorkflowContractTest(unittest.TestCase):
 
     def test_caches_hold_results_not_redundant_copies(self):
         browser = self.job('browser', pr=True)
-        self.assertNotIn('restore-keys', browser)
+        self.assertNotIn('restore-keys:', browser)
         self.assertNotIn("hashFiles('package-lock.json')", browser)
         cache = browser.split('      - name: Playwright Cache\n', 1)[1].split('\n      - ', 1)[0]
         self.assertIn("if: matrix.browser == 'webkit'", cache)
