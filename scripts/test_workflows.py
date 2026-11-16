@@ -204,16 +204,10 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('ghcr-cleanup-plan', cleanup)
         self.assertIn('actions: read', cleanup)
 
-    def test_scheduled_preview_has_no_write_permissions_or_delete_inputs(self):
-        preview = (ROOT / '.github/workflows/cleanup-preview.yml').read_text()
-        self.assertIn('schedule:', preview)
-        self.assertIn('packages: read', preview)
-        self.assertNotIn(': write', preview)
-        self.assertNotIn('--delete-version-id', preview)
-        self.assertNotIn('inputs:', preview)
-        self.assertIn('--build-package', preview)
-        self.assertIn('group: ghcr-cleanup-preview', preview)
-        self.assertNotIn('group: docker-publication', preview)
+    def test_only_needed_workflows_exist(self):
+        names = sorted(path.name for path in (ROOT / '.github/workflows').glob('*.yml'))
+        self.assertEqual(names, ['ci.yml', 'cleanup-images.yml', 'housekeeping.yml', 'pr.yml', 'release.yml'])
+        self.assertNotIn('concurrency:\n  group: ci-${{ github.run_id }}', self.ci)
 
     def test_release_ends_with_non_blocking_cleanup_after_successful_publication(self):
         job = self.release.split('\n  cleanup:\n', 1)[1]
@@ -223,7 +217,10 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('--delete-candidates', job)
         self.assertIn('--ignore-run-id "$GITHUB_RUN_ID"', job)
         self.assertIn('--build-package', job)
-        self.assertIn('scripts/housekeeping.py', job)
+        # Runs and caches are left to the daily housekeeping workflow.
+        self.assertNotIn('scripts/housekeeping.py', job)
+        self.assertIn('actions: read', job)
+        self.assertNotIn('actions: write', job)
         self.assertNotIn('contents: write', job)
         self.assertNotIn('needs: cleanup', self.release)
 
@@ -236,7 +233,6 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertNotIn('packages:', text)
         self.assertNotIn('contents: write', text)
         self.assertIn("cron: '41 4 * * *'", text)
-        self.assertIn('pull-requests: read', self.release.split('\n  cleanup:\n', 1)[1])
 
     def test_caches_hold_results_not_redundant_copies(self):
         browser = self.job('browser', pr=True)

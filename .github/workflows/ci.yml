@@ -7,9 +7,6 @@ permissions:
 defaults:
   run:
     shell: bash
-concurrency:
-  group: ci-${{ github.run_id }}
-  cancel-in-progress: false
 jobs:
   code-checks:
     name: Code prüfen
