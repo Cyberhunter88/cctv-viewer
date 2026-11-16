@@ -88,7 +88,7 @@ jobs:
         with:
           name: browser-test-results-${{ matrix.browser }}
           path: test-results/
-          retention-days: 7
+          retention-days: 3
   test:
     # Keep this name stable: main requires this exact status check.
     name: Anwendung prüfen
