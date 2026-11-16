@@ -2,7 +2,9 @@
 FROM --platform=$BUILDPLATFORM node:24.22.1-bookworm-slim AS frontend
 WORKDIR /src
 COPY package.json package-lock.json tsconfig.json ./
-RUN npm ci
+# Download and build caches use local cache mounts, so the layers exported to
+# the GitHub Actions cache only hold the results and not the caches themselves.
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY web/ web/
 COPY scripts/test_frontend.mjs scripts/test_frontend.mjs
 RUN npm run typecheck && npm test && npm run build
@@ -12,7 +14,8 @@ WORKDIR /build
 COPY scripts/build_go2rtc.sh scripts/build_go2rtc.sh
 ARG TARGETOS
 ARG TARGETARCH
-RUN GOOS=$TARGETOS GOARCH=$TARGETARCH sh scripts/build_go2rtc.sh /live/go2rtc
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=$TARGETOS GOARCH=$TARGETARCH sh scripts/build_go2rtc.sh /live/go2rtc
 
 FROM --platform=$BUILDPLATFORM golang:1.27.3-bookworm AS backend
 WORKDIR /src
@@ -25,7 +28,8 @@ COPY --from=frontend /src/web/dist/ web/dist/
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o /cctv ./cmd/cctv
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o /cctv ./cmd/cctv
 
 FROM alpine:3.24
 RUN apk add --no-cache ffmpeg ca-certificates tzdata tini \

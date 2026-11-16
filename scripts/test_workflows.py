@@ -227,13 +227,28 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertNotIn('contents: write', job)
         self.assertNotIn('needs: cleanup', self.release)
 
-    def test_weekly_housekeeping_only_touches_runs_and_caches(self):
+    def test_daily_housekeeping_only_touches_runs_and_caches(self):
         text = (ROOT / '.github/workflows/housekeeping.yml').read_text()
         self.assertIn("if: github.ref == 'refs/heads/main'", text)
         self.assertIn('actions: write', text)
+        self.assertIn('pull-requests: read', text)
+        self.assertNotIn('pull-requests: write', text)
         self.assertNotIn('packages:', text)
         self.assertNotIn('contents: write', text)
-        self.assertIn('schedule:', text)
+        self.assertIn("cron: '41 4 * * *'", text)
+        self.assertIn('pull-requests: read', self.release.split('\n  cleanup:\n', 1)[1])
+
+    def test_caches_hold_results_not_redundant_copies(self):
+        browser = self.job('browser', pr=True)
+        self.assertNotIn('restore-keys:', browser)
+        self.assertNotIn("hashFiles('package-lock.json')", browser)
+        cache = browser.split('      - name: Playwright Cache\n', 1)[1].split('\n      - ', 1)[0]
+        self.assertIn("if: matrix.browser == 'webkit'", cache)
+        self.assertIn('key: playwright-webkit-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}', cache)
+        dockerfile = (ROOT / 'Dockerfile').read_text()
+        self.assertIn('RUN --mount=type=cache,target=/root/.npm npm ci', dockerfile)
+        self.assertEqual(dockerfile.count('--mount=type=cache,target=/root/.cache/go-build'), 2)
+        self.assertIn('--mount=type=cache,target=/go/pkg/mod', dockerfile)
 
     def test_release_reports_all_mutating_step_outcomes_even_on_failure(self):
         from workflow_summary import STAGES

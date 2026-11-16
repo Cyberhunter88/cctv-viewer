@@ -170,6 +170,7 @@ jobs:
       contents: read
       packages: write
       actions: write
+      pull-requests: read
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -191,7 +192,7 @@ jobs:
         run: python3 scripts/cleanup_registry.py --repository "$GITHUB_REPOSITORY" --build-package --delete-candidates --ignore-run-id "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/cleanup-builds.json"
       - name: Alte interne Tags im Release-Paket löschen
         run: python3 scripts/cleanup_registry.py --repository "$GITHUB_REPOSITORY" --delete-candidates --ignore-run-id "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/cleanup-release.json"
-      - name: Alte Workflow-Läufe und Branch-Caches löschen
+      - name: Alte Workflow-Läufe und überholte Caches löschen
         run: python3 scripts/housekeeping.py --repository "$GITHUB_REPOSITORY" --apply --current-run-id "$GITHUB_RUN_ID"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
