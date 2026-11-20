@@ -2,6 +2,8 @@ import {initCameraSettings} from './camera-settings';
 import {initLivePage} from './live-page';
 import {initLiveAdmin} from './live-admin';
 import {confirmAction} from './confirm-dialog';
+import {notify,notifyError,initToast} from './toast';
+import {requestJSON} from './api-client';
 import {registerPage,navigate,startNavigation,currentPage} from './navigation';
 import {PreferenceWriter} from './preferences';
 import {Tile,setControlIcon,type TileContext} from './playback-tile';
@@ -33,7 +35,6 @@ const speed=()=>Number($<HTMLSelectElement>('speed').value);
 let refreshRange=()=>{};let reorderMode=false,page=0,order:string[]=[],hotspot:string|undefined,lastHotspotCursor:number|undefined;
 // A completion observed during a day request may be newer than its recording snapshot.
 let scanCompletion=0,loadedScanCompletion=0;
-let toastTimer:ReturnType<typeof setTimeout>|undefined;
  const state:ViewState=defaultView();
 
 let fullscreenGridPending=false;
@@ -94,35 +95,15 @@ function cameraViewMode(id:string){
 const liveAdmin=initLiveAdmin({api,cameras:()=>cameras,viewMode:cameraViewMode,notify,changed:()=>{livePage.refresh();void loadCameraLiveStatus()}});
 on('preferences-retry',async()=>{try{await preferenceWriter?.flush()}catch{}});
 
-// Messages are announced through permanent live regions (a region revealed together
-// with its text is often skipped by screen readers). Errors stay until closed or replaced;
-// other messages close after six seconds unless pointer or focus rests on them.
-function hideToast(){clearTimeout(toastTimer);$('toast').hidden=true}
-function scheduleToastHide(){clearTimeout(toastTimer);if(!$('toast').classList.contains('toast-error'))toastTimer=setTimeout(hideToast,$('toast').classList.contains('toast-has-action')?12000:6000)}
-// An optional action (such as "Rückgängig") keeps the message open until it is used or closed.
-let toastAction:(()=>void)|undefined;
-function notify(message:string,kind:'info'|'error'='info',action?:{label:string;run:()=>void}){
- const error=kind==='error',region=$(error?'toast-alert':'toast-region'),other=$(error?'toast-region':'toast-alert');
- toastAction=action?.run;$('toast-action').textContent=action?.label||'';$('toast-action').hidden=!action;$('toast').classList.toggle('toast-has-action',!!action);
- $('toast-text').textContent=message;$('toast').classList.toggle('toast-error',error);$('toast').hidden=false;
- other.textContent='';region.textContent='';setTimeout(()=>{region.textContent=message},50);
- scheduleToastHide();
-}
-const notifyError=(message:string)=>notify(message,'error');
-$('toast-close').addEventListener('click',hideToast);
-$('toast-action').addEventListener('click',()=>{const run=toastAction;toastAction=undefined;hideToast();run?.()});
-$('toast').addEventListener('pointerenter',()=>clearTimeout(toastTimer));$('toast').addEventListener('pointerleave',scheduleToastHide);
-$('toast').addEventListener('focusin',()=>clearTimeout(toastTimer));$('toast').addEventListener('focusout',scheduleToastHide);
+initToast();
 // Skip link: moves focus past the navigation to the heading of the visible page.
 $('skip-link').addEventListener('click',()=>{
  const main=[...document.querySelectorAll<HTMLElement>('main,[role=main]')].find(node=>!node.hidden&&node.offsetParent!==null);if(!main)return;
  const target=main.querySelector<HTMLElement>('h1,h2')||main;target.tabIndex=-1;target.focus();target.scrollIntoView({block:'start'});
 });
-async function api<T>(url:string,options:RequestInit={}):Promise<T>{
- const headers=new Headers(options.headers);if(options.body)headers.set('Content-Type','application/json');if(session)headers.set('X-CSRF-Token',session.csrf);
- const response=await fetch(url,{...options,headers});if(response.status===401){livePage.stop();pause();location.reload();throw new Error('Anmeldung abgelaufen')}
- const text=await response.text();let body:any={};try{body=text?JSON.parse(text):{}}catch{body={error:text||`Serverfehler (${response.status})`}}
- if(!response.ok)throw Object.assign(new Error((body.error||`Anfrage fehlgeschlagen (${response.status})`)+(body.gaps?'\n'+body.gaps.map((g:number[])=>clock(g[0])+' – '+clock(g[1])).join('\n'):'')),{indexing:body.indexing===true,status:response.status});return body as T;
+// Every request carries the session's CSRF token; an expired sign-in reloads to the login.
+function api<T>(url:string,options:RequestInit={}):Promise<T>{
+ return requestJSON<T>(url,options,{csrf:session?.csrf,onUnauthorized:()=>{livePage.stop();pause();location.reload()}});
 }
 function on(id:string,fn:()=>void|Promise<void>){$(id).addEventListener('click',()=>{Promise.resolve(fn()).catch(e=>notifyError(e.message))})}
 function element<K extends keyof HTMLElementTagNameMap>(tag:K,className='',text=''):HTMLElementTagNameMap[K]{const e=document.createElement(tag);e.className=className;e.textContent=text;return e}
