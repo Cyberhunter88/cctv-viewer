@@ -1,3 +1,4 @@
+import {confirmAction} from './confirm-dialog';
 import {moveCamera} from './view-state';
 import {formatBytes,dailyAverage,type StorageOverview} from './storage';
 import type {Camera,Scan} from './types';
@@ -79,12 +80,12 @@ export function initCameraList(ctx:Context){
    addAction('Bereinigen','Fehlende Indexeinträge bereinigen',async()=>{
     const preview=await ctx.api<{camera:string;count:number;digest:string}>('/api/index/cleanup?camera='+encodeURIComponent(c.id));
     if(!preview.count){ctx.notify('Keine fehlenden Indexeinträge.');return}
-    if(!confirm(`${preview.count} fehlende Indexeinträge von „${c.name}“ entfernen? Originalaufnahmen bleiben erhalten. Bitte vorher prüfen, ob die Quelle vollständig gemountet ist.`))return;
+    if(!await confirmAction({title:'Fehlende Indexeinträge entfernen',message:`${preview.count} fehlende Indexeinträge von „${c.name}“ werden entfernt. Originalaufnahmen bleiben erhalten. Bitte vorher prüfen, ob die Quelle vollständig gemountet ist.`,confirm:'Einträge entfernen',danger:true}))return;
     const result=await ctx.api<{removed:number}>('/api/index/cleanup',{method:'POST',body:JSON.stringify({camera:c.id,digest:preview.digest})});
     ctx.notify(`${result.removed} Indexeinträge entfernt.`);await ctx.refreshCameras();await ctx.loadDay();
    },'cleanup-camera');
    addAction('Entfernen','Kamera entfernen',async()=>{
-    if(!confirm(`Kamera „${c.name}“ aus dem Viewer entfernen? Die Originalaufnahmen bleiben erhalten.`))return;
+    if(!await confirmAction({title:'Kamera entfernen',message:`Kamera „${c.name}“ wird aus dem Viewer entfernt. Die Originalaufnahmen bleiben erhalten.`,confirm:'Kamera entfernen',danger:true}))return;
     if(editing===c.id&&(!ctx.discardCamera()||!ctx.canChange()))return;
     await ctx.api('/api/cameras/'+c.id,{method:'DELETE'});if(editing===c.id){ctx.resetCamera();ctx.clearSettings();ctx.dialog.classList.remove('camera-editing')}await ctx.refreshCameras();await ctx.loadDay();
    },'delete');

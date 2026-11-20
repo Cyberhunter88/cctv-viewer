@@ -12,6 +12,14 @@ export async function cameraMutation(page:Page,send:()=>Promise<APIResponse>){
  throw new Error('Kameraänderung blieb durch eine laufende Indexierung blockiert');
 }
 
+// Deleting and resetting ask in the themed confirmation dialog instead of window.confirm().
+export async function answerConfirm(page:Page,accept:boolean){
+ const dialog=page.locator('#confirm-dialog');
+ await expect(dialog).toBeVisible();
+ await dialog.locator(accept?'#confirm-accept':'#confirm-cancel').click();
+ await expect(dialog).toBeHidden();
+}
+
 // Successful page saves finish asynchronously after the account API reply.
 export async function savePreferences(page:Page){
  // Settings save on every change; wait until the account has them, then return to recordings.

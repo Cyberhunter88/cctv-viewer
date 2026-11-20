@@ -24,6 +24,14 @@
       </div>
       <dl class="shortcut-list"></dl>
     </dialog>
+    <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-message"></p>
+      <div class="dialog-actions">
+        <button id="confirm-cancel" class="button secondary" type="button">Abbrechen</button>
+        <button id="confirm-accept" class="button primary" type="button"></button>
+      </div>
+    </dialog>
     <div id="toast" hidden>
       <span id="toast-text"></span><button id="toast-action" class="text-button" type="button" hidden></button><button id="toast-close" class="toast-close" type="button" aria-label="Meldung schließen">×</button>
     </div>

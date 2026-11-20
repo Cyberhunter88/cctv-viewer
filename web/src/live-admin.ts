@@ -1,3 +1,4 @@
+import {confirmAction} from './confirm-dialog';
 import {registerPage,navigate,formGuard,currentPage} from './navigation';
 import {liveKeys,importLiveURL} from './live-source';
 type Camera={id:string;name:string;viewMode?:string};
@@ -79,7 +80,7 @@ export function initLiveAdmin(c:Context){
   const result=await c.api<Record<string,{ok:boolean;message?:string;codecs?:{streams:{codec_type:string;codec_name:string;width?:number;height?:number}[]}}>>('/api/cameras/'+encodeURIComponent(current)+'/live/test',{method:'POST',body:JSON.stringify(payload())});
   $('live-test-result').hidden=false;$('live-test-result').textContent=Object.entries(result).map(([key,value])=>key+': '+(value.ok?value.codecs?.streams.map(stream=>stream.codec_type+' '+stream.codec_name+(stream.width?' '+stream.width+'×'+stream.height:'')).join(', '):value.message)).join('\n')||'Keine Quellen eingetragen.';
  });
- $('live-remove').onclick=()=>{if(!confirm('Livekonfiguration und gespeicherte Kamerazugangsdaten entfernen?'))return;void action(async()=>{await c.api('/api/cameras/'+encodeURIComponent(current)+'/live',{method:'DELETE'});guard.clean();await load(current,true);c.changed()})};
+ $('live-remove').onclick=async()=>{if(!await confirmAction({title:'Livekonfiguration entfernen',message:'Die Livequellen und die gespeicherten Kamerazugangsdaten dieser Kamera werden entfernt.',confirm:'Livekonfiguration entfernen',danger:true}))return;void action(async()=>{await c.api('/api/cameras/'+encodeURIComponent(current)+'/live',{method:'DELETE'});guard.clean();await load(current,true);c.changed()})};
  function showShare(value:Share){input('live-share-enabled').checked=value.enabled;input('live-share-reset').checked=false;input('live-share-server-url').value=value.serverUrl||'';shareSecure=value.secure===true;$('live-share-status').textContent=`Benutzer: ${value.username} · ${value.enabled?(value.listening?'Freigabe aktiv':'Listener nicht verfügbar'):'Freigabe deaktiviert'} · Listener: ${value.address} · ${shareSecure?'verschlüsselt (RTSPS)':'unverschlüsselt (RTSP)'}`;$('live-share-secret').hidden=!value.password;$('live-share-password').textContent=value.password||'';shareGuard.clean();renderShareURLs()}
  let shareSources:LiveConfig|undefined,shareSecure=false;
  function renderShareURLs(){

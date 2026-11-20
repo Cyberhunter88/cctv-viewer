@@ -75,7 +75,7 @@ export function createManagement(c: ManagementContext, formIds: string[]): Manag
     button.type = 'button';
     button.className = 'button secondary';
     button.textContent = text;
-    button.onclick = () => void Promise.resolve(action()).catch(error => alert(error.message));
+    button.onclick = () => void Promise.resolve(action()).catch(error => c.notify((error as Error).message));
     return button;
   }
 

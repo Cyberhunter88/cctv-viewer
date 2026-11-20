@@ -1,3 +1,4 @@
+import {confirmAction} from '../confirm-dialog.ts';
 import {$, field, roleLabel, type Management} from './shared.ts';
 
 type User = {username: string; role: string; disabled: boolean; totp?: boolean};
@@ -86,7 +87,14 @@ export function initUsers(m: Management) {
 
   function deleteUser(user: User) {
     return run('settings-error', async () => {
-      if (!guard.leave() || !confirm('Benutzer „' + user.username + '“ löschen?')) return;
+      if (!guard.leave()) return;
+      const accepted = await confirmAction({
+        title: 'Benutzer löschen',
+        message: 'Benutzer „' + user.username + '“ wird gelöscht. Das lässt sich nicht rückgängig machen.',
+        confirm: 'Benutzer löschen',
+        danger: true,
+      });
+      if (!accepted) return;
       await c.api(userURL(user), {method: 'DELETE'});
       if (isOwnLocalAccount(user.username)) {
         guard.clean();
@@ -101,9 +109,13 @@ export function initUsers(m: Management) {
 
   function resetSecondFactor(user: User) {
     return run('settings-error', async () => {
-      const question =
-        'Zweiten Faktor von „' + user.username + '“ entfernen? Die Anmeldung ist danach wieder nur mit Passwort möglich.';
-      if (!confirm(question)) return;
+      const accepted = await confirmAction({
+        title: 'Zweiten Faktor zurücksetzen',
+        message: 'Der zweite Faktor von „' + user.username + '“ wird entfernt. Die Anmeldung ist danach wieder nur mit Passwort möglich.',
+        confirm: 'Zurücksetzen',
+        danger: true,
+      });
+      if (!accepted) return;
       await c.api(userURL(user) + '/totp', {method: 'DELETE'});
       await loadUsers();
       c.notify('Zweiter Faktor zurückgesetzt.');

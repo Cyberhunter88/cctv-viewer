@@ -1,6 +1,7 @@
 import {initCameraSettings} from './camera-settings';
 import {initLivePage} from './live-page';
 import {initLiveAdmin} from './live-admin';
+import {confirmAction} from './confirm-dialog';
 import {registerPage,navigate,startNavigation,currentPage} from './navigation';
 import {PreferenceWriter} from './preferences';
 import {Tile,setControlIcon,type TileContext} from './playback-tile';
@@ -374,7 +375,7 @@ on('select-all',()=>{selected=new Set(cameras.map(c=>c.id));page=0;renderCameras
 on('select-none',()=>{selected.clear();page=0;renderCameras();saveView()});
 on('page-prev',()=>{page--;renderCameras()});on('page-next',()=>{page++;renderCameras()});
 on('scan-all',async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({date:dateInput.value,all:true})}))});
-on('rebuild-index',async()=>{if(!confirm('Den abgeleiteten Index und Vorschaubilder neu aufbauen? Kameras und Originalvideos bleiben erhalten.'))return;pause();tiles.forEach(t=>t.release());await api('/api/index/rebuild',{method:'POST'});records=[];await loadDay();notify('Index geleert. Der geöffnete Tag wird erneut eingelesen.')});
+on('rebuild-index',async()=>{if(!await confirmAction({title:'Index neu aufbauen',message:'Der abgeleitete Index und alle Vorschaubilder werden gelöscht und neu eingelesen. Kameras und Originalvideos bleiben erhalten.',confirm:'Index neu aufbauen',danger:true}))return;pause();tiles.forEach(t=>t.release());await api('/api/index/rebuild',{method:'POST'});records=[];await loadDay();notify('Index geleert. Der geöffnete Tag wird erneut eingelesen.')});
 overview.onpointerdown=e=>{overview.setPointerCapture(e.pointerId);seek(from+clamp((e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth,0,1)*(to-from));const span=viewEnd-viewStart;viewStart=clamp(cursor-span/2,from,to-span);viewEnd=viewStart+span;draw()};
 overview.onpointermove=e=>{if(e.buttons===1){const span=viewEnd-viewStart,start=clamp(from+(e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth*(to-from)-span/2,from,to-span);viewStart=start;viewEnd=start+span;draw()}};
 overview.onkeydown=e=>{if(e.ctrlKey||e.metaKey||e.altKey)return;const target=keyboardSeekTarget(e.key,e.shiftKey,cursor,from,to,state.seekStep);if(target!==undefined){e.preventDefault();seek(target)}};

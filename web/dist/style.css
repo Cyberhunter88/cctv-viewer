@@ -679,6 +679,12 @@
  #shortcut-help-open { margin-top:var(--space-2); }
  .shortcut-dialog { width:min(560px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); padding:var(--space-5); border:1px solid var(--line); border-radius:var(--radius-l); background:var(--panel); color:var(--text); box-shadow:var(--shadow-2); }
  .shortcut-dialog::backdrop { background:#0008; }
+ /* Confirmation for deleting and resetting; destructive actions use the danger button. */
+ .confirm-dialog { width:min(480px,calc(100vw - 32px)); padding:var(--space-5); border:1px solid var(--line); border-radius:var(--radius-l); background:var(--panel); color:var(--text); box-shadow:var(--shadow-2); }
+ .confirm-dialog::backdrop { background:#0008; }
+ .confirm-dialog h2 { margin:0 0 var(--space-2); font-size:18px; }
+ .confirm-dialog p { margin:0 0 var(--space-5); color:var(--muted); line-height:1.6; }
+ .confirm-dialog .dialog-actions { justify-content:flex-end; flex-wrap:wrap; }
  .shortcut-dialog-heading { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); margin-bottom:var(--space-3); }
  .shortcut-dialog h2 { margin:0; font-size:18px; }
  .shortcut-dialog .shortcut-list { margin:0; }

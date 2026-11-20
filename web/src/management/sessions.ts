@@ -1,4 +1,5 @@
 import {navigate, registerPage, currentPage} from '../navigation.ts';
+import {confirmAction} from '../confirm-dialog.ts';
 import {$, formatDateTime, roleLabel, type Management} from './shared.ts';
 
 type ActiveSession = {id: string; name: string; kind: string; role: string; expires: number; current: boolean};
@@ -54,7 +55,15 @@ export function initSessions(m: Management) {
 
   function endSession(base: string, entry: ActiveSession) {
     return run('sessions-error', async () => {
-      if (!confirm('Diese Sitzung beenden?')) return;
+      const accepted = await confirmAction({
+        title: 'Sitzung beenden',
+        message: entry.current
+          ? 'Das ist deine aktuelle Sitzung. Danach ist eine neue Anmeldung erforderlich.'
+          : 'Die Sitzung von „' + entry.name + '“ wird beendet. Danach ist dort eine neue Anmeldung erforderlich.',
+        confirm: 'Sitzung beenden',
+        danger: true,
+      });
+      if (!accepted) return;
       await c.api(base + '/' + entry.id, {method: 'DELETE'});
       if (entry.current) {
         m.guards['user-form'].clean();
@@ -84,7 +93,13 @@ export function initSessions(m: Management) {
   $('sessions-refresh').onclick = () => void loadSessions();
   $('sessions-end-own').onclick = () =>
     void run('sessions-error', async () => {
-      if (!confirm('Alle eigenen Sitzungen beenden und abmelden?')) return;
+      const accepted = await confirmAction({
+        title: 'Alle eigenen Sitzungen beenden',
+        message: 'Alle deine Anmeldungen werden beendet, auch diese. Danach ist eine neue Anmeldung erforderlich.',
+        confirm: 'Alle beenden und abmelden',
+        danger: true,
+      });
+      if (!accepted) return;
       await c.api('/api/sessions', {method: 'DELETE'});
       location.reload();
     });

@@ -1,4 +1,4 @@
-import {test,expect,openPage,seekToRecording,type Page} from './fixtures';
+import {test,expect,openPage,seekToRecording,type Page,answerConfirm} from './fixtures';
 test.beforeEach(async({context},info)=>{const hash=[...info.testId].reduce((n,c)=>(Math.imul(n,31)+c.charCodeAt(0))>>>0,0);await context.setExtraHTTPHeaders({'X-Forwarded-For':`2001:db8:2::${(hash>>>16).toString(16)}:${(hash&65535).toString(16)}`})});
 async function login(page:Page){await page.goto('/');await page.locator('#login-form input[name=username]').fill('browser');await page.locator('#login-form input[name=password]').fill('synthetic browser test password');await page.locator('#login-form button').click();await expect(page.locator('#app')).toBeVisible()}
 
@@ -79,15 +79,15 @@ test('local user lifecycle and session revocation through the GUI',async({page,b
   await page.locator('#user-search').fill('synthetic-ui-reader');await expect(page.locator('#user-list .camera-entry')).toHaveCount(1);
   await second.goto('/');await second.locator('#login-form input[name=username]').fill(username);await second.locator('#login-form input[name=password]').fill(password);await second.locator('#login-form button').click();await expect(second.locator('#app')).toBeVisible();await expect(second.locator('[data-admin]')).toBeHidden();
   await second.goto('/#admin/users');await expect(second).toHaveURL(/#recordings$/);await openPage(second,'settings/sessions');await expect(second.locator('#session-list')).toContainText('Diese Sitzung');await expect(second.locator('#session-list .session-entry')).toHaveCount(1);
-  await openPage(page,'admin/sessions');const row=page.locator('.session-entry').filter({hasText:username});await expect(row).toHaveCount(1);page.once('dialog',d=>d.accept());await row.getByRole('button',{name:'Sitzung beenden'}).click();await expect(row).toHaveCount(0);
+  await openPage(page,'admin/sessions');const row=page.locator('.session-entry').filter({hasText:username});await expect(row).toHaveCount(1);await row.getByRole('button',{name:'Sitzung beenden'}).click();await answerConfirm(page,true);await expect(row).toHaveCount(0);
   await second.reload();await expect(second.locator('#login')).toBeVisible();
   await openPage(page,'admin/users');await page.locator('#user-search').fill(username);await page.locator('#user-list .camera-entry button').first().click();await page.locator('#user-form input[name=disabled]').check();await page.locator('#user-form button[type=submit]').click();await expect(page.locator('#user-list')).toContainText('gesperrt');
   await page.locator('#user-list .camera-entry button').first().click();await page.locator('#user-form input[name=disabled]').uncheck();await page.locator('#user-form select[name=role]').selectOption('admin');await page.locator('#user-form input[name=password]').fill('synthetic reset lifecycle password');await page.locator('#user-form button[type=submit]').click();await expect(page.locator('#user-list')).toContainText('Administrator');
-  page.once('dialog',d=>d.accept());await page.locator('#user-list').getByRole('button',{name:'Löschen'}).click();await expect(page.locator('#user-list .camera-entry')).toHaveCount(0);created=false;
+  await page.locator('#user-list').getByRole('button',{name:'Löschen'}).click();await answerConfirm(page,true);await expect(page.locator('#user-list .camera-entry')).toHaveCount(0);created=false;
  }finally{await secondContext.close();if(created){const s=await(await page.request.get('/api/session')).json();await page.request.delete('/api/admin/users/'+username,{headers:{Origin:new URL(page.url()).origin,'X-CSRF-Token':s.csrf}})}}
 });
 
 test('own sessions can be ended together',async({page,browser})=>{
  await login(page);const secondContext=await browser.newContext({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.202'}});const second=await secondContext.newPage();
- try{await login(second);await openPage(page,'settings/sessions');await expect(page.locator('#session-list')).toContainText('Diese Sitzung');page.once('dialog',d=>d.accept());await page.locator('#sessions-end-own').click();await expect(page.locator('#login')).toBeVisible();await second.reload();await expect(second.locator('#login')).toBeVisible()}finally{await secondContext.close()}
+ try{await login(second);await openPage(page,'settings/sessions');await expect(page.locator('#session-list')).toContainText('Diese Sitzung');await page.locator('#sessions-end-own').click();await answerConfirm(page,true);await expect(page.locator('#login')).toBeVisible();await second.reload();await expect(second.locator('#login')).toBeVisible()}finally{await secondContext.close()}
 });
