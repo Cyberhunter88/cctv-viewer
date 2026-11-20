@@ -1,4 +1,4 @@
-import {test,expect,seekToRecording,type Page} from './fixtures';
+import {test,expect,seekToRecording,type Page,answerConfirm} from './fixtures';
 // Each test logs in from its own synthetic address, so login rate limits never interfere.
 test.beforeEach(async({context},info)=>{const hash=[...info.testId].reduce((n,c)=>(Math.imul(n,31)+c.charCodeAt(0))>>>0,0);await context.setExtraHTTPHeaders({'X-Forwarded-For':`2001:db8:5::${(hash>>>16).toString(16)}:${(hash&65535).toString(16)}`})});
 
@@ -91,7 +91,7 @@ test('a preferences reset can be undone from its message',async({page})=>{
  await login(page);
  const saved=(check:(body:Record<string,unknown>)=>boolean)=>page.waitForResponse(r=>r.url().endsWith('/api/preferences')&&r.request().method()==='PATCH'&&check(r.request().postDataJSON())&&r.ok());
  await page.goto('/#settings/appearance');let write=saved(body=>body.density==='compact');await page.locator('#pref-density').selectOption('compact');await write;
- page.once('dialog',d=>d.accept());write=saved(body=>body.density==='comfortable');await page.locator('#preferences-reset').click();await write;
+ write=saved(body=>body.density==='comfortable');await page.locator('#preferences-reset').click();await answerConfirm(page,true);await write;
  await expect(page.locator('html')).toHaveAttribute('data-density','comfortable');
  await expect(page.locator('#toast-action')).toHaveText('Rückgängig');
  write=saved(body=>body.density==='compact');await page.locator('#toast-action').click();await write;

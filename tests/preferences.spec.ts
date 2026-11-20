@@ -1,4 +1,4 @@
-import {openPage,openNavigation,preferenceControl,seekToRecording} from './fixtures';
+import {openPage,openNavigation,preferenceControl,seekToRecording,answerConfirm} from './fixtures';
 import {test,expect,savePreferences as save,type Page} from './fixtures';
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.40'}});
 // Each case uses a distinct synthetic client; the expanded suite must not
@@ -32,8 +32,8 @@ test('legacy settings migrate, personal preferences persist and reset',async({pa
  const thumbs:string[]=[];page.on('request',r=>{if(r.url().includes('/thumbnail'))thumbs.push(r.url())});await page.reload();await expect(page.locator('#app')).toBeVisible();await page.locator('#date').fill('2026-10-14');await expect(page.locator('#recording-count')).toContainText('2 Aufnahmen');
  await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');await expect(page.locator('#overview')).toBeHidden();await expect(page.locator('#timeline-viewport')).toHaveCSS('height','400px');expect(thumbs).toEqual([]);
  await expect(page.locator('.camera-tile').first()).toHaveAccessibleName('Testkamera-B');await open(page);await expect(page.locator('#pref-seekStep')).toHaveValue('30');await expect(page.locator('#pref-shortcuts')).not.toBeChecked();
- page.once('dialog',d=>d.dismiss());await page.locator('#preferences-reset').click();await expect(page.locator('#pref-density')).toHaveValue('compact');
- page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await expect(page.locator('#pref-density')).toHaveValue('comfortable');await expect(page.locator('#pref-showTimestamps')).toBeChecked();await expect(page.locator('#pref-shortcuts')).toBeChecked();await expect(page.locator('#theme')).toHaveValue('system');await expect(page.locator('#pref-seekStep')).toHaveValue('5');await save(page);await expect(page.locator('#timeline-resize')).toHaveAttribute('aria-valuenow','240');await expect(page.locator('#layout')).toHaveValue('auto');await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#camera-filters .filter.selected')).toHaveCount(2);
+ await page.locator('#preferences-reset').click();await answerConfirm(page,false);await expect(page.locator('#pref-density')).toHaveValue('compact');
+ await page.locator('#preferences-reset').click();await answerConfirm(page,true);await expect(page.locator('#pref-density')).toHaveValue('comfortable');await expect(page.locator('#pref-showTimestamps')).toBeChecked();await expect(page.locator('#pref-shortcuts')).toBeChecked();await expect(page.locator('#theme')).toHaveValue('system');await expect(page.locator('#pref-seekStep')).toHaveValue('5');await save(page);await expect(page.locator('#timeline-resize')).toHaveAttribute('aria-valuenow','240');await expect(page.locator('#layout')).toHaveValue('auto');await expect(page.locator('#quality')).toHaveValue('native');await expect(page.locator('#camera-filters .filter.selected')).toHaveCount(2);
 });
 test('shortcuts share the configured step and never interfere with forms',async({page})=>{
  await login(page);
@@ -179,7 +179,7 @@ test('account preferences cross devices, merge edits and keep server values abov
   const session=await(await page.request.get('/api/session')).json();
   await page.evaluate(key=>localStorage.setItem('cctv-view:'+key,JSON.stringify({density:'comfortable',theme:'light'})),session.preferenceKey);
   await page.reload();await expect(page.locator('#app')).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('body')).toHaveClass(/hide-showTimestamps/);
-  await open(page);await expect(page.locator('#pref-seekStep')).toHaveValue('30');page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await save(page);await expect(page.locator('#preferences-dialog')).toBeHidden();
+  await open(page);await expect(page.locator('#pref-seekStep')).toHaveValue('30');await page.locator('#preferences-reset').click();await answerConfirm(page,true);await save(page);await expect(page.locator('#preferences-dialog')).toBeHidden();
   await second.reload();await expect(second.locator('#app')).toBeVisible();await expect(second.locator('html')).toHaveAttribute('data-density','comfortable');await expect(second.locator('body')).not.toHaveClass(/hide-showTimestamps/);
  }finally{await secondContext.close()}
 });

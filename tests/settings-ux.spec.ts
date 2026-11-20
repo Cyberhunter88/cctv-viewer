@@ -1,4 +1,4 @@
-import {openPage,openNavigation,preferenceControl} from './fixtures';
+import {openPage,openNavigation,preferenceControl,answerConfirm} from './fixtures';
 import {test,expect,savePreferences as persistPreferences,type Page} from './fixtures';
 test.use({extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.81'}});
 async function login(page:Page){
@@ -35,8 +35,8 @@ test('preferences apply and save immediately, including theme, reset and validat
  await page.reload();await expect(page.locator('#app')).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-density','compact');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  await openPreferences(page);await expect(page.locator('#aspect')).toHaveValue('4/3');await expect(page.locator('#grid-columns')).toHaveValue('3');
  // Declining the reset keeps everything; accepting applies and saves the defaults at once.
- page.once('dialog',d=>d.dismiss());await page.locator('#preferences-reset').click();await expect(page.locator('html')).toHaveAttribute('data-density','compact');
- write=saved(body=>body.density==='comfortable'&&body.theme==='system');page.once('dialog',d=>d.accept());await page.locator('#preferences-reset').click();await write;
+ await page.locator('#preferences-reset').click();await answerConfirm(page,false);await expect(page.locator('html')).toHaveAttribute('data-density','compact');
+ write=saved(body=>body.density==='comfortable'&&body.theme==='system');await page.locator('#preferences-reset').click();await answerConfirm(page,true);await write;
  await expect(page.locator('html')).toHaveAttribute('data-density','comfortable');await expect(page.locator('html')).toHaveAttribute('data-theme','light');await expect(page.locator('#aspect')).toHaveValue('auto');
  expect(session.preferenceKey).toBeTruthy();
  const qualitySaved=page.waitForResponse(response=>response.url().endsWith('/api/preferences')&&response.request().method()==='PATCH'&&response.request().postDataJSON().quality==='balanced'&&response.ok());

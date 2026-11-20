@@ -1,3 +1,4 @@
+import {confirmAction} from './confirm-dialog';
 import {navigate,registerPage} from './navigation';
 import {defaultView,type ViewState} from './view-state';
 interface Context {
@@ -53,8 +54,8 @@ export function initPreferencesDialog(c:Context){
  preferencesForm.addEventListener('change',commit);
  preferencesForm.addEventListener('input',e=>{if(e.target instanceof HTMLInputElement&&e.target.type==='number'){clearTimeout(typingTimer);typingTimer=setTimeout(commit,600)}});
  preferencesForm.addEventListener('submit',e=>{e.preventDefault();commit()});
- on('preferences-reset',()=>{
-  if(!confirm('Persönliche Einstellungen und Kameraauswahl auf die Standardwerte zurücksetzen?'))return;
+ on('preferences-reset',async()=>{
+  if(!await confirmAction({title:'Einstellungen zurücksetzen',message:'Persönliche Einstellungen und Kameraauswahl werden auf die Standardwerte zurückgesetzt.',confirm:'Zurücksetzen',danger:true}))return;
   clearTimeout(typingTimer);typingTimer=undefined;
   const previous=c.snapshot();
   Object.assign(c.state,defaultView());delete c.state.railCollapsed;c.state.theme='system';c.resetSelection();

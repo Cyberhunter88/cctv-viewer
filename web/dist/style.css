@@ -1,5 +1,5 @@
 /*
- * CCTV Viewer design system (0.19.1).
+ * CCTV Viewer design system (0.20.0).
  * Calm, neutral surfaces with one accent colour; the video picture stays in focus.
  * Target: WCAG 2.2 AA in light and dark themes. Text ≥ 4.5:1, control edges and
  * focus indicators ≥ 3:1, pointer targets ≥ 44 px inside the app.
@@ -131,7 +131,7 @@
  .nav-brand-sub { color:var(--muted); font-weight:450; }
  .rail-collapse { flex:none; display:inline-flex; align-items:center; justify-content:center; width:44px; padding:0; border:1px solid transparent; border-radius:var(--radius-s); background:transparent; color:var(--muted); }
  .rail-collapse:hover { background:var(--surface); color:var(--text); }
- .rail nav { display:flex; flex-direction:column; gap:2px; min-height:0; overflow-y:auto; overscroll-behavior:contain; margin-inline:-4px; padding-inline:4px; }
+ .rail nav { display:flex; flex:1 1 auto; flex-direction:column; gap:2px; min-height:0; overflow-y:auto; overscroll-behavior:contain; margin-inline:-4px; padding-inline:4px; }
  .nav-section-label { padding:var(--space-3) var(--space-3) var(--space-1); color:var(--muted); font-size:12px; font-weight:650; letter-spacing:.02em; }
  .rail-item,.nav-group > summary { position:relative; display:flex; align-items:center; gap:var(--space-3); width:100%; min-height:44px; padding:10px var(--space-3); border-radius:var(--radius-s); color:var(--muted); font-size:14px; font-weight:500; }
  .rail-item:hover,.nav-group > summary:hover { background:var(--surface); color:var(--text); }
@@ -210,7 +210,6 @@
 
  /* Content pages (settings, management, search) */
  /* Rail: three views and one settings entry, pinned to the bottom of the list. */
- .rail nav { flex:1 1 auto; }
  .rail-settings { margin-top:auto; }
  .rail-item.rail-settings.active::before { top:10px; bottom:10px; }
 
@@ -221,6 +220,8 @@
  .settings-nav-title { margin:0 0 calc(var(--space-2) * -1); padding:0 var(--space-3); font-size:17px; font-weight:700; color:var(--text); }
  .settings-nav-group { display:flex; flex-direction:column; gap:2px; }
  .settings-nav-group[hidden] { display:none; }
+ /* One wrapper hides all administration groups for viewers; it adds no box of its own. */
+ .settings-nav-admin { display:contents; }
  .settings-nav-label { padding:0 var(--space-3) var(--space-1); color:var(--muted); font-size:11px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; }
  .settings-link { display:flex; align-items:center; gap:10px; min-height:38px; padding:7px var(--space-3); border-radius:var(--radius-s); color:var(--muted); font-size:14px; text-decoration:none; white-space:nowrap; transition:background-color .12s ease,color .12s ease; }
  .settings-link:hover { background:var(--surface); color:var(--text); }
@@ -513,7 +514,7 @@
  .camera-tile.no-recording .tile-footer > span:first-child { color:var(--muted); }
  .hide-showTimestamps .camera-tile:not(.live-tile) .tile-footer > span:first-child { display:none; }
  .camera-tile.expanded,.camera-tile:fullscreen { position:fixed; inset:var(--space-3); z-index:50; height:auto!important; max-height:none!important; aspect-ratio:auto!important; box-shadow:var(--shadow-2); }
- .camera-tile:fullscreen { inset:0; width:100%; height:100%!important; border:0; border-radius:0; }
+ .camera-tile:fullscreen { inset:0; width:100%; height:100%!important; grid-template-rows:minmax(0,1fr); border:0; border-radius:0; }
  .camera-tile:fullscreen video { height:100%; object-fit:contain!important; }
  .camera-tile:is(.expanded,:fullscreen) .tile-header { font-size:16px; }
  /* Playback controls inside an enlarged tile: the page transport is not part of the fullscreen element. */
@@ -536,7 +537,6 @@
  @keyframes tile-flash { 0% { opacity:1; transform:scale(.8); } 100% { opacity:0; transform:scale(1.15); } }
  @media (prefers-reduced-motion:reduce) { .tile-flash.visible { animation:none; } }
  /* Fullscreen: the bars lie over the picture and fade out while it plays untouched. */
- .camera-tile:fullscreen { grid-template-rows:minmax(0,1fr); }
  .camera-tile:fullscreen .tile-footer { position:absolute; inset:auto 0 0; z-index:3; padding:var(--space-4) var(--space-4) var(--space-3); border:0; background:linear-gradient(#0000,#000000c8); color:var(--video-text); }
  .camera-tile:fullscreen .tile-footer :is(.tile-transport button:not(.tile-play),.tile-actions button) { background:#ffffff1f; color:var(--video-text); }
  .camera-tile:fullscreen .tile-footer :is(.tile-transport button:not(.tile-play),.tile-actions button):hover { background:#ffffff38; }
@@ -652,6 +652,11 @@
  .content-page > .dialog-heading > .button.secondary { flex:none; border-color:transparent; background:transparent; color:var(--muted); }
  .content-page > .dialog-heading > .button.secondary:hover { background:var(--surface); color:var(--text); }
  .danger-zone { margin-top:var(--space-4); padding:var(--space-4); border:1px solid var(--danger-line); border-radius:var(--radius); background:var(--danger-bg); }
+ .danger-zone > h4 { margin:0 0 var(--space-1); }
+ .danger-zone > .setting-help { margin:0 0 var(--space-3); }
+ /* User list: search and "Neuer Benutzer" share one row above the list. */
+ .user-toolbar { display:flex; flex-wrap:wrap; align-items:flex-end; gap:var(--space-3); }
+ .user-toolbar > label { flex:1 1 260px; margin-bottom:0; }
  .content-page .button,.content-page button { min-height:44px; }
  @media (max-width:700px) {
   .form-row,.settings-page .form-row { grid-template-columns:minmax(0,1fr); }
@@ -681,6 +686,12 @@
  #shortcut-help-open { margin-top:var(--space-2); }
  .shortcut-dialog { width:min(560px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); padding:var(--space-5); border:1px solid var(--line); border-radius:var(--radius-l); background:var(--panel); color:var(--text); box-shadow:var(--shadow-2); }
  .shortcut-dialog::backdrop { background:#0008; }
+ /* Confirmation for deleting and resetting; destructive actions use the danger button. */
+ .confirm-dialog { width:min(480px,calc(100vw - 32px)); padding:var(--space-5); border:1px solid var(--line); border-radius:var(--radius-l); background:var(--panel); color:var(--text); box-shadow:var(--shadow-2); }
+ .confirm-dialog::backdrop { background:#0008; }
+ .confirm-dialog h2 { margin:0 0 var(--space-2); font-size:18px; }
+ .confirm-dialog p { margin:0 0 var(--space-5); color:var(--muted); line-height:1.6; }
+ .confirm-dialog .dialog-actions { justify-content:flex-end; flex-wrap:wrap; }
  .shortcut-dialog-heading { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); margin-bottom:var(--space-3); }
  .shortcut-dialog h2 { margin:0; font-size:18px; }
  .shortcut-dialog .shortcut-list { margin:0; }
@@ -753,6 +764,10 @@
  .camera-more-actions { display:grid; gap:var(--space-1); padding:var(--space-2) 0; border-top:1px solid var(--line); }
  .camera-more-actions button { justify-content:flex-start; text-align:left; }
  .camera-empty { padding:var(--space-5); border:1px dashed var(--control-line); border-radius:var(--radius); color:var(--muted); line-height:1.6; }
+ .camera-preview { display:grid; justify-items:start; gap:var(--space-2); margin-top:var(--space-5); padding-top:var(--space-4); border-top:1px solid var(--line); }
+ .camera-preview h4 { margin:0; }
+ .camera-preview .setting-help { margin:0; }
+ .camera-preview #preview-result { justify-self:stretch; }
  .camera-maintenance { margin-top:var(--space-5); }
  .camera-maintenance h4 { margin:0 0 var(--space-2); }
  .camera-maintenance .dialog-actions { justify-content:flex-start; margin-top:var(--space-3); }
