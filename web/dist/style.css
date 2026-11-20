@@ -131,7 +131,7 @@
  .nav-brand-sub { color:var(--muted); font-weight:450; }
  .rail-collapse { flex:none; display:inline-flex; align-items:center; justify-content:center; width:44px; padding:0; border:1px solid transparent; border-radius:var(--radius-s); background:transparent; color:var(--muted); }
  .rail-collapse:hover { background:var(--surface); color:var(--text); }
- .rail nav { display:flex; flex-direction:column; gap:2px; min-height:0; overflow-y:auto; overscroll-behavior:contain; margin-inline:-4px; padding-inline:4px; }
+ .rail nav { display:flex; flex:1 1 auto; flex-direction:column; gap:2px; min-height:0; overflow-y:auto; overscroll-behavior:contain; margin-inline:-4px; padding-inline:4px; }
  .nav-section-label { padding:var(--space-3) var(--space-3) var(--space-1); color:var(--muted); font-size:12px; font-weight:650; letter-spacing:.02em; }
  .rail-item,.nav-group > summary { position:relative; display:flex; align-items:center; gap:var(--space-3); width:100%; min-height:44px; padding:10px var(--space-3); border-radius:var(--radius-s); color:var(--muted); font-size:14px; font-weight:500; }
  .rail-item:hover,.nav-group > summary:hover { background:var(--surface); color:var(--text); }
@@ -210,7 +210,6 @@
 
  /* Content pages (settings, management, search) */
  /* Rail: three views and one settings entry, pinned to the bottom of the list. */
- .rail nav { flex:1 1 auto; }
  .rail-settings { margin-top:auto; }
  .rail-item.rail-settings.active::before { top:10px; bottom:10px; }
 
@@ -513,7 +512,7 @@
  .camera-tile.no-recording .tile-footer > span:first-child { color:var(--muted); }
  .hide-showTimestamps .camera-tile:not(.live-tile) .tile-footer > span:first-child { display:none; }
  .camera-tile.expanded,.camera-tile:fullscreen { position:fixed; inset:var(--space-3); z-index:50; height:auto!important; max-height:none!important; aspect-ratio:auto!important; box-shadow:var(--shadow-2); }
- .camera-tile:fullscreen { inset:0; width:100%; height:100%!important; border:0; border-radius:0; }
+ .camera-tile:fullscreen { inset:0; width:100%; height:100%!important; grid-template-rows:minmax(0,1fr); border:0; border-radius:0; }
  .camera-tile:fullscreen video { height:100%; object-fit:contain!important; }
  .camera-tile:is(.expanded,:fullscreen) .tile-header { font-size:16px; }
  /* Playback controls inside an enlarged tile: the page transport is not part of the fullscreen element. */
@@ -536,7 +535,6 @@
  @keyframes tile-flash { 0% { opacity:1; transform:scale(.8); } 100% { opacity:0; transform:scale(1.15); } }
  @media (prefers-reduced-motion:reduce) { .tile-flash.visible { animation:none; } }
  /* Fullscreen: the bars lie over the picture and fade out while it plays untouched. */
- .camera-tile:fullscreen { grid-template-rows:minmax(0,1fr); }
  .camera-tile:fullscreen .tile-footer { position:absolute; inset:auto 0 0; z-index:3; padding:var(--space-4) var(--space-4) var(--space-3); border:0; background:linear-gradient(#0000,#000000c8); color:var(--video-text); }
  .camera-tile:fullscreen .tile-footer :is(.tile-transport button:not(.tile-play),.tile-actions button) { background:#ffffff1f; color:var(--video-text); }
  .camera-tile:fullscreen .tile-footer :is(.tile-transport button:not(.tile-play),.tile-actions button):hover { background:#ffffff38; }
