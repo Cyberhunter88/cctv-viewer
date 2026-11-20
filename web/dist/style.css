@@ -650,6 +650,11 @@
  .content-page > .dialog-heading > .button.secondary { flex:none; border-color:transparent; background:transparent; color:var(--muted); }
  .content-page > .dialog-heading > .button.secondary:hover { background:var(--surface); color:var(--text); }
  .danger-zone { margin-top:var(--space-4); padding:var(--space-4); border:1px solid var(--danger-line); border-radius:var(--radius); background:var(--danger-bg); }
+ .danger-zone > h4 { margin:0 0 var(--space-1); }
+ .danger-zone > .setting-help { margin:0 0 var(--space-3); }
+ /* User list: search and "Neuer Benutzer" share one row above the list. */
+ .user-toolbar { display:flex; flex-wrap:wrap; align-items:flex-end; gap:var(--space-3); }
+ .user-toolbar > label { flex:1 1 260px; margin-bottom:0; }
  .content-page .button,.content-page button { min-height:44px; }
  @media (max-width:700px) {
   .form-row,.settings-page .form-row { grid-template-columns:minmax(0,1fr); }
@@ -757,6 +762,10 @@
  .camera-more-actions { display:grid; gap:var(--space-1); padding:var(--space-2) 0; border-top:1px solid var(--line); }
  .camera-more-actions button { justify-content:flex-start; text-align:left; }
  .camera-empty { padding:var(--space-5); border:1px dashed var(--control-line); border-radius:var(--radius); color:var(--muted); line-height:1.6; }
+ .camera-preview { display:grid; justify-items:start; gap:var(--space-2); margin-top:var(--space-5); padding-top:var(--space-4); border-top:1px solid var(--line); }
+ .camera-preview h4 { margin:0; }
+ .camera-preview .setting-help { margin:0; }
+ .camera-preview #preview-result { justify-self:stretch; }
  .camera-maintenance { margin-top:var(--space-5); }
  .camera-maintenance h4 { margin:0 0 var(--space-2); }
  .camera-maintenance .dialog-actions { justify-content:flex-start; margin-top:var(--space-3); }

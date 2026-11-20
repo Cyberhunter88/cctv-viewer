@@ -6,7 +6,10 @@ type User = {username: string; role: string; disabled: boolean; totp?: boolean};
 export const usersPanel = `
 <section id="users-panel">
   <h3>Lokale Benutzer</h3>
-  <label>Benutzer suchen<input id="user-search" type="search" placeholder="Name, Rolle oder Status"></label>
+  <div class="user-toolbar">
+    <label>Benutzer suchen<input id="user-search" type="search" placeholder="Name, Rolle oder Status"></label>
+    <button type="button" id="new-user" class="button primary">Neuer Benutzer</button>
+  </div>
   <p id="user-count" role="status"></p>
   <div id="user-list"></div>
   <h3 id="user-editor-title">Neuer Benutzer</h3>
@@ -17,7 +20,6 @@ export const usersPanel = `
     <label><input name="disabled" type="checkbox"> Konto gesperrt</label>
     <label>Neues Passwort<input name="password" type="password" minlength="14" maxlength="1024" autocomplete="new-password" required><small>Bei bestehenden Konten leer lassen, um das Passwort beizubehalten.</small></label>
     <div class="dialog-actions">
-      <button type="button" id="new-user" class="button secondary">Neuer Benutzer</button>
       <button type="submit" class="button primary">Benutzer speichern</button>
     </div>
   </form>
@@ -52,6 +54,7 @@ export function initUsers(m: Management) {
     (field(form, 'password') as HTMLInputElement).required = false;
     $('user-editor-title').textContent = 'Benutzer bearbeiten: ' + user.username;
     guard.clean();
+    field(form, 'role').focus();
   }
 
   async function loadUsers() {
@@ -124,7 +127,9 @@ export function initUsers(m: Management) {
 
   $('user-search').oninput = renderUsers;
   $('new-user').onclick = () => {
-    if (guard.leave()) newUser();
+    if (!guard.leave()) return;
+    newUser();
+    field(form, 'username').focus();
   };
   form.onsubmit = event => {
     event.preventDefault();

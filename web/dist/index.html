@@ -317,9 +317,14 @@
               <div id="camera-list" class="camera-list"></div>
               <section class="camera-maintenance">
                 <h4>Aufnahmen indexieren</h4>
-                <p class="setting-help">Neue Aufnahmen einlesen oder den gesamten Index neu aufbauen.</p>
+                <p class="setting-help">Neue Aufnahmen aller Kameras einlesen.</p>
                 <div class="dialog-actions">
-                  <button id="scan-all" class="button secondary" type="button">Alle Kameras scannen</button><button id="rebuild-index" class="text-button" type="button">Index neu aufbauen</button>
+                  <button id="scan-all" class="button secondary" type="button">Alle Kameras scannen</button>
+                </div>
+                <div class="danger-zone">
+                  <h4>Index neu aufbauen</h4>
+                  <p class="setting-help">Löscht den abgeleiteten Index und alle Vorschaubilder und liest sie neu ein. Das dauert je nach Archiv lange. Kameras und Originalvideos bleiben erhalten.</p>
+                  <button id="rebuild-index" class="button danger" type="button">Index neu aufbauen</button>
                 </div>
               </section>
             </section>

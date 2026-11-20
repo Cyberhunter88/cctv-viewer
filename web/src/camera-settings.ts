@@ -12,8 +12,12 @@ export function initCameraSettings(form:HTMLFormElement,dialog:HTMLElement,live:
  general.id='camera-general-panel';recordings.id='camera-recordings-panel';
  const name=form.querySelector('[name=name]')!.closest('label')!,folder=form.querySelector('[name=folder]')!.closest('label')!,views=form.querySelector('#view-mode')!.closest('label')!,help=views.nextElementSibling!;
  general.append(name,views,help);
- recordings.append(folder,form.querySelector('#dual-fields')!,form.querySelector('#camera-advanced')!);
- for(const h of form.querySelectorAll('h4'))h.remove();
+ // The detection check belongs to folder, markers and pattern, so it closes the recordings tab with its result.
+ const preview=document.createElement('section');preview.className='camera-preview';preview.setAttribute('aria-labelledby','camera-preview-title');
+ preview.innerHTML='<h4 id="camera-preview-title">Erkennung prüfen</h4><p class="setting-help">Zeigt mit den Angaben oben, welche Dateien erkannt werden, bevor die Kamera gespeichert wird.</p>';
+ preview.append(form.querySelector('#preview')!,form.querySelector('#preview-result')!);
+ recordings.append(folder,form.querySelector('#dual-fields')!,form.querySelector('#camera-advanced')!,preview);
+ for(const h of form.querySelectorAll('h4:not(#camera-preview-title)'))h.remove();
  for(const row of form.querySelectorAll('.form-row'))if(!row.children.length)row.remove();
  const firstAction=form.querySelector('.camera-editor-actions')!;firstAction.before(general,recordings);
  editor.append(tabs,empty,form,live.root);
