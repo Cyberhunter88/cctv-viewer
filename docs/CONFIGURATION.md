@@ -12,7 +12,7 @@ Bearbeitung der `.env` für weitere Benutzer erforderlich.
 | Verwaltung → Kameras | Reiter Allgemein, Aufnahmen und Live; Aufnahmeordner, Dateizuordnung, Livequellen und Vorladen |
 | Verwaltung → Streamfreigabe | Globale RTSP-Freigabe, Home-Assistant-Zugangsdaten und kopierbare Server-URL |
 | Verwaltung → Benutzer | Lokale Konten anlegen, suchen, bearbeiten, sperren, entsperren und löschen; Passwörter setzen |
-| Verwaltung → Sitzungen | Aktive lokale und SSO-Sitzungen aller Konten anzeigen und einzeln beenden |
+| Verwaltung → Alle Sitzungen | Aktive lokale und SSO-Sitzungen aller Konten anzeigen und einzeln beenden |
 | Verwaltung → Anmeldung / OIDC | Lokale Anmeldung, Issuer, Client-ID, Client-Secret, Gruppen-Claim sowie Gruppen-/Subject-Freigaben |
 | Verwaltung → Betrieb | Automatische Indexierung und Intervall, Cache, Umwandlungen, temporärer Videospeicher, Streamingprofile und Sitzungsdauer |
 

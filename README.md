@@ -157,8 +157,9 @@ starten oder bestehende Sitzungen ablaufen lassen.
 
 ## Benutzer und Webeinstellungen
 
-Die linke Navigation bietet unter **Verwaltung** eigene Seiten für Kameras,
-Benutzer, Sitzungen, Anmeldung/OIDC und Betrieb. **Einstellungen** enthält
+Die linke Navigation bietet unter **Verwaltung** eigene Seiten in drei Gruppen:
+**Kameras & Live** (Kameras, Streamfreigabe), **Zugriff** (Benutzer, Alle Sitzungen,
+Anmeldung/OIDC) und **System** (Betrieb, Protokoll). **Einstellungen** enthält
 Darstellung, Wiedergabe, das eigene Konto und eigene Sitzungen. Auf schmalen
 Bildschirmen öffnet **Menü** die Navigation. Lokale Konten haben die Rolle
 „Administrator“ oder „Betrachter“. Bestehende Administratorkonten und Passwort-Hashes
@@ -168,7 +169,8 @@ zugehörigen Sitzungen. Der letzte aktive lokale Administrator bleibt geschützt
 Eigene lokale Passwörter unter **Einstellungen → Mein Konto** ändern;
 SSO-Passwörter beim Provider. Unter **Meine Sitzungen** lassen sich eigene aktive
 Anmeldungen einzeln oder gemeinsam beenden; Administratoren können unter
-**Verwaltung → Sitzungen** zusätzlich fremde Sitzungen beenden.
+**Verwaltung → Alle Sitzungen** zusätzlich fremde Sitzungen beenden. Löschen,
+Zurücksetzen und Beenden fragen in einem eigenen Dialog nach, der die Aktion benennt.
 
 Suche und Einstellungen sind feste Seiten mit Direktlinks und Browser-Zurück/
 Vorwärts. Beim Verlassen der Aufnahmen pausieren Bild und Ton; Datum, Kameras
@@ -232,7 +234,8 @@ Fehlende Dateien bleiben im Index, damit eine ausgefallene Netzwerkquelle keine
 Aufnahmen aus dem Archiv entfernt. In der Kameraverwaltung zeigt „Bereinigen“ die
 Zahl fehlender Einträge und entfernt sie erst nach Bestätigung. Vorher den Mount
 prüfen: Ein leerer, aber lesbarer Ordner kann auch auf einen NAS-Ausfall hinweisen.
-„Index neu aufbauen“ entfernt abgeleitete Aufnahmen,
+„Index neu aufbauen“ steht im markierten Gefahrenbereich unter **Indexierung und
+Wartung** und entfernt abgeleitete Aufnahmen,
 Scanstände und Vorschaubilder; Kameras, Anmeldung und Originalvideos bleiben erhalten.
 Die Aktion ist während laufender oder wartender Indexaufträge gesperrt. Eine Quelle
 ist auf zwei Millionen Verzeichniseinträge pro Scan begrenzt; für große Archive
