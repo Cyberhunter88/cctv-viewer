@@ -173,7 +173,7 @@
           </details>
           <p id="warnings" class="warning" hidden></p>
         </main>
-        <section class="content-page" role="main" hidden id="batch-dialog">
+        <section class="content-page settings-page" role="main" hidden id="batch-dialog">
           <div class="dialog-heading">
             <div>
               <span class="eyebrow">Verwaltung · Kameras</span>
@@ -181,6 +181,7 @@
             </div>
             <button id="batch-close" class="button secondary" type="button" aria-label="Zurück zu Kameras">← Kameras</button>
           </div>
+          <p class="settings-intro">Mehrere Aufnahmeordner auswählen und gemeinsam als Kameras hinzufügen.</p>
           <p>
             Wähle für jede Kamera ihren Aufnahmeordner. Zeitzone, Indexierung und Ansichten werden aus dem Kameraformular übernommen. Weitwinkel und Zoom gehören in denselben Kameraordner, bei Bedarf in Unterordner.
           </p>
@@ -190,7 +191,7 @@
           <p id="batch-error" class="error" role="alert"></p>
           <button id="batch-save" type="button" class="button primary">Kameras hinzufügen und Tag indexieren</button><small>Bis zu drei Kameras gleichzeitig. Weitere Aufträge warten automatisch.</small>
         </section>
-        <section class="content-page" role="main" hidden id="preferences-dialog" aria-labelledby="preferences-title">
+        <section class="content-page settings-page" role="main" hidden id="preferences-dialog" aria-labelledby="preferences-title">
           <div class="dialog-heading">
             <div>
               <span class="eyebrow">Einstellungen</span>
@@ -198,7 +199,8 @@
             </div>
             <button id="preferences-close" class="button secondary" type="button" aria-label="Zurück zu Aufnahmen">← Aufnahmen</button>
           </div>
-          <form id="preferences-form">
+          <p class="settings-intro">Darstellung und Wiedergabe an deine Arbeitsweise anpassen.</p>
+          <form class="settings-form" id="preferences-form">
             <p class="muted">Änderungen gelten sofort und werden automatisch für dein Konto gespeichert. Sie stehen nach dem Anmelden oder Neuladen auch auf anderen Geräten bereit.</p>
             <div class="preferences-sections">
               <section data-preference-page="appearance">
@@ -247,7 +249,7 @@
             </div>
           </form>
         </section>
-        <section class="content-page" role="main" hidden id="search-dialog">
+        <section class="content-page settings-page" role="main" hidden id="search-dialog">
           <div class="dialog-heading">
             <div>
               <span class="eyebrow">Archiv</span>
@@ -255,7 +257,7 @@
             </div>
             <button id="search-close" class="button secondary" type="button" aria-label="Zurück zu Aufnahmen">← Aufnahmen</button>
           </div>
-          <form id="search-form">
+          <form class="settings-form" id="search-form">
             <div class="search-presets" role="group" aria-labelledby="search-presets-label">
               <span id="search-presets-label" class="muted">Zeitraum</span><button class="filter" type="button" data-search-range="today">Heute</button><button class="filter" type="button" data-search-range="24h">Letzte 24 Std.</button><button class="filter" type="button" data-search-range="7d">Letzte 7 Tage</button><button class="filter" type="button" data-search-range="all">Gesamter Index</button>
             </div>
@@ -273,7 +275,7 @@
           <div id="search-results"></div>
           <button id="search-more" class="button secondary" type="button" hidden>Weitere Treffer laden</button>
         </section>
-        <section class="content-page" role="main" hidden id="camera-dialog" aria-labelledby="camera-title">
+        <section class="content-page settings-page" role="main" hidden id="camera-dialog" aria-labelledby="camera-title">
           <div class="dialog-heading">
             <div>
               <span class="eyebrow">Verwaltung</span>
@@ -300,7 +302,7 @@
                 </div>
               </section>
             </section>
-            <form id="camera-form">
+            <form class="settings-form" id="camera-form">
               <div class="camera-editor-heading">
                 <button id="camera-back" class="text-button" type="button">← Zurück zur Übersicht</button><span class="eyebrow">Kameraeinstellungen</span>
                 <h3 id="camera-editor-title" tabindex="-1">Neue Kamera</h3>

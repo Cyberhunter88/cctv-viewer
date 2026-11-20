@@ -9,7 +9,7 @@ export const usersPanel = `
   <p id="user-count" role="status"></p>
   <div id="user-list"></div>
   <h3 id="user-editor-title">Neuer Benutzer</h3>
-  <form id="user-form">
+  <form id="user-form" class="settings-form">
     <input name="create" type="hidden" value="true">
     <label>Benutzername<input name="username" required maxlength="100" autocomplete="off"></label>
     <label>Rolle<select name="role"><option value="viewer">Betrachter</option><option value="admin">Administrator</option></select></label>

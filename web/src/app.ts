@@ -1,5 +1,4 @@
 import {initCameraSettings} from './camera-settings';
-import {initSettingsLayout} from './settings-layout';
 import {initLivePage} from './live-page';
 import {initLiveAdmin} from './live-admin';
 import {registerPage,navigate,startNavigation,currentPage} from './navigation';
@@ -324,7 +323,7 @@ async function boot(){
  session=await response.json();$('password-button').hidden=false;$('password-button').textContent='Mein Konto';accountMenu.open=false;
  // Account, session and administration pages load as a separate chunk after sign-in;
  // it registers its pages before navigation starts.
- if(!managementInitialized){const {initManagement}=await import('./management');initManagement({api,getSession:()=>session,getCameras:()=>cameras,getCursor:()=>cursor,notify});initSettingsLayout();managementInitialized=true}
+ if(!managementInitialized){const {initManagement}=await import('./management');initManagement({api,getSession:()=>session,getCameras:()=>cameras,getCursor:()=>cursor,notify});managementInitialized=true}
  $('user-name').textContent=session.name;$('avatar').dataset.initials=session.name.slice(0,2).toUpperCase();document.querySelector('#account-menu summary')!.setAttribute('aria-label','Konto: '+session.name);document.querySelector('#account-menu summary')!.setAttribute('title',session.name);$('settings-button').hidden=session.role!=='admin';$('rescan').hidden=session.role!=='admin';dateInput.value=berlinDate(new Date());await refreshCameras();
  let stored:unknown;try{stored=JSON.parse(localStorage.getItem('cctv-view:'+session.preferenceKey)||'null')}catch{}
  let remote=await api<unknown>('/api/preferences');
@@ -463,4 +462,3 @@ window.addEventListener('themechange',()=>{timelineView.invalidate();draw()});
 
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&currentPage()!=='recordings'){e.preventDefault();navigate('recordings')}});
 
-initSettingsLayout();

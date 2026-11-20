@@ -4,11 +4,12 @@ import {$, formatDateTime, type Management} from './shared.ts';
 type AuditEntry = {time: number; actor: string; action: string; target: string; ip: string; ok: boolean};
 
 export const auditPage = `
-<section id="audit-page" class="content-page" role="main" hidden aria-labelledby="audit-title">
+<section id="audit-page" class="content-page settings-page" role="main" hidden aria-labelledby="audit-title">
   <div class="dialog-heading">
     <h2 id="audit-title">Protokoll</h2>
     <button id="audit-close" class="button secondary" type="button" aria-label="Zurück zu Aufnahmen">← Aufnahmen</button>
   </div>
+  <p class="settings-intro">Wer hat sich angemeldet und was wurde geändert?</p>
   <p class="muted">Anmeldungen und Änderungen durch Administratoren. Einträge werden nach 180 Tagen gelöscht.</p>
   <div class="dialog-actions">
     <button id="audit-refresh" class="button secondary" type="button">Aktualisieren</button>

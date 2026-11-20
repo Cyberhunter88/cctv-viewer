@@ -14,7 +14,7 @@ export const oidcPanel = `
 <section id="oidc-panel" hidden>
   <h3>Anmeldung/OIDC</h3>
   <p>SSO-Konten beim Identity Provider verwalten. Änderungen werden erst nach einer erfolgreichen Administrator-Testanmeldung aktiviert.</p>
-  <form id="oidc-form">
+  <form id="oidc-form" class="settings-form">
     <label><input name="localLogin" type="checkbox"> Lokale Anmeldung aktiv</label>
     <label>OIDC-Issuer<input name="oidcIssuer" type="url" placeholder="https://auth.example.org/"><small>Leer bedeutet OIDC deaktiviert.</small></label>
     <label>Client-ID<input name="oidcClientId" autocomplete="off"></label>
@@ -47,7 +47,7 @@ export const operationPanel = `
     <p id="operation-metrics-hint" class="setting-help"></p>
   </section>
   <p class="muted">Konfigurationssicherung: Kameras und Einstellungen ohne Passwörter und Zugangsdaten. <a id="backup-download" href="/api/admin/backup" download>Sicherung herunterladen</a></p>
-  <form id="operation-form">
+  <form id="operation-form" class="settings-form">
     <label><input name="autoScan" type="checkbox"> Heute automatisch indexieren</label>
     <label>Indexintervall in Minuten<input name="autoScanMinutes" type="number" min="1" max="10080" required></label>
     <label>Cachebudget in MB<input name="cacheMB" type="number" min="32" max="65536" required></label>

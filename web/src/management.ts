@@ -10,11 +10,12 @@ import {sessionsPage, initSessions} from './management/sessions.ts';
 import {auditPage, initAudit} from './management/audit.ts';
 
 const adminPage = `
-<section id="management-dialog" class="content-page" role="main" hidden>
+<section id="management-dialog" class="content-page settings-page" role="main" hidden>
   <div class="dialog-heading">
     <h2 id="management-title">Verwaltung</h2>
     <button type="button" id="management-close" class="button secondary" aria-label="Zurück zu Aufnahmen">← Aufnahmen</button>
   </div>
+  <p class="settings-intro">Einstellungen für Benutzer, Anmeldung und den Betrieb des Viewers.</p>
   ${usersPanel}
   ${oidcPanel}
   ${operationPanel}

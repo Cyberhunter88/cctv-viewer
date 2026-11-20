@@ -2,13 +2,14 @@ import {navigate, registerPage} from '../navigation.ts';
 import {$, field, roleLabel, type Management} from './shared.ts';
 
 export const accountPage = `
-<section id="password-dialog" class="content-page" role="main" hidden aria-labelledby="password-title">
+<section id="password-dialog" class="content-page settings-page" role="main" hidden aria-labelledby="password-title">
   <div class="dialog-heading">
     <h2 id="password-title">Mein Konto</h2>
     <button type="button" id="password-close" class="button secondary" aria-label="Zurück zu Aufnahmen">← Aufnahmen</button>
   </div>
+  <p class="settings-intro">Dein Konto und dein Passwort verwalten.</p>
   <p id="account-info" class="muted"></p>
-  <form id="password-form">
+  <form id="password-form" class="settings-form">
     <label>Bisheriges Passwort<input name="current" type="password" autocomplete="current-password" required maxlength="1024"></label>
     <label>Neues Passwort<input name="password" type="password" autocomplete="new-password" required minlength="14" maxlength="1024"></label>
     <button type="submit" class="button primary">Passwort ändern und abmelden</button>
@@ -18,14 +19,14 @@ export const accountPage = `
     <h3 id="totp-title">Zweiter Faktor</h3>
     <p id="totp-status" class="setting-help" role="status"></p>
     <button id="totp-start" type="button" class="button secondary" hidden>Zweiten Faktor einrichten</button>
-    <form id="totp-enable-form" hidden>
+    <form id="totp-enable-form" class="settings-form" hidden>
       <p class="setting-help">Schlüssel in der Authenticator-App eintragen (zeitbasiert, 6 Stellen, 30 Sekunden) und den angezeigten Code bestätigen.</p>
       <label>Schlüssel<input id="totp-secret" readonly autocomplete="off" spellcheck="false"></label>
       <label>Einrichtungsadresse<input id="totp-uri" readonly autocomplete="off" spellcheck="false"></label>
       <label>Bestätigungscode<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" pattern="[0-9 ]{6,7}" required></label>
       <button type="submit" class="button primary">Zweiten Faktor aktivieren</button>
     </form>
-    <form id="totp-disable-form" hidden>
+    <form id="totp-disable-form" class="settings-form" hidden>
       <label>Passwort zur Bestätigung<input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label>
       <button type="submit" class="button secondary">Zweiten Faktor entfernen</button>
     </form>

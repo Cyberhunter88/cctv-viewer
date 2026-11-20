@@ -4,11 +4,12 @@ import {$, formatDateTime, roleLabel, type Management} from './shared.ts';
 type ActiveSession = {id: string; name: string; kind: string; role: string; expires: number; current: boolean};
 
 export const sessionsPage = `
-<section id="sessions-page" class="content-page" role="main" hidden aria-labelledby="sessions-title">
+<section id="sessions-page" class="content-page settings-page" role="main" hidden aria-labelledby="sessions-title">
   <div class="dialog-heading">
     <h2 id="sessions-title">Meine Sitzungen</h2>
     <button id="sessions-close" class="button secondary" type="button" aria-label="Zurück zu Aufnahmen">← Aufnahmen</button>
   </div>
+  <p class="settings-intro">Aktive Anmeldungen prüfen und bei Bedarf beenden.</p>
   <p class="muted">Aktive Anmeldungen verwalten. Nach dem Beenden einer Sitzung ist eine neue Anmeldung erforderlich.</p>
   <div class="dialog-actions">
     <button id="sessions-refresh" class="button secondary" type="button">Aktualisieren</button>
