@@ -4,7 +4,7 @@ import {liveSelection,type LivePreferences} from './live-state';
 import {gridSize,moveCamera} from './view-state';
 import {attachIdleFade,collapseTile,toggleEnlarged} from './expanded-tile';
 import {wrapChipWithMoveButtons,createReorderToggle} from './chip-order';
-import {setControlIcon} from './playback-tile';
+import {setControlIcon} from './control-icons';
 import {popoverMenu} from './popover-menu';
 // Live expand buttons show whether their tile is currently enlarged.
 function syncLiveExpand(){for(const b of document.querySelectorAll('#live-grid .live-expand')){const tile=b.closest('.live-tile');setControlIcon(b,tile&&(document.fullscreenElement===tile||tile.classList.contains('expanded'))?'collapse':'expand')}}
