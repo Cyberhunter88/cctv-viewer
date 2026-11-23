@@ -245,11 +245,11 @@ const dialog=$('camera-dialog'),cameraForm=$<HTMLFormElement>('camera-form');
 let cameraSaving=false;
 const cameraList=initCameraList({
  api,notify,cameras:()=>cameras,order:()=>order,setOrder:next=>{order=next},saving:()=>cameraSaving,date:()=>dateInput.value,dialog,form:cameraForm,setScan,
- discardCamera:()=>discardCamera(),canChange:()=>cameraSettings.canChange(),clearSettings:()=>cameraSettings.clear(),editCamera:camera=>editCamera(camera),showCameraEditor:()=>showCameraEditor(),resetCamera:()=>resetCamera(),
+ confirmDiscard:()=>confirmDiscard(),canChange:()=>cameraSettings.canChange(),clearSettings:()=>cameraSettings.clear(),editCamera:camera=>editCamera(camera),showCameraEditor:()=>showCameraEditor(),resetCamera:()=>resetCamera(),
  openLive:id=>liveAdmin.open(id),renderCameras:()=>renderCameras(),saveView:()=>saveView(),refreshCameras:()=>refreshCameras(),loadDay:()=>loadDay()
 });
 const {renderCameraList,loadScanHistory,loadCameraLiveStatus,loadStorage}=cameraList;
-const {cameraInput,discardCamera,markCameraSaved,resetCamera,showCameraEditor,editCamera,leaveCameraEditor}=initCameraEditor(cameraForm,dialog,renderCameraList,()=>cameraSaving);
+const {cameraInput,discardCamera,confirmDiscard,markCameraSaved,resetCamera,showCameraEditor,editCamera,leaveCameraEditor}=initCameraEditor(cameraForm,dialog,renderCameraList,()=>cameraSaving);
 const cameraSettings=initCameraSettings(cameraForm,dialog,liveAdmin,()=>cameras[0]?.id||'',id=>{
  const camera=cameras.find(camera=>camera.id===id);if(!camera||cameraSaving||!discardCamera())return false;editCamera(camera);showCameraEditor();return true;
 },()=>!cameraSaving&&discardCamera(),resetCamera);
@@ -271,7 +271,7 @@ cameraForm.addEventListener('submit',async e=>{
 });
 on('preview',async()=>{try{const result=await api<{examples:{file:string;time?:string;error?:string;view?:string}[];limited:boolean;detection?:ViewDetection;wideMarker:string;zoomMarker:string}>('/api/cameras/preview',{method:'POST',body:JSON.stringify(cameraInput())});$('preview-result').hidden=false;const status=result.detection?`${result.detection.message}\nKennungen: Weitwinkel ${result.wideMarker}, Zoom ${result.zoomMarker}\n\n`:'';$('preview-result').textContent=status+(result.examples.length?result.examples.map(v=>`${v.file}${v.view?" · "+({wide:"Weitwinkel",zoom:"Zoom",unknown:"Kennung unklar"}[v.view]||v.view):""}\n→ ${v.error||v.time}`).join('\n\n'):'Keine passenden Videodateien gefunden.');if(result.limited)$('preview-result').textContent+='\nSuche auf 10.000 Einträge begrenzt.'}catch(e){$('camera-error').textContent=(e as Error).message}});
 
-on('new-camera',()=>{if(cameraSaving||!discardCamera()||!cameraSettings.canChange())return;resetCamera();cameraSettings.clear();showCameraEditor()});
+on('new-camera',async()=>{if(cameraSaving||!await confirmDiscard()||!cameraSettings.canChange())return;resetCamera();cameraSettings.clear();showCameraEditor()});
 on('camera-back',()=>{if(cameraSettings.canChange())leaveCameraEditor()});on('camera-cancel',()=>{if(cameraSettings.canChange())leaveCameraEditor()});
 function closeCamera(){navigate('recordings')}
 on('close-dialog',closeCamera);

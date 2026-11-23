@@ -5,7 +5,7 @@ import type {Camera,Scan} from './types';
 interface Context {
  api:<T>(url:string,options?:RequestInit)=>Promise<T>;notify:(message:string)=>void;cameras:()=>Camera[];order:()=>string[];setOrder:(order:string[])=>void;
  saving:()=>boolean;date:()=>string;dialog:HTMLElement;form:HTMLFormElement;setScan:(scan:Scan)=>void;
- discardCamera:()=>boolean;canChange:()=>boolean;clearSettings:()=>void;editCamera:(camera:Camera)=>void;showCameraEditor:()=>void;resetCamera:()=>void;
+ confirmDiscard:()=>Promise<boolean>;canChange:()=>boolean;clearSettings:()=>void;editCamera:(camera:Camera)=>void;showCameraEditor:()=>void;resetCamera:()=>void;
  openLive:(id:string)=>void|Promise<void>;renderCameras:()=>void;saveView:()=>Promise<void>;refreshCameras:()=>Promise<void>;loadDay:()=>Promise<void>;
 }
 // Camera administration list with scan history, per-camera actions and the folder browser.
@@ -74,7 +74,7 @@ export function initCameraList(ctx:Context){
    if(c.lastScan)meta.textContent+=' · Scan '+stamp(c.lastScan);
    status.append(chips,meta);
    select.append(name,status);
-   select.onclick=()=>{if(ctx.saving()||!ctx.discardCamera()||!ctx.canChange())return;ctx.editCamera(c);ctx.showCameraEditor()};
+   select.onclick=async()=>{if(ctx.saving()||!await ctx.confirmDiscard()||!ctx.canChange())return;ctx.editCamera(c);ctx.showCameraEditor()};
    const actions=element('div','camera-entry-actions');
    const more=element('details','camera-more');const summary=element('summary','','Mehr');more.append(summary);const moreActions=element('div','camera-more-actions');more.append(moreActions);actions.append(more);
    const addAction=(text:string,label:string,action:()=>void|Promise<void>,className='')=>{const b=element('button',className,text);b.type='button';b.title=label;b.setAttribute('aria-label',label+' · '+c.name);b.disabled=ctx.saving();b.onclick=()=>void Promise.resolve(action()).catch(e=>ctx.notify(e.message));if(['scan-camera','cleanup-camera','delete'].includes(className))moreActions.append(b);else actions.insertBefore(b,more);return b};
@@ -93,7 +93,7 @@ export function initCameraList(ctx:Context){
    },'cleanup-camera');
    addAction('Entfernen','Kamera entfernen',async()=>{
     if(!await confirmAction({title:'Kamera entfernen',message:`Kamera „${c.name}“ wird aus dem Viewer entfernt. Die Originalaufnahmen bleiben erhalten.`,confirm:'Kamera entfernen',danger:true}))return;
-    if(editing===c.id&&(!ctx.discardCamera()||!ctx.canChange()))return;
+    if(editing===c.id&&(!await ctx.confirmDiscard()||!ctx.canChange()))return;
     await ctx.api('/api/cameras/'+c.id,{method:'DELETE'});if(editing===c.id){ctx.resetCamera();ctx.clearSettings();ctx.dialog.classList.remove('camera-editing')}await ctx.refreshCameras();await ctx.loadDay();
    },'delete');
    entry.draggable=!ctx.saving();

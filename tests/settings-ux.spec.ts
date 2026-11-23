@@ -62,9 +62,9 @@ test('six-camera editor preserves drafts and failed saves, and adapts to narrow 
  await expect(page.locator('#camera-list .camera-entry')).toHaveCount(6);await expect(page.locator('#camera-list')).toContainText('Quelle offline');
  await page.locator('#camera-list .camera-edit').filter({has:page.locator('.camera-name').getByText('Testkamera-A',{exact:true})}).click();
  await page.locator('#camera-form input[name=name]').fill('Synthetischer Entwurf');
- page.once('dialog',d=>d.dismiss());await page.locator('#camera-list .camera-edit').filter({has:page.locator('.camera-name').getByText('Testkamera-B',{exact:true})}).click();await expect(page.locator('#camera-form input[name=name]')).toHaveValue('Synthetischer Entwurf');
+ await page.locator('#camera-list .camera-edit').filter({has:page.locator('.camera-name').getByText('Testkamera-B',{exact:true})}).click();await answerConfirm(page,false);await expect(page.locator('#camera-form input[name=name]')).toHaveValue('Synthetischer Entwurf');
  page.once('dialog',d=>d.dismiss());await page.locator('#close-dialog').click();await expect(page.locator('#camera-dialog')).toBeVisible();
- page.once('dialog',d=>d.accept());await page.locator('#camera-list .camera-edit').filter({has:page.locator('.camera-name').getByText('Testkamera-B',{exact:true})}).click();await expect(page.locator('#camera-form input[name=name]')).toHaveValue('Testkamera-B');expect(posts).toBe(0);
+ await page.locator('#camera-list .camera-edit').filter({has:page.locator('.camera-name').getByText('Testkamera-B',{exact:true})}).click();await answerConfirm(page,true);await expect(page.locator('#camera-form input[name=name]')).toHaveValue('Testkamera-B');expect(posts).toBe(0);
  await page.locator('#camera-form input[name=name]').fill('Synthetisch gespeichert');await page.locator('#camera-form button[type=submit]').click();await expect(page.locator('#camera-error')).toContainText('Synthetischer Speicherfehler');await expect(page.locator('#camera-form input[name=name]')).toHaveValue('Synthetisch gespeichert');
  failSave=false;await page.locator('#camera-form button[type=submit]').click();await expect(page.locator('#camera-list .is-selected')).toContainText('Synthetisch gespeichert');await expect(page.locator('#camera-error')).toBeEmpty();
  await page.locator('#close-dialog').click();await openNavigation(page,'settings-button');
