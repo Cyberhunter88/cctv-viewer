@@ -746,15 +746,21 @@
  #camera-list .camera-edit { display:flex; flex-direction:column; align-items:flex-start; gap:6px; width:100%; min-height:76px; padding:var(--space-3) var(--space-4); border-radius:var(--radius) var(--radius) 0 0; color:var(--text); text-align:left; }
  #camera-list .camera-edit:hover { background:var(--surface); }
  .camera-name { font-size:15px; font-weight:600; overflow-wrap:anywhere; }
- .camera-status { display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:13px; }
- .camera-status::before { content:''; width:8px; height:8px; border-radius:50%; background:var(--success); }
- .camera-status.is-offline { color:var(--error); }
- .camera-status.is-offline::before { background:var(--error); }
- .camera-edit-label { color:var(--accent); font-size:13px; font-weight:600; }
- .camera-entry-actions { display:flex; align-items:center; flex-wrap:wrap; gap:2px; padding:2px var(--space-2); border-top:1px solid var(--line); }
+ .camera-status { display:grid; gap:6px; color:var(--muted); font-size:13px; }
+.camera-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.camera-chip { display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border:1px solid var(--line); border-radius:999px; background:var(--surface); color:var(--muted); font-size:12px; font-weight:600; line-height:1.6; }
+.camera-chip.is-ok,.camera-chip.is-bad { color:var(--text); }
+.camera-chip.is-ok::before,.camera-chip.is-bad::before { content:''; width:8px; height:8px; border-radius:50%; background:var(--success); }
+.camera-chip.is-bad { border-color:var(--error); color:var(--error); }
+.camera-chip.is-bad::before { background:var(--error); }
+.camera-chip.is-info { color:var(--accent); }
+.camera-meta { overflow-wrap:anywhere; }
+.camera-entry-actions { display:flex; align-items:center; flex-wrap:wrap; gap:2px; padding:2px var(--space-2); border-top:1px solid var(--line); }
  .camera-entry-actions button { padding:8px; border-radius:var(--radius-s); font-size:13px; font-weight:600; }
  .camera-entry-actions button:hover { background:var(--surface); }
- .camera-entry-actions .move-button { color:var(--muted); font-size:18px; }
+ .camera-entry-actions .move-button { min-width:44px; color:var(--muted); font-size:18px; }
+.camera-entry-actions .live-action { color:var(--accent); }
+#camera-list .camera-entry:hover:not(.is-selected) { border-color:var(--control-line); }
  .camera-entry .delete { color:var(--error); }
  #camera-list .camera-entry .delete { margin-left:auto; }
  .camera-more { position:relative; margin-left:auto; }
@@ -876,6 +882,6 @@
   .filter.selected,.rail-item.active,.settings-link[aria-current=page],.settings-tabs button[aria-selected=true] { outline:2px solid Highlight; outline-offset:-2px; }
   .camera-tile,.archive-controls,.timeline-section { border:1px solid CanvasText; }
   .preferences-sections > section:not([hidden]) ~ section:not([hidden]) { border-top:1px solid CanvasText; }
-  .secure-dot,.camera-status::before { forced-color-adjust:none; }
+  .secure-dot,.camera-chip::before { forced-color-adjust:none; }
  }
 }

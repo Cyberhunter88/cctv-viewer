@@ -10,7 +10,7 @@ export function initCameraSettings(form:HTMLFormElement,dialog:HTMLElement,live:
  const tabs=document.createElement('div');tabs.className='settings-tabs';tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Kameraeinstellungen');
  const general=document.createElement('section'),recordings=document.createElement('section');
  general.id='camera-general-panel';recordings.id='camera-recordings-panel';
- const name=form.querySelector('[name=name]')!.closest('label')!,folder=form.querySelector('[name=folder]')!.closest('label')!,views=form.querySelector('#view-mode')!.closest('label')!,help=views.nextElementSibling!;
+ const name=form.querySelector('[name=name]')!.closest('label')!,folder=form.querySelector<HTMLElement>('.folder-field')!,views=form.querySelector('#view-mode')!.closest('label')!,help=views.nextElementSibling!;
  general.append(name,views,help);
  // The detection check belongs to folder, markers and pattern, so it closes the recordings tab with its result.
  const preview=document.createElement('section');preview.className='camera-preview';preview.setAttribute('aria-labelledby','camera-preview-title');
