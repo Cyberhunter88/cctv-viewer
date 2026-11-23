@@ -202,7 +202,7 @@ function setScan(scan:Scan){
  scanRunning=scan.running;scanCompletion=scan.completion??scanCompletion;
  const labels:Record<string,string>={queued:'Wartet',running:'Wird geprüft',complete:'Abgeschlossen',partial:'Teilweise abgeschlossen',failed:'Fehlgeschlagen',cancelled:'Abgebrochen'};
  $('scan-status').textContent=scan.running?`Indexierung · ${scan.completed||0}/${scan.total||0} Kameras · ${scan.indexed} neue/geänderte Videos`:(scan.state==='partial'?'Indexierung teilweise abgeschlossen':scan.state==='cancelled'?'Indexierung abgebrochen':scan.state==='failed'?'Indexierung fehlgeschlagen':'Index bereit');
- $('index-dot').classList.toggle('busy',scan.running);for(const id of ['rescan','scan-all','rebuild-index'])$<HTMLButtonElement>(id).disabled=scan.running;
+ $('index-dot').classList.toggle('busy',scan.running);for(const id of ['rescan','scan-all','scan-all-quick','rebuild-index'])$<HTMLButtonElement>(id).disabled=scan.running;
  const root=$('scan-cameras'),lines=(scan.cameras||[]).map(c=>`${c.name}: ${labels[c.state]||c.state} · ${c.inspected} geprüft · ${c.added} neu · ${c.changed} geändert · ${c.skipped} übersprungen`);
  // Rebuilding unchanged rows on every poll would reset the reading position of assistive technology.
  if(root.dataset.lines!==lines.join('\n')){root.dataset.lines=lines.join('\n');root.replaceChildren(...lines.map(line=>element('div','scan-camera-status',line)))}
@@ -276,7 +276,7 @@ on('camera-back',()=>{if(cameraSettings.canChange())leaveCameraEditor()});on('ca
 function closeCamera(){navigate('recordings')}
 on('close-dialog',closeCamera);
 registerPage('recordings',{element:$('recordings'),title:'Aufnahmen',enter:()=>scheduleResize()});
-registerPage('admin/cameras',{element:dialog,title:'Kameras',admin:true,enter:()=>{void loadScanHistory();void loadCameraLiveStatus();void loadStorage();cameraSettings.show('general')},leave:next=>{if(cameraSaving)return false;if(next==='admin/cameras/live')return true;if(next==='admin/cameras/batch')return true;if(!discardCamera()||!cameraSettings.leave())return false;resetCamera();dialog.classList.remove('camera-editing');return true}});
+registerPage('admin/cameras',{element:dialog,title:'Kameras',admin:true,enter:()=>{void loadScanHistory();void loadCameraLiveStatus();void loadStorage();cameraSettings.showSection('list');cameraSettings.show('general')},leave:next=>{if(cameraSaving)return false;if(next==='admin/cameras/live')return true;if(next==='admin/cameras/batch')return true;if(!discardCamera()||!cameraSettings.leave())return false;resetCamera();dialog.classList.remove('camera-editing');return true}});
 on('add-first',()=>{navigate('admin/cameras');resetCamera();showCameraEditor()});
 on('mobile-nav-toggle',()=>{const expanded=document.documentElement.classList.toggle('mobile-nav-open');$('mobile-nav-toggle').setAttribute('aria-expanded',String(expanded))});
 document.addEventListener('pageerror',e=>notify((e as CustomEvent<string>).detail));
@@ -355,7 +355,8 @@ $('select-none').after(createReorderToggle('reorder-cameras',()=>reorderMode,()=
 on('select-all',()=>{selected=new Set(cameras.map(c=>c.id));page=0;renderCameras();saveView()});
 on('select-none',()=>{selected.clear();page=0;renderCameras();saveView()});
 on('page-prev',()=>{page--;renderCameras()});on('page-next',()=>{page++;renderCameras()});
-on('scan-all',async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({date:dateInput.value,all:true})}))});
+const scanAll=async()=>{setScan(await api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({date:dateInput.value,all:true})}))};
+on('scan-all',scanAll);on('scan-all-quick',scanAll);
 on('rebuild-index',async()=>{if(!await confirmAction({title:'Index neu aufbauen',message:'Der abgeleitete Index und alle Vorschaubilder werden gelöscht und neu eingelesen. Kameras und Originalvideos bleiben erhalten.',confirm:'Index neu aufbauen',danger:true}))return;pause();tiles.forEach(t=>t.release());await api('/api/index/rebuild',{method:'POST'});records=[];await loadDay();notify('Index geleert. Der geöffnete Tag wird erneut eingelesen.')});
 overview.onpointerdown=e=>{overview.setPointerCapture(e.pointerId);seek(from+clamp((e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth,0,1)*(to-from));const span=viewEnd-viewStart;viewStart=clamp(cursor-span/2,from,to-span);viewEnd=viewStart+span;draw()};
 overview.onpointermove=e=>{if(e.buttons===1){const span=viewEnd-viewStart,start=clamp(from+(e.clientX-overview.getBoundingClientRect().left)/overview.clientWidth*(to-from)-span/2,from,to-span);viewStart=start;viewEnd=start+span;draw()}};

@@ -13,11 +13,8 @@ export function initCameraList(ctx:Context){
  const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  function element<K extends keyof HTMLElementTagNameMap>(tag:K,className='',text=''):HTMLElementTagNameMap[K]{const e=document.createElement(tag);e.className=className;e.textContent=text;return e}
  const on=(id:string,fn:()=>void|Promise<void>)=>$(id).addEventListener('click',()=>{Promise.resolve(fn()).catch(e=>ctx.notify(e.message))});
- const historySection=element('section','scan-history');historySection.innerHTML='<h4>Letzte Indexierungen</h4><div id="scan-history-list" aria-live="polite"></div>';
- ctx.dialog.querySelector('.camera-maintenance')?.append(historySection);
+ // The maintenance panel with storage overview and scan history is static markup in index.html.
  type ScanHistoryRow={cameraId:string;cameraName:string;date:string;manual:boolean;finished:number;state:string;inspected:number;added:number;changed:number;skipped:number;warnings:string[]};
- const storageSection=element('section','scan-history storage-overview');storageSection.innerHTML='<h4 id="storage-title">Speicherbelegung</h4><p class="setting-help">Größe der indexierten Aufnahmen je Kamera. Der Tagesschnitt berücksichtigt nur Tage mit Aufnahmen aus den letzten 30 Tagen.</p><div id="storage-list" class="storage-scroll" aria-live="polite"></div>';
- ctx.dialog.querySelector('.camera-maintenance')?.append(storageSection);
  let storageRequest=0;
  async function loadStorage(){
   const own=++storageRequest,root=$('storage-list');

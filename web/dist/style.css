@@ -774,8 +774,12 @@
  .camera-preview h4 { margin:0; }
  .camera-preview .setting-help { margin:0; }
  .camera-preview #preview-result { justify-self:stretch; }
- .camera-maintenance { margin-top:var(--space-5); }
- .camera-maintenance h4 { margin:0 0 var(--space-2); }
+ .camera-sections { max-width:360px; margin-bottom:var(--space-5); }
+ .camera-maintenance { display:grid; gap:var(--space-5); max-width:900px; }
+ .camera-maintenance h3 { margin:0 0 var(--space-2); }
+ .camera-maintenance .scan-history { margin-top:0; }
+ .field-info { margin-top:var(--space-2); }
+ .field-info p { margin:0 0 var(--space-3); color:var(--muted); font-size:13px; line-height:1.6; }
  .camera-maintenance .dialog-actions { justify-content:flex-start; margin-top:var(--space-3); }
  #camera-form { display:grid; gap:var(--space-4); min-width:0; margin:0; }
  #camera-form label { margin:0; }
