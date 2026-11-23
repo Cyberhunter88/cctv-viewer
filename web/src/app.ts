@@ -1,4 +1,4 @@
-import {initCameraSettings} from './camera-settings';
+import {initCameraAdmin} from './camera-admin';
 import {initLivePage} from './live-page';
 import {initLiveAdmin} from './live-admin';
 import {confirmAction} from './confirm-dialog';
@@ -6,16 +6,15 @@ import {notify,notifyError,initToast} from './toast';
 import {requestJSON} from './api-client';
 import {registerPage,navigate,startNavigation,currentPage} from './navigation';
 import {PreferenceWriter} from './preferences';
-import {Tile,setControlIcon,type TileContext} from './playback-tile';
+import {Tile,type TileContext} from './playback-tile';
+import {setControlIcon} from './control-icons';
 import {createPlaybackClock} from './playback-clock';
 import {createPoller} from './poller';
 import {validView,gridSize,pageCapacity,hotspotCandidate,recordingBoundary,moveCamera,defaultView,type ViewState} from './view-state';
 import {attachTimelineControls} from './timeline-controls';
 import {recordingAt,nextRecording,playbackRecordings,displayedRecordings,firstRecordingStart,clamp,berlinDate,clock,timelineRowAt,keyboardSeekTarget,type Recording} from './timeline';
 import {initSearchPage,type SearchPage,type SearchResult} from './search-page';
-import {initCameraEditor} from './camera-editor';
 import {createTimelineView} from './timeline-view';
-import {initCameraList} from './camera-list';
 import {initCameraBatch} from './camera-batch';
 import {initPreferencesDialog} from './preferences-dialog';
 import {collapseTile,expandedTile,toggleEnlarged} from './expanded-tile';
@@ -88,11 +87,11 @@ function saveView():Promise<void>{
 }
 const livePage=initLivePage({api,cameras:()=>cameras,preferences:()=>state,save:saveView,admin:()=>session?.role==='admin',notify});
 function cameraViewMode(id:string){
- const selected=(cameraForm.elements.namedItem('id') as HTMLInputElement).value;
- if(selected===id)return (cameraForm.elements.namedItem('viewMode') as HTMLSelectElement).value;
+ const selected=($<HTMLFormElement>('camera-form').elements.namedItem('id') as HTMLInputElement).value;
+ if(selected===id)return ($<HTMLFormElement>('camera-form').elements.namedItem('viewMode') as HTMLSelectElement).value;
  return cameras.find(camera=>camera.id===id)?.viewMode||'single';
 }
-const liveAdmin=initLiveAdmin({api,cameras:()=>cameras,viewMode:cameraViewMode,notify,changed:()=>{livePage.refresh();void loadCameraLiveStatus()}});
+const liveAdmin=initLiveAdmin({api,cameras:()=>cameras,viewMode:cameraViewMode,notify,changed:()=>{livePage.refresh();void cameraAdmin.loadCameraLiveStatus()}});
 on('preferences-retry',async()=>{try{await preferenceWriter?.flush()}catch{}});
 
 initToast();
@@ -222,7 +221,7 @@ async function loadDay(reset=true,signal?:AbortSignal){
   $('recording-count').textContent=`${records.length} Aufnahmen · ${cameras.length} Kameras`;$('latest-recording').hidden=records.length>0||!cameras.length;update();refreshRange();
  }finally{if(reset&&generation===loadGeneration)dayLoadPending=false}
 }
-async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');for(const id of openZoom)if(!cameras.some(c=>c.id===id&&c.viewMode==='dual'))openZoom.delete(id);order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();renderCameraList();livePage.refresh()}
+async function refreshCameras(){const previous=new Set(cameras.map(c=>c.id));cameras=await api<Camera[]>('/api/cameras');for(const id of openZoom)if(!cameras.some(c=>c.id===id&&c.viewMode==='dual'))openZoom.delete(id);order=[...order.filter(id=>cameras.some(c=>c.id===id)),...cameras.filter(c=>!order.includes(c.id)).map(c=>c.id)];for(const c of cameras)if(!previous.has(c.id))selected.add(c.id);for(const id of selected)if(!cameras.some(c=>c.id===id))selected.delete(id);renderCameras();cameraAdmin.renderCameraList();livePage.refresh()}
 // Preview frames are cached in ten-second steps; the start of a recording reuses its regular preview.
 function timelinePreview(time:number,y:number){
  if(!state.showThumbnails)return undefined;
@@ -241,43 +240,9 @@ function scheduleResize(gridChanged=false){
  resizeFrame=requestAnimationFrame(()=>{resizeFrame=0;const rebuild=gridResizePending;gridResizePending=false;if(!session||!from)return;if(rebuild)renderGrid();draw();refreshRange()});
 }
 new ResizeObserver(()=>scheduleResize()).observe(canvas.parentElement!);
-const dialog=$('camera-dialog'),cameraForm=$<HTMLFormElement>('camera-form');
-let cameraSaving=false;
-const cameraList=initCameraList({
- api,notify,cameras:()=>cameras,order:()=>order,setOrder:next=>{order=next},saving:()=>cameraSaving,date:()=>dateInput.value,dialog,form:cameraForm,setScan,
- confirmDiscard:()=>confirmDiscard(),canChange:()=>cameraSettings.canChange(),clearSettings:()=>cameraSettings.clear(),editCamera:camera=>editCamera(camera),showCameraEditor:()=>showCameraEditor(),resetCamera:()=>resetCamera(),
- openLive:id=>liveAdmin.open(id),renderCameras:()=>renderCameras(),saveView:()=>saveView(),refreshCameras:()=>refreshCameras(),loadDay:()=>loadDay()
-});
-const {renderCameraList,loadScanHistory,loadCameraLiveStatus,loadStorage}=cameraList;
-const {cameraInput,discardCamera,confirmDiscard,markCameraSaved,resetCamera,showCameraEditor,editCamera,leaveCameraEditor}=initCameraEditor(cameraForm,dialog,renderCameraList,()=>cameraSaving);
-const cameraSettings=initCameraSettings(cameraForm,dialog,liveAdmin,()=>cameras[0]?.id||'',id=>{
- const camera=cameras.find(camera=>camera.id===id);if(!camera||cameraSaving||!discardCamera())return false;editCamera(camera);showCameraEditor();return true;
-},()=>!cameraSaving&&discardCamera(),resetCamera);
-cameraForm.addEventListener('cameraeditorclosed',()=>cameraSettings.clear());
-cameraList.mountSearch();
-
-resetCamera();
-cameraForm.addEventListener('submit',async e=>{
- e.preventDefault();if(cameraSaving)return;cameraSaving=true;const submit=cameraForm.querySelector<HTMLButtonElement>('button[type=submit]')!;submit.disabled=true;renderCameraList();
- const controls=[...cameraForm.querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'),...['close-dialog','new-camera','batch-open'].map(id=>$<HTMLButtonElement>(id))];const disabled=controls.map(c=>c.disabled);
- const payload=cameraInput();controls.forEach(c=>c.disabled=true);
- try{
-  $('camera-error').textContent='';const saved=await api<Camera&{detection?:ViewDetection}>('/api/cameras',{method:'POST',body:JSON.stringify(payload)});
-  // The POST committed successfully even if refreshing recordings subsequently fails.
-  (cameraForm.elements.namedItem('id') as HTMLInputElement).value=saved.id;markCameraSaved();
-  await refreshCameras();editCamera(cameras.find(c=>c.id===saved.id)||saved);await loadDay();notify(saved.detection?`Kamera gespeichert. ${saved.detection.message}`:'Kamera gespeichert. Aufnahmen werden eingelesen.');
- }catch(e){$('camera-error').textContent=(e as Error).message}
- finally{controls.forEach((c,i)=>c.disabled=disabled[i]);cameraSaving=false;submit.disabled=false;renderCameraList()}
-});
-on('preview',async()=>{try{const result=await api<{examples:{file:string;time?:string;error?:string;view?:string}[];limited:boolean;detection?:ViewDetection;wideMarker:string;zoomMarker:string}>('/api/cameras/preview',{method:'POST',body:JSON.stringify(cameraInput())});$('preview-result').hidden=false;const status=result.detection?`${result.detection.message}\nKennungen: Weitwinkel ${result.wideMarker}, Zoom ${result.zoomMarker}\n\n`:'';$('preview-result').textContent=status+(result.examples.length?result.examples.map(v=>`${v.file}${v.view?" · "+({wide:"Weitwinkel",zoom:"Zoom",unknown:"Kennung unklar"}[v.view]||v.view):""}\n→ ${v.error||v.time}`).join('\n\n'):'Keine passenden Videodateien gefunden.');if(result.limited)$('preview-result').textContent+='\nSuche auf 10.000 Einträge begrenzt.'}catch(e){$('camera-error').textContent=(e as Error).message}});
-
-on('new-camera',async()=>{if(cameraSaving||!await confirmDiscard()||!cameraSettings.canChange())return;resetCamera();cameraSettings.clear();showCameraEditor()});
-on('camera-back',()=>{if(cameraSettings.canChange())leaveCameraEditor()});on('camera-cancel',()=>{if(cameraSettings.canChange())leaveCameraEditor()});
-function closeCamera(){navigate('recordings')}
-on('close-dialog',closeCamera);
+const cameraAdmin=initCameraAdmin({api,notify,cameras:()=>cameras,order:()=>order,setOrder:next=>{order=next},date:()=>dateInput.value,setScan,liveAdmin,renderCameras:()=>renderCameras(),saveView:()=>saveView(),refreshCameras:()=>refreshCameras(),loadDay:()=>loadDay()});
+const {dialog,cameraInput,discardCamera,resetCamera,loadScanHistory,loadStorage}=cameraAdmin;
 registerPage('recordings',{element:$('recordings'),title:'Aufnahmen',enter:()=>scheduleResize()});
-registerPage('admin/cameras',{element:dialog,title:'Kameras',admin:true,enter:()=>{void loadScanHistory();void loadCameraLiveStatus();void loadStorage();cameraSettings.showSection('list');cameraSettings.show('general')},leave:next=>{if(cameraSaving)return false;if(next==='admin/cameras/live')return true;if(next==='admin/cameras/batch')return true;if(!discardCamera()||!cameraSettings.leave())return false;resetCamera();dialog.classList.remove('camera-editing');return true}});
-on('add-first',()=>{navigate('admin/cameras');resetCamera();showCameraEditor()});
 on('mobile-nav-toggle',()=>{const expanded=document.documentElement.classList.toggle('mobile-nav-open');$('mobile-nav-toggle').setAttribute('aria-expanded',String(expanded))});
 document.addEventListener('pageerror',e=>notify((e as CustomEvent<string>).detail));
 on('play',()=>playing?pause():play());on('skip-back',()=>{const t=recordingBoundary(displayedRecords,visible().map(c=>c.id),cursor,-1);if(t!==undefined)seek(t)});on('skip-forward',()=>{const t=recordingBoundary(displayedRecords,visible().map(c=>c.id),cursor,1);if(t!==undefined)seek(t)});on('zoom-in',()=>zoom(.5));on('zoom-out',()=>zoom(2));on('reset-zoom',()=>{viewStart=from;viewEnd=to;draw();refreshRange()});
