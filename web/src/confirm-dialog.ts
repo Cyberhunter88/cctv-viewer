@@ -1,6 +1,6 @@
 // Themed confirmation for actions that delete or reset something. It replaces the
 // browser's confirm(), which ignores the theme and looks the same for every action.
-// Unsaved-change guards stay synchronous and keep the native dialog.
+// Page-level guards stay synchronous (the router needs an immediate answer) and keep the native dialog.
 
 export type ConfirmOptions = {
   title: string;

@@ -1,3 +1,4 @@
+import {confirmAction} from './confirm-dialog';
 export interface CameraEditorCamera {
  id:string;name:string;folder:string;pattern:string;timezone:string;offset:number;
  format?:string;indexingMode?:string;directoryPattern?:string;viewMode?:string;
@@ -20,7 +21,10 @@ export function initCameraEditor(form:HTMLFormElement,dialog:HTMLElement,onSaved
  }
  const snapshot=()=>JSON.stringify(cameraInput());
  const cameraDirty=()=>snapshot()!==baseline;
+ // Page changes still ask synchronously with the native dialog because the router needs an immediate answer.
  const discardCamera=()=>!cameraDirty()||confirm('Ungespeicherte Kameraänderungen verwerfen?');
+ // Buttons inside the page ask in the themed dialog.
+ const confirmDiscard=async()=>!cameraDirty()||confirmAction({title:'Änderungen verwerfen',message:'Die ungespeicherten Änderungen an dieser Kamera gehen verloren.',confirm:'Verwerfen',danger:true});
  function markCameraSaved(){baseline=snapshot();form.dataset.dirty='false';onSaved()}
  function resetCamera(){
   form.reset();(form.elements.namedItem('id') as HTMLInputElement).value='';
@@ -41,11 +45,11 @@ export function initCameraEditor(form:HTMLFormElement,dialog:HTMLElement,onSaved
   $<HTMLDetailsElement>('camera-advanced').open=!!(camera.offset||camera.format&&camera.format!=='automatic'||camera.timezone!=='Europe/Berlin');
   cameraFormatChanged();markCameraSaved();
  }
- function leaveCameraEditor(){if(saving()||!discardCamera())return;resetCamera();dialog.classList.remove('camera-editing');form.dispatchEvent(new Event('cameraeditorclosed'));$('new-camera').focus()}
+ async function leaveCameraEditor(){if(saving()||!await confirmDiscard())return;resetCamera();dialog.classList.remove('camera-editing');form.dispatchEvent(new Event('cameraeditorclosed'));$('new-camera').focus()}
  form.addEventListener('input',()=>form.dataset.dirty=String(cameraDirty()));
  form.addEventListener('change',()=>form.dataset.dirty=String(cameraDirty()));
  $<HTMLSelectElement>('camera-format').addEventListener('change',cameraFormatChanged);
  $<HTMLSelectElement>('indexing-mode').onchange=cameraFormatChanged;
  $<HTMLSelectElement>('view-mode').onchange=cameraFormatChanged;
- return {cameraFormatChanged,cameraInput,cameraDirty,discardCamera,markCameraSaved,resetCamera,showCameraEditor,editCamera,leaveCameraEditor};
+ return {cameraFormatChanged,cameraInput,cameraDirty,discardCamera,confirmDiscard,markCameraSaved,resetCamera,showCameraEditor,editCamera,leaveCameraEditor};
 }

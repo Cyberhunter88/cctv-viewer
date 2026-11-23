@@ -45,7 +45,7 @@
     <main id="login" class="login" hidden>
       <div class="login-art">
         <div class="brand">
-          <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></svg></span> CCTV<span>VIEWER</span>
+          <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="10" r="7"/><circle cx="12" cy="10" r="2.8" fill="currentColor" stroke="none"/><path d="M4.5 20.5h15" stroke-opacity=".5"/><circle cx="14.5" cy="20.5" r="1.3" fill="currentColor" stroke="none"/></svg></span> CCTV<span>VIEWER</span>
         </div>
         <div class="login-copy">
           <span class="eyebrow">Selbst gehostetes Aufnahme-Archiv</span>
@@ -81,7 +81,7 @@
     <div id="app" hidden>
       <aside class="rail">
         <div class="rail-heading">
-          <button id="rail-toggle" class="rail-collapse" type="button" aria-label="Seitenleiste einklappen" aria-expanded="true" aria-controls="rail-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><a href="/" class="rail-logo" aria-label="CCTV Viewer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></svg><span>CCTV <span class="nav-brand-sub">Viewer</span></span></a>
+          <button id="rail-toggle" class="rail-collapse" type="button" aria-label="Seitenleiste einklappen" aria-expanded="true" aria-controls="rail-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><a href="/" class="rail-logo" aria-label="CCTV Viewer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="10" r="7"/><circle cx="12" cy="10" r="2.8" fill="currentColor" stroke="none"/><path d="M4.5 20.5h15" stroke-opacity=".5"/><circle cx="14.5" cy="20.5" r="1.3" fill="currentColor" stroke="none"/></svg><span>CCTV <span class="nav-brand-sub">Viewer</span></span></a>
         </div>
         <button id="mobile-nav-toggle" class="icon-button" type="button" aria-label="Menü" title="Menü" aria-expanded="false" aria-controls="rail-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
         <nav id="rail-nav" aria-label="Hauptnavigation">
@@ -268,7 +268,7 @@
               </section>
             </div>
             <div class="preferences-footer">
-              <span class="muted">CCTV Viewer · Version 0.20.0</span><span id="preference-status" class="muted" role="status" aria-live="polite"></span><button id="preferences-retry" class="button secondary" type="button" hidden>Erneut versuchen</button><button id="preferences-reset" class="text-button" type="button">Zurücksetzen</button>
+              <span class="muted">CCTV Viewer · Version 0.20.1</span><span id="preference-status" class="muted" role="status" aria-live="polite"></span><button id="preferences-retry" class="button secondary" type="button" hidden>Erneut versuchen</button><button id="preferences-reset" class="text-button" type="button">Zurücksetzen</button>
             </div>
           </form>
         </section>
@@ -307,81 +307,115 @@
             </div>
             <button id="close-dialog" class="button secondary" type="button" aria-label="Zurück zu Aufnahmen">← Aufnahmen</button>
           </div>
-          <div class="camera-workspace">
+          <div class="settings-tabs camera-sections" role="tablist" aria-label="Kameraverwaltung">
+            <button type="button" id="camera-section-list" role="tab" aria-controls="camera-workspace" aria-selected="true">Kameras</button>
+            <button type="button" id="camera-section-maintenance" role="tab" aria-controls="camera-maintenance-panel" aria-selected="false" tabindex="-1">Wartung</button>
+          </div>
+          <div class="camera-workspace" id="camera-workspace" role="tabpanel" aria-labelledby="camera-section-list">
             <section class="camera-overview" aria-labelledby="camera-list-title">
               <div class="camera-list-heading">
                 <h3 id="camera-list-title">Deine Kameras</h3>
                 <span id="camera-list-count" class="muted"></span>
               </div>
               <div class="camera-add-actions">
-                <button id="new-camera" class="button primary" type="button">Kamera hinzufügen</button><button id="batch-open" class="text-button" type="button">Mehrere hinzufügen</button>
+                <button id="new-camera" class="button primary" type="button">Kamera hinzufügen</button><button id="batch-open" class="text-button" type="button">Mehrere hinzufügen</button><button id="scan-all-quick" class="text-button" type="button">Alle scannen</button>
               </div>
               <div id="camera-list" class="camera-list"></div>
-              <section class="camera-maintenance">
-                <h4>Aufnahmen indexieren</h4>
-                <p class="setting-help">Neue Aufnahmen aller Kameras einlesen.</p>
-                <div class="dialog-actions">
-                  <button id="scan-all" class="button secondary" type="button">Alle Kameras scannen</button>
-                </div>
-                <div class="danger-zone">
-                  <h4>Index neu aufbauen</h4>
-                  <p class="setting-help">Löscht den abgeleiteten Index und alle Vorschaubilder und liest sie neu ein. Das dauert je nach Archiv lange. Kameras und Originalvideos bleiben erhalten.</p>
-                  <button id="rebuild-index" class="button danger" type="button">Index neu aufbauen</button>
-                </div>
-              </section>
             </section>
-            <form class="settings-form" id="camera-form">
+            <section class="camera-settings-editor">
+              <div class="camera-editor-empty">
+                <h3>Kamera auswählen</h3>
+                <p>Wähle links eine Kamera zum Bearbeiten oder füge eine neue hinzu.</p>
+              </div>
               <div class="camera-editor-heading">
                 <button id="camera-back" class="text-button" type="button">← Zurück zur Übersicht</button><span class="eyebrow">Kameraeinstellungen</span>
                 <h3 id="camera-editor-title" tabindex="-1">Neue Kamera</h3>
               </div>
-              <input name="id" type="hidden">
-              <h4>Allgemein</h4>
-              <div class="form-row">
-                <label>Anzeigename<input name="name" placeholder="Eingang" required maxlength="100"></label>
-                <div class="folder-field">
-                  <label>Kameraordner<input name="folder" placeholder="Eingang" required aria-describedby="folder-help"></label>
-                  <small id="folder-help">Relativ zum Aufnahmeverzeichnis</small><button type="button" id="browse-folder" class="text-button">Ordner auswählen</button>
-                  <div id="folder-browser" hidden></div>
-                </div>
+              <div class="settings-tabs" role="tablist" aria-label="Kameraeinstellungen">
+                <button type="button" id="camera-tab-general" role="tab" aria-controls="camera-general-panel">Allgemein</button>
+                <button type="button" id="camera-tab-recordings" role="tab" aria-controls="camera-recordings-panel">Aufnahmen</button>
+                <button type="button" id="camera-tab-live" role="tab" aria-controls="live-admin">Live</button>
               </div>
-              <h4>Ansichten</h4>
-              <label>Ansichten<select name="viewMode" id="view-mode"><option value="single">Eine Ansicht</option><option value="dual">Weitwinkel + Zoom</option></select></label>
-              <p class="muted">Zwei Objektive im selben Aufnahmeordner? Wähle „Weitwinkel + Zoom“, auch wenn du zunächst nur Weitwinkel sehen möchtest. „Eine Ansicht“ spielt alle passenden Dateien gemeinsam ab.</p>
-              <fieldset id="dual-fields" hidden>
-                <legend>Dateien zuordnen</legend>
-                <div class="form-row">
-                  <label>Weitwinkel-Kennung<input name="wideMarker" value="_00_" maxlength="100"></label>
-                  <label>Zoom-Kennung<input name="zoomMarker" value="_01_" maxlength="100"></label>
+              <form class="settings-form" id="camera-form">
+                <input name="id" type="hidden">
+                <section id="camera-general-panel" role="tabpanel" aria-labelledby="camera-tab-general">
+                  <label>Anzeigename<input name="name" placeholder="Eingang" required maxlength="100"></label>
+                  <label>Ansichten<select name="viewMode" id="view-mode"><option value="single">Eine Ansicht</option><option value="dual">Weitwinkel + Zoom</option></select></label>
+                  <p class="muted">Zwei Objektive im selben Aufnahmeordner? Wähle „Weitwinkel + Zoom“, auch wenn du zunächst nur Weitwinkel sehen möchtest. „Eine Ansicht“ spielt alle passenden Dateien gemeinsam ab.</p>
+                </section>
+                <section id="camera-recordings-panel" role="tabpanel" aria-labelledby="camera-tab-recordings">
+                  <div class="folder-field">
+                    <label>Kameraordner<input name="folder" placeholder="Eingang" required aria-describedby="folder-help"></label>
+                    <small id="folder-help">Relativ zum Aufnahmeverzeichnis</small><button type="button" id="browse-folder" class="text-button">Ordner auswählen</button>
+                    <div id="folder-browser" hidden></div>
+                  </div>
+                  <fieldset id="dual-fields" hidden>
+                    <legend>Dateien zuordnen</legend>
+                    <div class="form-row">
+                      <label>Weitwinkel-Kennung<input name="wideMarker" value="_00_" maxlength="100"></label>
+                      <label>Zoom-Kennung<input name="zoomMarker" value="_01_" maxlength="100"></label>
+                    </div>
+                    <details class="field-info">
+                      <summary>So werden Dateien zugeordnet</summary>
+                      <p>Die Kennung steht im Dateinamen oder Unterordner; unterschiedliche Startzeiten sind erlaubt, die Großschreibung wird ignoriert (Beispiel: _00_ und _01_). Fehlen beide Kennungen oder passen beide, ist die Zuordnung unklar. Die Bildprüfung kontrolliert die Zuordnung und tauscht Kennungen bei eindeutigem Ergebnis automatisch.</p>
+                    </details>
+                    <label>
+                      Zusätzlicher Zoom-Zeitversatz (Sekunden)<input name="zoomOffset" type="number" value="0" min="-86400" max="86400" step="0.1"><small>Negativ verschiebt den Zoom früher. Die gemeinsame Uhr synchronisiert beide Ansichten.</small>
+                    </label>
+                    <label class="checkbox"><input name="supportsZoom" type="checkbox" checked><span>Diese Kamera hat ein Zoom-Objektiv</span></label>
+                  </fieldset>
+                  <details id="camera-advanced" class="camera-advanced">
+                    <summary>Erweiterte Einstellungen</summary>
+                    <label>
+                      Aufnahmeformat<select name="format" id="camera-format"><option value="automatic">Automatische Erkennung</option><option value="custom" hidden>Bestehendes Dateimuster</option><option value="reolink" hidden>Bestehendes Reolink-Muster</option></select>
+                    </label>
+                    <label>Indexierung<select id="indexing-mode" name="indexingMode"><option value="partitioned">Nach Datum</option><option value="full">Gesamter Ordner (rekursiv)</option></select></label>
+                    <label id="directory-pattern-label">Verzeichnismuster<input name="directoryPattern" value="{YYYY}/{MM}/{DD}"><small>{YYYY} oder {YY}, {MM}, {DD}</small></label>
+                    <label id="pattern-label" hidden>
+                      Pfad- und Dateimuster<input name="pattern" value="{YYYY}/{MM}/{DD}/{hh}-{mm}-{ss}.mp4" required><small>Platzhalter: {YYYY}, {MM}, {DD}, {hh}, {mm}, {ss}</small>
+                    </label>
+                    <div class="form-row">
+                      <label>Zeitzone<input name="timezone" value="Europe/Berlin" required></label>
+                      <label>Zeitversatz in Sekunden<input name="offset" type="number" value="0" min="-86400" max="86400" step="0.1" required></label>
+                    </div>
+                  </details>
+                  <section class="camera-preview" aria-labelledby="camera-preview-title">
+                    <h4 id="camera-preview-title">Erkennung prüfen</h4>
+                    <p class="setting-help">Zeigt mit den Angaben oben, welche Dateien erkannt werden, bevor die Kamera gespeichert wird.</p>
+                    <button id="preview" class="button secondary" type="button">Erkennung prüfen</button>
+                    <pre id="preview-result" hidden></pre>
+                  </section>
+                </section>
+                <div class="dialog-actions camera-editor-actions">
+                  <button id="camera-cancel" class="button secondary" type="button">Abbrechen</button><button class="button primary" type="submit">Kamera speichern</button>
                 </div>
-                <small>Enthalten im Dateinamen oder Unterordner; unterschiedliche Startzeiten sind erlaubt. Ohne Beachtung der Großschreibung. Beispiel: _00_ und _01_. Beide Kennungen oder keine: Zuordnung unklar. Die Bildprüfung kontrolliert die Zuordnung und tauscht Kennungen bei eindeutigem Ergebnis automatisch.</small>
-                <label>
-                  Zusätzlicher Zoom-Zeitversatz (Sekunden)<input name="zoomOffset" type="number" value="0" min="-86400" max="86400" step="0.1"><small>Negativ verschiebt den Zoom früher. Die gemeinsame Uhr synchronisiert beide Ansichten.</small>
-                </label>
-                <label class="checkbox"><input name="supportsZoom" type="checkbox" checked><span>Diese Kamera hat ein Zoom-Objektiv</span></label>
-              </fieldset>
-              <details id="camera-advanced" class="camera-advanced">
-                <summary>Erweiterte Einstellungen</summary>
-                <label>
-                  Aufnahmeformat<select name="format" id="camera-format"><option value="automatic">Automatische Erkennung</option><option value="custom" hidden>Bestehendes Dateimuster</option><option value="reolink" hidden>Bestehendes Reolink-Muster</option></select>
-                </label>
-                <label>Indexierung<select id="indexing-mode" name="indexingMode"><option value="partitioned">Nach Datum</option><option value="full">Gesamter Ordner (rekursiv)</option></select></label>
-                <label id="directory-pattern-label">Verzeichnismuster<input name="directoryPattern" value="{YYYY}/{MM}/{DD}"><small>{YYYY} oder {YY}, {MM}, {DD}</small></label>
-                <label id="pattern-label" hidden>
-                  Pfad- und Dateimuster<input name="pattern" value="{YYYY}/{MM}/{DD}/{hh}-{mm}-{ss}.mp4" required><small>Platzhalter: {YYYY}, {MM}, {DD}, {hh}, {mm}, {ss}</small>
-                </label>
-                <div class="form-row">
-                  <label>Zeitzone<input name="timezone" value="Europe/Berlin" required></label>
-                  <label>Zeitversatz in Sekunden<input name="offset" type="number" value="0" min="-86400" max="86400" step="0.1" required></label>
-                </div>
-              </details>
-              <div class="dialog-actions camera-editor-actions">
-                <button id="preview" class="button secondary" type="button">Erkennung prüfen</button><button id="camera-cancel" class="button secondary" type="button">Abbrechen</button><button class="button primary" type="submit">Kamera speichern</button>
-              </div>
-              <pre id="preview-result" hidden></pre>
-              <p id="camera-error" class="error" role="alert"></p>
-            </form>
+                <p id="camera-error" class="error" role="alert"></p>
+              </form>
+            </section>
           </div>
+          <section id="camera-maintenance-panel" class="camera-maintenance" role="tabpanel" aria-labelledby="camera-section-maintenance" hidden>
+            <section>
+              <h3>Aufnahmen indexieren</h3>
+              <p class="setting-help">Neue Aufnahmen aller Kameras einlesen.</p>
+              <div class="dialog-actions">
+                <button id="scan-all" class="button secondary" type="button">Alle Kameras scannen</button>
+              </div>
+            </section>
+            <section class="scan-history storage-overview">
+              <h3 id="storage-title">Speicherbelegung</h3>
+              <p class="setting-help">Größe der indexierten Aufnahmen je Kamera. Der Tagesschnitt berücksichtigt nur Tage mit Aufnahmen aus den letzten 30 Tagen.</p>
+              <div id="storage-list" class="storage-scroll" aria-live="polite"></div>
+            </section>
+            <section class="scan-history">
+              <h3>Letzte Indexierungen</h3>
+              <div id="scan-history-list" aria-live="polite"></div>
+            </section>
+            <section class="danger-zone">
+              <h3>Index neu aufbauen</h3>
+              <p class="setting-help">Löscht den abgeleiteten Index und alle Vorschaubilder und liest sie neu ein. Das dauert je nach Archiv lange. Kameras und Originalvideos bleiben erhalten.</p>
+              <button id="rebuild-index" class="button danger" type="button">Index neu aufbauen</button>
+            </section>
+          </section>
         </section>
       </div>
     </div>

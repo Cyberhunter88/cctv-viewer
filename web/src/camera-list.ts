@@ -5,7 +5,7 @@ import type {Camera,Scan} from './types';
 interface Context {
  api:<T>(url:string,options?:RequestInit)=>Promise<T>;notify:(message:string)=>void;cameras:()=>Camera[];order:()=>string[];setOrder:(order:string[])=>void;
  saving:()=>boolean;date:()=>string;dialog:HTMLElement;form:HTMLFormElement;setScan:(scan:Scan)=>void;
- discardCamera:()=>boolean;canChange:()=>boolean;clearSettings:()=>void;editCamera:(camera:Camera)=>void;showCameraEditor:()=>void;resetCamera:()=>void;
+ confirmDiscard:()=>Promise<boolean>;canChange:()=>boolean;clearSettings:()=>void;editCamera:(camera:Camera)=>void;showCameraEditor:()=>void;resetCamera:()=>void;
  openLive:(id:string)=>void|Promise<void>;renderCameras:()=>void;saveView:()=>Promise<void>;refreshCameras:()=>Promise<void>;loadDay:()=>Promise<void>;
 }
 // Camera administration list with scan history, per-camera actions and the folder browser.
@@ -13,11 +13,8 @@ export function initCameraList(ctx:Context){
  const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  function element<K extends keyof HTMLElementTagNameMap>(tag:K,className='',text=''):HTMLElementTagNameMap[K]{const e=document.createElement(tag);e.className=className;e.textContent=text;return e}
  const on=(id:string,fn:()=>void|Promise<void>)=>$(id).addEventListener('click',()=>{Promise.resolve(fn()).catch(e=>ctx.notify(e.message))});
- const historySection=element('section','scan-history');historySection.innerHTML='<h4>Letzte Indexierungen</h4><div id="scan-history-list" aria-live="polite"></div>';
- ctx.dialog.querySelector('.camera-maintenance')?.append(historySection);
+ // The maintenance panel with storage overview and scan history is static markup in index.html.
  type ScanHistoryRow={cameraId:string;cameraName:string;date:string;manual:boolean;finished:number;state:string;inspected:number;added:number;changed:number;skipped:number;warnings:string[]};
- const storageSection=element('section','scan-history storage-overview');storageSection.innerHTML='<h4 id="storage-title">Speicherbelegung</h4><p class="setting-help">Größe der indexierten Aufnahmen je Kamera. Der Tagesschnitt berücksichtigt nur Tage mit Aufnahmen aus den letzten 30 Tagen.</p><div id="storage-list" class="storage-scroll" aria-live="polite"></div>';
- ctx.dialog.querySelector('.camera-maintenance')?.append(storageSection);
  let storageRequest=0;
  async function loadStorage(){
   const own=++storageRequest,root=$('storage-list');
@@ -62,16 +59,23 @@ export function initCameraList(ctx:Context){
    const entry=element('article','camera-entry'+(editing===c.id?' is-selected':''));
    const select=element('button','camera-edit'),name=element('strong','camera-name',c.name);
    select.type='button';select.setAttribute('aria-pressed',String(editing===c.id));
-   const status=element('span','camera-status'+(c.sourceStatus==='offline'?' is-offline':''),`${c.sourceStatus==='offline'?'Quelle offline':'Quelle erreichbar'} · ${c.indexedVideos||0} ${c.indexedVideos===1?'Video':'Videos'}`);
-   if(cameraLiveCapabilities[c.id])status.textContent+=' · '+(cameraLiveCapabilities[c.id].enabled?'Live eingerichtet':'Live aus');
-   if(c.lastScan)status.textContent+=' · Scan '+new Date(c.lastScan*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Berlin'});
-   status.textContent+=' · '+(c.lastRecording?'Letzte Aufnahme '+new Date(c.lastRecording*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Berlin'}):'Noch keine Aufnahme im Index');
-   select.append(name,status,element('span','camera-edit-label','Bearbeiten →'));
-   select.onclick=()=>{if(ctx.saving()||!ctx.discardCamera()||!ctx.canChange())return;ctx.editCamera(c);ctx.showCameraEditor()};
+   // Source state, index size and live state are separate chips so they can be scanned at a glance.
+   const offline=c.sourceStatus==='offline',videos=c.indexedVideos||0;
+   const status=element('span','camera-status'),chips=element('span','camera-chips');
+   const chip=(text:string,kind:'ok'|'bad'|'info'|'muted')=>chips.append(element('span','camera-chip is-'+kind,text));
+   chip(offline?'Quelle offline':'Quelle erreichbar',offline?'bad':'ok');
+   chip(`${videos.toLocaleString('de-DE')} ${videos===1?'Video':'Videos'}`,videos?'info':'muted');
+   if(cameraLiveCapabilities[c.id])chip(cameraLiveCapabilities[c.id].enabled?'Live eingerichtet':'Live aus',cameraLiveCapabilities[c.id].enabled?'info':'muted');
+   const stamp=(seconds:number)=>new Date(seconds*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Berlin'});
+   const meta=element('span','camera-meta',c.lastRecording?'Letzte Aufnahme '+stamp(c.lastRecording):'Noch keine Aufnahme im Index');
+   if(c.lastScan)meta.textContent+=' · Scan '+stamp(c.lastScan);
+   status.append(chips,meta);
+   select.append(name,status);
+   select.onclick=async()=>{if(ctx.saving()||!await ctx.confirmDiscard()||!ctx.canChange())return;ctx.editCamera(c);ctx.showCameraEditor()};
    const actions=element('div','camera-entry-actions');
-   const more=element('details','camera-more');const summary=element('summary','','Aktionen');more.append(summary);const moreActions=element('div','camera-more-actions');more.append(moreActions);actions.append(more);
+   const more=element('details','camera-more');const summary=element('summary','','Mehr');more.append(summary);const moreActions=element('div','camera-more-actions');more.append(moreActions);actions.append(more);
    const addAction=(text:string,label:string,action:()=>void|Promise<void>,className='')=>{const b=element('button',className,text);b.type='button';b.title=label;b.setAttribute('aria-label',label+' · '+c.name);b.disabled=ctx.saving();b.onclick=()=>void Promise.resolve(action()).catch(e=>ctx.notify(e.message));if(['scan-camera','cleanup-camera','delete'].includes(className))moreActions.append(b);else actions.insertBefore(b,more);return b};
-   addAction('Live','Live einrichten',()=>ctx.openLive(c.id),'text-button');
+   addAction('Live','Live einrichten',()=>ctx.openLive(c.id),'text-button live-action');
    const up=addAction('↑','Nach oben verschieben',()=>reorder(i-1),'move-button');up.disabled=ctx.saving()||i===0;
    const down=addAction('↓','Nach unten verschieben',()=>reorder(i+1),'move-button');down.disabled=ctx.saving()||i===ctx.order().length-1;
    const cameraId=c.id;
@@ -86,7 +90,7 @@ export function initCameraList(ctx:Context){
    },'cleanup-camera');
    addAction('Entfernen','Kamera entfernen',async()=>{
     if(!await confirmAction({title:'Kamera entfernen',message:`Kamera „${c.name}“ wird aus dem Viewer entfernt. Die Originalaufnahmen bleiben erhalten.`,confirm:'Kamera entfernen',danger:true}))return;
-    if(editing===c.id&&(!ctx.discardCamera()||!ctx.canChange()))return;
+    if(editing===c.id&&(!await ctx.confirmDiscard()||!ctx.canChange()))return;
     await ctx.api('/api/cameras/'+c.id,{method:'DELETE'});if(editing===c.id){ctx.resetCamera();ctx.clearSettings();ctx.dialog.classList.remove('camera-editing')}await ctx.refreshCameras();await ctx.loadDay();
    },'delete');
    entry.draggable=!ctx.saving();
