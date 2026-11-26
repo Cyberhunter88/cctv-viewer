@@ -123,5 +123,6 @@ func (a *App) applyIndexCleanup(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Bereinigung fehlgeschlagen")
 		return
 	}
+	a.db.RecordingsChanged()
 	jsonOut(w, 200, map[string]int{"removed": len(ids)})
 }

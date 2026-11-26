@@ -199,56 +199,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/preferences", a.protect(false, a.preferences))
 	mux.HandleFunc("PATCH /api/preferences", a.protect(false, a.preferences))
 	mux.HandleFunc("POST /api/logout", a.protect(false, a.logout))
-	mux.HandleFunc("GET /api/cameras", a.protect(false, func(w http.ResponseWriter, r *http.Request) {
-		cams, e := a.db.Cameras()
-		if e != nil {
-			fail(w, 500, "Kameras nicht lesbar")
-			return
-		}
-		rows, e := a.db.reader().QueryContext(r.Context(), `SELECT c.id,COALESCE(s.success,0),COALESCE(v.video_count,0),COALESCE(v.last_recording,0) FROM cameras c LEFT JOIN camera_scans s ON s.camera_id=c.id LEFT JOIN (SELECT camera_id,COUNT(*) AS video_count,MAX(start+duration) AS last_recording FROM recordings WHERE codec!='jpeg' GROUP BY camera_id) v ON v.camera_id=c.id`)
-		if e != nil {
-			fail(w, 500, "Kamerastatus nicht lesbar")
-			return
-		}
-		type cameraStats struct {
-			lastScan      int64
-			videos        int
-			lastRecording float64
-		}
-		stats := make(map[string]cameraStats, len(cams))
-		for rows.Next() {
-			var id string
-			var item cameraStats
-			if e = rows.Scan(&id, &item.lastScan, &item.videos, &item.lastRecording); e != nil {
-				rows.Close()
-				fail(w, 500, "Kamerastatus nicht lesbar")
-				return
-			}
-			stats[id] = item
-		}
-		e = rows.Err()
-		rows.Close()
-		if e != nil {
-			fail(w, 500, "Kamerastatus nicht lesbar")
-			return
-		}
-		for i := range cams {
-			cams[i].LastScan = stats[cams[i].ID].lastScan
-			cams[i].LastRecording = stats[cams[i].ID].lastRecording
-			cams[i].IndexedVideos = stats[cams[i].ID].videos
-			cams[i].SourceStatus = "online"
-			if st, e := a.root.Stat(cams[i].Folder); e != nil || !st.IsDir() {
-				cams[i].SourceStatus = "offline"
-			}
-		}
-		if r.Context().Value(sessionKey).(Session).Role != "admin" {
-			for i := range cams {
-				cams[i].Folder = ""
-				cams[i].Pattern = ""
-			}
-		}
-		jsonOut(w, 200, cams)
-	}))
+	mux.HandleFunc("GET /api/cameras", a.protect(false, a.listCameras))
 	mux.HandleFunc("POST /api/cameras", a.protect(true, a.audit("camera.save", a.saveCamera)))
 	mux.HandleFunc("POST /api/cameras/batch", a.protect(true, a.audit("camera.batch", a.saveCameraBatch)))
 	mux.HandleFunc("POST /api/cameras/preview", a.protect(true, a.preview))
@@ -381,6 +332,74 @@ func acceptsGzip(header string) bool {
 	return false
 }
 
+// listCameras answers the camera list with index statistics and source state.
+func (a *App) listCameras(w http.ResponseWriter, r *http.Request) {
+	cams, e := a.db.Cameras()
+	if e != nil {
+		fail(w, 500, "Kameras nicht lesbar")
+		return
+	}
+	// While a scan adds recordings the counts are refreshed every few seconds;
+	// otherwise only a change of the index or the safety interval recounts.
+	maxAge := 5 * time.Minute
+	if a.scanStatus().Running {
+		maxAge = 5 * time.Second
+	}
+	videos, e := a.db.CameraRecordingStats(r.Context(), maxAge)
+	if e != nil {
+		fail(w, 500, "Kamerastatus nicht lesbar")
+		return
+	}
+	scans := make(map[string]int64, len(cams))
+	rows, e := a.db.reader().QueryContext(r.Context(), `SELECT camera_id,success FROM camera_scans`)
+	if e != nil {
+		fail(w, 500, "Kamerastatus nicht lesbar")
+		return
+	}
+	for rows.Next() {
+		var id string
+		var success int64
+		if e = rows.Scan(&id, &success); e != nil {
+			rows.Close()
+			fail(w, 500, "Kamerastatus nicht lesbar")
+			return
+		}
+		scans[id] = success
+	}
+	e = rows.Err()
+	rows.Close()
+	if e != nil {
+		fail(w, 500, "Kamerastatus nicht lesbar")
+		return
+	}
+	// Source folders often live on network shares; checking them one after the
+	// other would add up their latencies.
+	var checks sync.WaitGroup
+	slots := make(chan struct{}, 8)
+	for i := range cams {
+		cams[i].LastScan = scans[cams[i].ID]
+		cams[i].LastRecording = videos[cams[i].ID].LastRecording
+		cams[i].IndexedVideos = videos[cams[i].ID].Videos
+		checks.Add(1)
+		slots <- struct{}{}
+		go func(c *Camera) {
+			defer checks.Done()
+			defer func() { <-slots }()
+			c.SourceStatus = "online"
+			if st, e := a.root.Stat(c.Folder); e != nil || !st.IsDir() {
+				c.SourceStatus = "offline"
+			}
+		}(&cams[i])
+	}
+	checks.Wait()
+	if r.Context().Value(sessionKey).(Session).Role != "admin" {
+		for i := range cams {
+			cams[i].Folder = ""
+			cams[i].Pattern = ""
+		}
+	}
+	jsonOut(w, 200, cams)
+}
 func (a *App) saveCamera(w http.ResponseWriter, r *http.Request) {
 	var c Camera
 	if !decode(w, r, &c) {
@@ -436,6 +455,7 @@ func (a *App) deleteCamera(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Löschen fehlgeschlagen")
 		return
 	}
+	a.db.RecordingsChanged()
 	a.live.invalidate(r.PathValue("id"))
 	jsonOut(w, 200, map[string]bool{"ok": true})
 }

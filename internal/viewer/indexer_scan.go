@@ -63,6 +63,8 @@ func (a *App) scanCamera(job scanJob, c Camera, from, to time.Time) bool {
 			}
 		}
 	}
+	// Recordings of this camera were added or changed; recount the statistics.
+	a.db.RecordingsChanged()
 	if a.ctx.Err() == nil {
 		now := time.Now().Unix()
 		success := int64(0)

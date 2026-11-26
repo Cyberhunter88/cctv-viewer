@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,6 +23,55 @@ type Store struct {
 	*sql.DB
 	read    *sql.DB
 	secrets cipher.AEAD
+	// recordingsGeneration changes whenever indexed recordings may have changed;
+	// it invalidates the cached per-camera statistics.
+	recordingsGeneration atomic.Uint64
+	statsMu              sync.Mutex
+	stats                map[string]RecordingStats
+	statsGeneration      uint64
+	statsAt              time.Time
+}
+
+// RecordingStats summarizes the indexed videos of one camera.
+type RecordingStats struct {
+	Videos        int
+	LastRecording float64
+}
+
+// RecordingsChanged invalidates the cached statistics after recordings were
+// added, changed or removed.
+func (s *Store) RecordingsChanged() { s.recordingsGeneration.Add(1) }
+
+// CameraRecordingStats returns the video count and latest recording end per
+// camera. Counting needs a pass over the whole index, so the result is reused
+// until recordings change or it is older than maxAge.
+func (s *Store) CameraRecordingStats(ctx context.Context, maxAge time.Duration) (map[string]RecordingStats, error) {
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+	generation := s.recordingsGeneration.Load()
+	if s.stats != nil && s.statsGeneration == generation && time.Since(s.statsAt) < maxAge {
+		return s.stats, nil
+	}
+	rows, e := s.reader().QueryContext(ctx, `SELECT camera_id,COUNT(*),MAX(start+duration) FROM recordings WHERE codec!='jpeg' GROUP BY camera_id`)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	stats := map[string]RecordingStats{}
+	for rows.Next() {
+		var id string
+		var item RecordingStats
+		if e = rows.Scan(&id, &item.Videos, &item.LastRecording); e != nil {
+			return nil, e
+		}
+		stats[id] = item
+	}
+	if e = rows.Err(); e != nil {
+		return nil, e
+	}
+	// A change during the query bumped the generation, so the next call recounts.
+	s.stats, s.statsGeneration, s.statsAt = stats, generation, time.Now()
+	return stats, nil
 }
 
 func (s *Store) reader() *sql.DB {
@@ -363,6 +414,7 @@ func (s *Store) SaveCamera(c Camera) error {
 			return e
 		}
 	}
+	defer s.RecordingsChanged()
 	_, e = tx.Exec(`INSERT INTO cameras(id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset,supports_zoom) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,folder=excluded.folder,pattern=excluded.pattern,timezone=excluded.timezone,offset=excluded.offset,format=excluded.format,prefix=excluded.prefix,indexing_mode=excluded.indexing_mode,directory_pattern=excluded.directory_pattern,view_mode=excluded.view_mode,wide_marker=excluded.wide_marker,zoom_marker=excluded.zoom_marker,zoom_offset=excluded.zoom_offset,supports_zoom=excluded.supports_zoom`, c.ID, c.Name, c.Folder, c.Pattern, c.Timezone, c.Offset, cameraFormat(c), c.Prefix, c.IndexingMode, c.DirectoryPattern, c.ViewMode, c.WideMarker, c.ZoomMarker, c.ZoomOffset, c.SupportsZoom)
 	if e != nil {
 		return e
