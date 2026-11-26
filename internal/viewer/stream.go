@@ -59,8 +59,9 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "Startposition ungültig")
 		return
 	}
+	// Only stream files count against this budget; previews are pruned in the
+	// background, so starting many tiles at once does not walk the cache each time.
 	a.pruneStreams()
-	a.pruneCache()
 	if a.streamUsage() >= a.config().HLSTempBytes*9/10 {
 		fail(w, 503, "Temporärer Videospeicher ausgelastet")
 		return

@@ -1,4 +1,4 @@
-import type Hls from 'hls.js';
+import type Hls from 'hls.js/light';
 import { recordingAt, clock, type Recording } from './timeline';
 import type { ViewState } from './view-state';
 import { WRITING_RETRY_MS, classifyLoadIssue, conversionTooSlow, nativeErrorConverts, nextWritingStep, prefetchTarget, stallTimeoutMs, streamQuality } from './playback-state';
@@ -9,8 +9,10 @@ interface PlaybackCamera {
   id: string;
   name: string;
 }
-let hlsModule:Promise<typeof import('hls.js')>|undefined;
-function loadHls(){return hlsModule??=import('hls.js')}
+// The light build omits subtitles, DRM, CMCD and alternate audio, none of which
+// the server's own single-rendition streams use.
+let hlsModule:Promise<typeof import('hls.js/light')>|undefined;
+function loadHls(){return hlsModule??=import('hls.js/light')}
 export interface TileContext {
   state: ViewState;
   cursor: () => number;

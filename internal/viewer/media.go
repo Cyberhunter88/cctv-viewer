@@ -42,6 +42,9 @@ type stream struct {
 	// sourceChanged is set when the recording was modified while ffmpeg read it,
 	// so the output may end before the real end of the file.
 	sourceChanged bool
+	// sizes remembers finished HLS segments, which never change, so measuring
+	// the stream only stats files FFmpeg may still write. Guarded by App.usageMu.
+	sizes map[string]int64
 }
 
 func (a *App) source(id string) (Recording, *os.File, error) {
