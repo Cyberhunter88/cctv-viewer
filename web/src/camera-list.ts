@@ -24,12 +24,22 @@ export function initCameraList(ctx:Context){
   root.replaceChildren();
   if(!data.cameras.length){root.textContent='Noch keine Kameras eingerichtet.';return}
   const date=(seconds:number)=>seconds?new Date(seconds*1000).toLocaleDateString('de-DE',{dateStyle:'medium',timeZone:'Europe/Berlin'}):'–';
-  const table=element('table','storage-table'),head=element('thead'),body=element('tbody'),foot=element('tfoot');table.setAttribute('aria-labelledby','storage-title');
-  const row=(cells:string[],tag:'td'|'th',first:'row'|'col')=>{const tr=element('tr');cells.forEach((text,i)=>{const cell=element(tag==='td'&&i===0?'th':tag,i?'numeric':'',text);if(cell.tagName==='TH')cell.setAttribute('scope',i===0&&tag==='td'?'row':first);tr.append(cell)});return tr};
+  const table=element('table','storage-table'),head=element('thead'),body=element('tbody'),foot=element('tfoot');
+  table.setAttribute('aria-labelledby','storage-title');
+  const row=(cells:string[],tag:'td'|'th',first:'row'|'col')=>{
+   const tr=element('tr');
+   cells.forEach((text,i)=>{
+    const cell=element(tag==='td'&&i===0?'th':tag,i?'numeric':'',text);
+    if(cell.tagName==='TH')cell.setAttribute('scope',i===0&&tag==='td'?'row':first);
+    tr.append(cell)
+   });
+   return tr
+  };
   head.append(row(['Kamera','Videos','Belegt','Ø je Aufnahmetag','Älteste Aufnahme'],'th','col'));
   for(const camera of data.cameras)body.append(row([camera.name,camera.videos.toLocaleString('de-DE'),formatBytes(camera.bytes),formatBytes(dailyAverage(camera.days)),date(camera.oldest)],'td','row'));
   foot.append(row(['Gesamt',data.videos.toLocaleString('de-DE'),formatBytes(data.bytes),'',''],'td','row'));
-  table.append(head,body,foot);root.append(table);
+  table.append(head,body,foot);
+  root.append(table);
  }
  async function loadScanHistory(){
   const rows=await ctx.api<ScanHistoryRow[]>('/api/index/history'),root=$('scan-history-list');root.replaceChildren();
@@ -39,7 +49,13 @@ export function initCameraList(ctx:Context){
    item.append(element('strong','',`${row.cameraName} · ${when} · ${row.state}`),element('span','',` ${row.inspected} geprüft · ${row.added} neu · ${row.changed} geändert · ${row.skipped} übersprungen`));
    for(const warning of row.warnings)item.append(element('p','warning',warning));
    if(row.manual&&['partial','failed','interrupted'].includes(row.state)){
-    const retry=element('button','button secondary','Erneut scannen');retry.type='button';retry.onclick=async()=>{ctx.setScan(await ctx.api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({camera:row.cameraId,date:row.date,all:true})}));ctx.notify('Scan erneut gestartet.')};item.append(retry);
+    const retry=element('button','button secondary','Erneut scannen');
+    retry.type='button';
+    retry.onclick=async()=>{
+     ctx.setScan(await ctx.api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({camera:row.cameraId,date:row.date,all:true})}));
+     ctx.notify('Scan erneut gestartet.')
+    };
+    item.append(retry);
    }
    root.append(item);
   }
@@ -47,18 +63,27 @@ export function initCameraList(ctx:Context){
  }
  let cameraLiveCapabilities:Record<string,{enabled:boolean}>={};
  async function loadCameraLiveStatus(){
-  try{const info=await ctx.api<{cameras:Record<string,{enabled:boolean}>}>('/api/live');cameraLiveCapabilities=info.cameras;renderCameraList()}catch{/* Recording configuration remains usable without live status. */}
+  try{
+   const info=await ctx.api<{cameras:Record<string,{enabled:boolean}>}>('/api/live');
+   cameraLiveCapabilities=info.cameras;
+   renderCameraList()
+  }catch{/* Recording configuration remains usable without live status. */}
  }
- const cameraSearch=document.createElement('input');cameraSearch.type='search';cameraSearch.placeholder='Kameras suchen';cameraSearch.setAttribute('aria-label','Kameras suchen');
+ const cameraSearch=document.createElement('input');
+ cameraSearch.type='search';
+ cameraSearch.placeholder='Kameras suchen';
+ cameraSearch.setAttribute('aria-label','Kameras suchen');
  function renderCameraList(){
   const list=$('camera-list');list.replaceChildren();$('camera-list-count').textContent=String(ctx.cameras().length);
   if(!ctx.cameras().length){const empty=element('p','camera-empty','Noch keine Kameras eingerichtet. Füge deine erste Aufnahmequelle hinzu.');list.append(empty)}
   const editing=(ctx.form.elements.namedItem('id') as HTMLInputElement).value;
   for(let i=0;i<ctx.order().length;i++){
-   const c=ctx.cameras().find(c=>c.id===ctx.order()[i]);if(!c||cameraSearch.value&&!c.name.toLocaleLowerCase('de').includes(cameraSearch.value.toLocaleLowerCase('de')))continue;
+   const c=ctx.cameras().find(c=>c.id===ctx.order()[i]);
+   if(!c||cameraSearch.value&&!c.name.toLocaleLowerCase('de').includes(cameraSearch.value.toLocaleLowerCase('de')))continue;
    const entry=element('article','camera-entry'+(editing===c.id?' is-selected':''));
    const select=element('button','camera-edit'),name=element('strong','camera-name',c.name);
-   select.type='button';select.setAttribute('aria-pressed',String(editing===c.id));
+   select.type='button';
+   select.setAttribute('aria-pressed',String(editing===c.id));
    // Source state, index size and live state are separate chips so they can be scanned at a glance.
    const offline=c.sourceStatus==='offline',videos=c.indexedVideos||0;
    const status=element('span','camera-status'),chips=element('span','camera-chips');
@@ -73,11 +98,27 @@ export function initCameraList(ctx:Context){
    select.append(name,status);
    select.onclick=async()=>{if(ctx.saving()||!await ctx.confirmDiscard()||!ctx.canChange())return;ctx.editCamera(c);ctx.showCameraEditor()};
    const actions=element('div','camera-entry-actions');
-   const more=element('details','camera-more');const summary=element('summary','','Mehr');more.append(summary);const moreActions=element('div','camera-more-actions');more.append(moreActions);actions.append(more);
-   const addAction=(text:string,label:string,action:()=>void|Promise<void>,className='')=>{const b=element('button',className,text);b.type='button';b.title=label;b.setAttribute('aria-label',label+' · '+c.name);b.disabled=ctx.saving();b.onclick=()=>void Promise.resolve(action()).catch(e=>ctx.notify(e.message));if(['scan-camera','cleanup-camera','delete'].includes(className))moreActions.append(b);else actions.insertBefore(b,more);return b};
+   const more=element('details','camera-more');
+   const summary=element('summary','','Mehr');
+   more.append(summary);
+   const moreActions=element('div','camera-more-actions');
+   more.append(moreActions);
+   actions.append(more);
+   const addAction=(text:string,label:string,action:()=>void|Promise<void>,className='')=>{
+    const b=element('button',className,text);
+    b.type='button';
+    b.title=label;
+    b.setAttribute('aria-label',label+' · '+c.name);
+    b.disabled=ctx.saving();
+    b.onclick=()=>void Promise.resolve(action()).catch(e=>ctx.notify(e.message));
+    if(['scan-camera','cleanup-camera','delete'].includes(className))moreActions.append(b);else actions.insertBefore(b,more);
+    return b
+   };
    addAction('Live','Live einrichten',()=>ctx.openLive(c.id),'text-button live-action');
-   const up=addAction('↑','Nach oben verschieben',()=>reorder(i-1),'move-button');up.disabled=ctx.saving()||i===0;
-   const down=addAction('↓','Nach unten verschieben',()=>reorder(i+1),'move-button');down.disabled=ctx.saving()||i===ctx.order().length-1;
+   const up=addAction('↑','Nach oben verschieben',()=>reorder(i-1),'move-button');
+   up.disabled=ctx.saving()||i===0;
+   const down=addAction('↓','Nach unten verschieben',()=>reorder(i+1),'move-button');
+   down.disabled=ctx.saving()||i===ctx.order().length-1;
    const cameraId=c.id;
    function reorder(target:number){ctx.setOrder(moveCamera(ctx.order(),cameraId,ctx.order()[target]));ctx.renderCameras();renderCameraList();ctx.saveView()}
    addAction('Scannen','Kamera scannen',async()=>{ctx.setScan(await ctx.api<Scan>('/api/scan',{method:'POST',body:JSON.stringify({date:ctx.date(),camera:c.id,all:true})}))},'scan-camera');
@@ -86,22 +127,72 @@ export function initCameraList(ctx:Context){
     if(!preview.count){ctx.notify('Keine fehlenden Indexeinträge.');return}
     if(!await confirmAction({title:'Fehlende Indexeinträge entfernen',message:`${preview.count} fehlende Indexeinträge von „${c.name}“ werden entfernt. Originalaufnahmen bleiben erhalten. Bitte vorher prüfen, ob die Quelle vollständig gemountet ist.`,confirm:'Einträge entfernen',danger:true}))return;
     const result=await ctx.api<{removed:number}>('/api/index/cleanup',{method:'POST',body:JSON.stringify({camera:c.id,digest:preview.digest})});
-    ctx.notify(`${result.removed} Indexeinträge entfernt.`);await ctx.refreshCameras();await ctx.loadDay();
+    ctx.notify(`${result.removed} Indexeinträge entfernt.`);
+    await ctx.refreshCameras();
+    await ctx.loadDay();
    },'cleanup-camera');
    addAction('Entfernen','Kamera entfernen',async()=>{
     if(!await confirmAction({title:'Kamera entfernen',message:`Kamera „${c.name}“ wird aus dem Viewer entfernt. Die Originalaufnahmen bleiben erhalten.`,confirm:'Kamera entfernen',danger:true}))return;
     if(editing===c.id&&(!await ctx.confirmDiscard()||!ctx.canChange()))return;
-    await ctx.api('/api/cameras/'+c.id,{method:'DELETE'});if(editing===c.id){ctx.resetCamera();ctx.clearSettings();ctx.dialog.classList.remove('camera-editing')}await ctx.refreshCameras();await ctx.loadDay();
+    await ctx.api('/api/cameras/'+c.id,{method:'DELETE'});
+    if(editing===c.id){
+     ctx.resetCamera();
+     ctx.clearSettings();
+     ctx.dialog.classList.remove('camera-editing')
+    }
+    await ctx.refreshCameras();
+    await ctx.loadDay();
    },'delete');
    entry.draggable=!ctx.saving();
    entry.ondragstart=e=>e.dataTransfer?.setData('text/plain',c.id);
    entry.ondragover=e=>e.preventDefault();
-   entry.ondrop=e=>{e.preventDefault();if(ctx.saving())return;const source=e.dataTransfer?.getData('text/plain');if(!source||source===c.id||!ctx.order().includes(source))return;ctx.setOrder(moveCamera(ctx.order(),source,c.id));ctx.renderCameras();renderCameraList();ctx.saveView()};
-   status.id='camera-source-'+c.id;select.setAttribute('aria-describedby',status.id);
-   select.disabled=ctx.saving();entry.append(select,actions);list.append(entry);
+   entry.ondrop=e=>{
+    e.preventDefault();
+    if(ctx.saving())return;
+    const source=e.dataTransfer?.getData('text/plain');
+    if(!source||source===c.id||!ctx.order().includes(source))return;
+    ctx.setOrder(moveCamera(ctx.order(),source,c.id));
+    ctx.renderCameras();
+    renderCameraList();
+    ctx.saveView()
+   };
+   status.id='camera-source-'+c.id;
+   select.setAttribute('aria-describedby',status.id);
+   select.disabled=ctx.saving();
+   entry.append(select,actions);
+   list.append(entry);
   }
  }
- async function browseFolder(folder=''){const data=await ctx.api<{path:string;folders:string[];samples:string[];limited:boolean}>('/api/cameras/folders?path='+encodeURIComponent(folder));const root=$('folder-browser');root.hidden=false;root.replaceChildren();root.append(element('strong','',data.path==='.'?'Aufnahmeverzeichnis':data.path));if(data.path!=='.'){const back=element('button','text-button','↑ Übergeordneter Ordner');back.type='button';back.onclick=()=>void browseFolder(data.path.split('/').slice(0,-1).join('/')).catch(e=>ctx.notify(e.message));root.append(back);const choose=element('button','button secondary','Diesen Ordner verwenden');choose.type='button';choose.onclick=()=>{const folderField=ctx.form.elements.namedItem('folder') as HTMLInputElement,nameField=ctx.form.elements.namedItem('name') as HTMLInputElement,previous=folderField.value.split('/').pop();folderField.value=data.path;if(!nameField.value||nameField.value===previous)nameField.value=data.path.split('/').pop()||'';ctx.form.dispatchEvent(new Event('input',{bubbles:true}));root.hidden=true};root.append(choose)}for(const folder of data.folders){const b=element('button','text-button',folder.split('/').pop());b.type='button';b.onclick=()=>void browseFolder(folder).catch(e=>ctx.notify(e.message));root.append(b)}if(data.limited)root.append(element('small','','Suche begrenzt; bitte einen Unterordner wählen.'))}
+ async function browseFolder(folder=''){
+  const data=await ctx.api<{path:string;folders:string[];samples:string[];limited:boolean}>('/api/cameras/folders?path='+encodeURIComponent(folder));
+  const root=$('folder-browser');
+  root.hidden=false;
+  root.replaceChildren();
+  root.append(element('strong','',data.path==='.'?'Aufnahmeverzeichnis':data.path));
+  if(data.path!=='.'){
+   const back=element('button','text-button','↑ Übergeordneter Ordner');
+   back.type='button';
+   back.onclick=()=>void browseFolder(data.path.split('/').slice(0,-1).join('/')).catch(e=>ctx.notify(e.message));
+   root.append(back);
+   const choose=element('button','button secondary','Diesen Ordner verwenden');
+   choose.type='button';
+   choose.onclick=()=>{
+    const folderField=ctx.form.elements.namedItem('folder') as HTMLInputElement,nameField=ctx.form.elements.namedItem('name') as HTMLInputElement,previous=folderField.value.split('/').pop();
+    folderField.value=data.path;
+    if(!nameField.value||nameField.value===previous)nameField.value=data.path.split('/').pop()||'';
+    ctx.form.dispatchEvent(new Event('input',{bubbles:true}));
+    root.hidden=true
+   };
+   root.append(choose)
+  }
+  for(const folder of data.folders){
+   const b=element('button','text-button',folder.split('/').pop());
+   b.type='button';
+   b.onclick=()=>void browseFolder(folder).catch(e=>ctx.notify(e.message));
+   root.append(b)
+  }
+  if(data.limited)root.append(element('small','','Suche begrenzt; bitte einen Unterordner wählen.'))
+ }
  on('browse-folder',()=>browseFolder());
  // The search field is inserted once the camera editor has arranged the page.
  function mountSearch(){$('camera-list').before(cameraSearch);cameraSearch.addEventListener('input',renderCameraList);}

@@ -226,3 +226,38 @@ func TestCachePruneRemovesOldestPreviewsOnlyOverBudget(t *testing.T) {
 		}
 	}
 }
+
+// index.html links its scripts and styles with their content version; only a
+// request for the current version may be cached without revalidation.
+func TestVersionedAssetLinksAreImmutable(t *testing.T) {
+	a := testApp(t)
+	page := `<script src="/theme.js"></script><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script><link rel="icon" href="/favicon.svg">`
+	a.assets = fstest.MapFS{"index.html": {Data: []byte(page)}, "app.js": {Data: []byte("export {}")}, "style.css": {Data: []byte("body{}")}, "theme.js": {Data: []byte("void 0")}, "favicon.svg": {Data: []byte("<svg/>")}}
+	html := assetRequest(a, "/", nil)
+	if html.Code != 200 || html.Header().Get("Cache-Control") != "no-cache" {
+		t.Fatal(html.Code, html.Header())
+	}
+	body := html.Body.String()
+	if !strings.Contains(body, `href="/favicon.svg"`) {
+		t.Fatal("unversioned link changed", body)
+	}
+	for _, name := range versionedAssets {
+		version := a.staticAssets()[name].version
+		link := "/" + name + "?v=" + version
+		if version == "" || !strings.Contains(body, `"`+link+`"`) {
+			t.Fatal("missing versioned link", name, body)
+		}
+		if w := assetRequest(a, link, nil); w.Code != 200 || w.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+			t.Fatal(name, w.Code, w.Header())
+		}
+		// An outdated or foreign version still gets the current file, but revalidated.
+		if w := assetRequest(a, "/"+name+"?v=outdated", nil); w.Code != 200 || w.Header().Get("Cache-Control") != "no-cache" {
+			t.Fatal(name, w.Code, w.Header())
+		}
+	}
+	// The page names exactly the versions it links, so a change of the page's
+	// content follows every change of a linked file.
+	if etag := html.Header().Get("ETag"); etag == "" || assetRequest(a, "/", map[string]string{"If-None-Match": etag}).Code != http.StatusNotModified {
+		t.Fatal("index.html not revalidated", etag)
+	}
+}

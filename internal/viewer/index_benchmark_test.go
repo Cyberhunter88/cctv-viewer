@@ -77,7 +77,7 @@ func BenchmarkDayRecordings(b *testing.B) {
 	a, c := benchmarkArchive(b)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := a.db.DayRecordings([]Camera{c}, 1791950400, 1792036800); err != nil {
+		if _, err := a.db.DayRecordings(context.Background(), []Camera{c}, 1791950400, 1792036800); err != nil {
 			b.Fatal(err)
 		}
 	}

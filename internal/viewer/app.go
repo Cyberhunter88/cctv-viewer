@@ -227,10 +227,14 @@ func (a *App) Handler() http.Handler {
 			return
 		}
 		// The bundle has fixed names, so browsers revalidate instead of
-		// downloading it again on every visit.
+		// downloading it again on every visit. A link carrying the current
+		// content version names exactly this content and never needs that.
 		header := w.Header()
 		header.Set("Content-Type", item.contentType)
 		header.Set("Cache-Control", "no-cache")
+		if version := r.URL.Query().Get("v"); version != "" && version == item.version {
+			header.Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
 		header.Add("Vary", "Accept-Encoding")
 		body, etag := item.body, item.etag
 		if item.gzip != nil && acceptsGzip(r.Header.Get("Accept-Encoding")) {
@@ -262,6 +266,8 @@ func (a *App) Handler() http.Handler {
 				fail(w, 500, "Interner Fehler")
 			}
 		}()
+		// Removed endpoints answer 404 for every method. Without this list the mux
+		// would answer other methods than GET with 405 and reveal the old routes.
 		for _, retired := range []string{"/api/bookmarks", "/api/exports", "/api/calendar", "/api/recorded-day", "/api/camera-status"} {
 			if r.URL.Path == retired || strings.HasPrefix(r.URL.Path, retired+"/") {
 				http.NotFound(w, r)
@@ -276,7 +282,13 @@ type staticAsset struct {
 	body, gzip     []byte
 	etag, gzipETag string
 	contentType    string
+	// version identifies the content; index.html links it as ?v=<version>.
+	version string
 }
+
+// versionedAssets are linked from index.html with their content version, so a
+// request carrying the current version may be cached without revalidation.
+var versionedAssets = []string{"theme.js", "style.css", "app.js"}
 
 var staticAssetTypes = map[string]string{
 	"index.html":          "text/html; charset=utf-8",
@@ -293,30 +305,47 @@ var staticAssetTypes = map[string]string{
 }
 
 // staticAssets reads the embedded files once and prepares their compressed
-// variants and validators.
+// variants and validators. index.html is prepared last, because it links the
+// other files with their content versions.
 func (a *App) staticAssets() map[string]staticAsset {
 	a.assetOnce.Do(func() {
 		a.assetCache = map[string]staticAsset{}
 		for name, contentType := range staticAssetTypes {
-			body, e := fs.ReadFile(a.assets, name)
-			if e != nil {
+			if name == "index.html" {
 				continue
 			}
-			sum := sha256.Sum256(body)
-			tag := hex.EncodeToString(sum[:12])
-			item := staticAsset{body: body, etag: `"` + tag + `"`, contentType: contentType}
-			if name != "favicon.ico" {
-				var packed bytes.Buffer
-				writer, _ := gzip.NewWriterLevel(&packed, gzip.BestCompression)
-				writer.Write(body)
-				if writer.Close() == nil && packed.Len() < len(body) {
-					item.gzip, item.gzipETag = packed.Bytes(), `"`+tag+`-gzip"`
-				}
+			if body, e := fs.ReadFile(a.assets, name); e == nil {
+				a.assetCache[name] = newStaticAsset(body, contentType, name != "favicon.ico")
 			}
-			a.assetCache[name] = item
 		}
+		body, e := fs.ReadFile(a.assets, "index.html")
+		if e != nil {
+			return
+		}
+		html := string(body)
+		for _, name := range versionedAssets {
+			if item, ok := a.assetCache[name]; ok {
+				html = strings.ReplaceAll(html, `"/`+name+`"`, `"/`+name+`?v=`+item.version+`"`)
+			}
+		}
+		a.assetCache["index.html"] = newStaticAsset([]byte(html), staticAssetTypes["index.html"], true)
 	})
 	return a.assetCache
+}
+
+func newStaticAsset(body []byte, contentType string, compress bool) staticAsset {
+	sum := sha256.Sum256(body)
+	tag := hex.EncodeToString(sum[:12])
+	item := staticAsset{body: body, etag: `"` + tag + `"`, contentType: contentType, version: tag}
+	if compress {
+		var packed bytes.Buffer
+		writer, _ := gzip.NewWriterLevel(&packed, gzip.BestCompression)
+		writer.Write(body)
+		if writer.Close() == nil && packed.Len() < len(body) {
+			item.gzip, item.gzipETag = packed.Bytes(), `"`+tag+`-gzip"`
+		}
+	}
+	return item
 }
 
 func acceptsGzip(header string) bool {
@@ -334,7 +363,7 @@ func acceptsGzip(header string) bool {
 
 // listCameras answers the camera list with index statistics and source state.
 func (a *App) listCameras(w http.ResponseWriter, r *http.Request) {
-	cams, e := a.db.Cameras()
+	cams, e := a.db.CamerasContext(r.Context())
 	if e != nil {
 		fail(w, 500, "Kameras nicht lesbar")
 		return
@@ -571,12 +600,12 @@ func (a *App) day(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, e.Error())
 		return
 	}
-	cams, e := a.db.Cameras()
+	cams, e := a.db.CamerasContext(r.Context())
 	if e != nil {
 		fail(w, 500, "Index nicht lesbar")
 		return
 	}
-	out, e := a.db.DayRecordings(cams, float64(from.Unix()), float64(to.Unix()))
+	out, e := a.db.DayRecordings(r.Context(), cams, float64(from.Unix()), float64(to.Unix()))
 	if e != nil {
 		fail(w, 500, "Index nicht lesbar")
 		return
