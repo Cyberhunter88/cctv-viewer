@@ -194,12 +194,21 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		item.file = file
 		return item
 	}
-	// apply writes through the transaction of the batch it belongs to.
+	// apply writes through the transaction of the batch it belongs to. Camera
+	// changes hold the index mutex while they wait for the single writer
+	// connection, so progress and warnings are only recorded here and reported
+	// once the transaction has ended; taking the mutex inside it would deadlock.
 	var tx *sql.Tx
+	var reports []func()
+	report := func(kind string) { reports = append(reports, func() { a.progress(c, kind) }) }
 	apply := func(item *pending) error {
 		inspected++
-		a.progress(c, "inspected")
-		skip := func(message string) { healthy = false; a.progress(c, "skipped"); a.warn(c.Name + ": " + message) }
+		report("inspected")
+		skip := func(message string) {
+			healthy = false
+			report("skipped")
+			reports = append(reports, func() { a.warn(c.Name + ": " + message) })
+		}
 		if item.skip != "" {
 			skip(item.skip)
 			return nil
@@ -240,9 +249,9 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		}
 		updated++
 		if item.exists {
-			a.progress(c, "changed")
+			report("changed")
 		} else {
-			a.progress(c, "added")
+			report("added")
 		}
 		return nil
 	}
@@ -302,7 +311,13 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		if tx, err = a.db.BeginTx(a.ctx, nil); err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() {
+			tx.Rollback()
+			for _, notify := range reports {
+				notify()
+			}
+			reports = reports[:0]
+		}()
 		for _, item := range planned {
 			if err := apply(item); err != nil {
 				return err
