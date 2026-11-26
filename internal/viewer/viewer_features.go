@@ -129,6 +129,7 @@ func (a *App) rebuildIndex(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Index konnte nicht geleert werden")
 		return
 	}
+	a.db.RecordingsChanged()
 	a.index.last = map[string]time.Time{}
 	a.cacheMu.Lock()
 	entries, _ := os.ReadDir(filepath.Join(a.config().DataDir, "cache"))
