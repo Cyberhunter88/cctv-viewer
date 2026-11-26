@@ -305,3 +305,69 @@ func TestTimestampCachesReturnStableResults(t *testing.T) {
 		t.Fatal("mismatching Reolink folder accepted")
 	}
 }
+
+// Camera changes hold the index mutex while they write. The batch transaction of a
+// running scan must therefore never wait for that mutex, or both block each other.
+func TestIndexBatchDoesNotDeadlockWithCameraChanges(t *testing.T) {
+	a := testApp(t)
+	original := scanProbe
+	t.Cleanup(func() { scanProbe = original })
+	scanProbe = func(ctx context.Context, f *os.File) (float64, string, time.Time, error) {
+		return 60, "h264", time.Time{}, nil
+	}
+	camera := Camera{ID: "cam", Name: "Kamera", Folder: "cam", Pattern: "{YYYY}{MM}{DD}{hh}{mm}{ss}.mp4", Timezone: "UTC", Format: "custom"}
+	if err := a.db.SaveCamera(camera); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(a.cfg.RecordingsDir, camera.Folder)
+	if err := os.MkdirAll(folder, 0700); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	for i := 0; i < 2000; i++ {
+		path := filepath.Join(folder, fmt.Sprintf("202603%02d%02d%02d00.mp4", 1+i/1440, (i/60)%24, i%60))
+		if err := os.WriteFile(path, []byte{1}, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.index.mu.Lock()
+	a.index.status.Cameras = []CameraScanStatus{{ID: camera.ID, Name: camera.Name, State: "running"}}
+	a.index.mu.Unlock()
+	stop := make(chan struct{})
+	writer := make(chan struct{})
+	go func() {
+		defer close(writer)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			a.index.mu.Lock()
+			a.db.Exec(`UPDATE cameras SET name=name WHERE id=?`, camera.ID)
+			a.index.mu.Unlock()
+		}
+	}()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.scanPartition(camera, camera.Folder, 0, math.MaxInt64)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("index batch and camera change deadlocked")
+	}
+	close(stop)
+	<-writer
+	var count int
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM recordings WHERE camera_id=?`, camera.ID).Scan(&count); err != nil || count != 2000 {
+		t.Fatal(count, err)
+	}
+	if got := a.scanStatus().Cameras[0].Added; got != 2000 {
+		t.Fatal("progress lost", got)
+	}
+}

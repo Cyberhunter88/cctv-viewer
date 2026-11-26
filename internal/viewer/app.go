@@ -52,6 +52,8 @@ type App struct {
 	encoderActive   int
 	metrics         counters
 	cacheMu         sync.Mutex
+	// usageMu serializes stream size measurements and guards stream.sizes.
+	usageMu         sync.Mutex
 	thumbSlots      chan struct{}
 	assets          fs.FS
 	hardwareBlocked atomic.Int64
@@ -326,9 +328,9 @@ type staticAsset struct {
 }
 
 var staticAssetTypes = map[string]string{
-	"index.html":    "text/html; charset=utf-8",
-	"app.js":        "text/javascript; charset=utf-8",
-	"chunks/hls.js": "text/javascript; charset=utf-8",
+	"index.html":          "text/html; charset=utf-8",
+	"app.js":              "text/javascript; charset=utf-8",
+	"chunks/hls.light.js": "text/javascript; charset=utf-8",
 	// Shared code and the administration pages, which load after sign-in.
 	"chunks/chunk.js":      "text/javascript; charset=utf-8",
 	"chunks/management.js": "text/javascript; charset=utf-8",
