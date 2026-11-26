@@ -63,8 +63,8 @@ func login(t *testing.T, a *App) (*http.Cookie, Session) {
 }
 func TestHLSChunkIsServedAsJavaScript(t *testing.T) {
 	a := testApp(t)
-	a.assets = fstest.MapFS{"index.html": {Data: []byte("test")}, "chunks/hls.js": {Data: []byte("export const ready = true")}}
-	w := request(a, "GET", "/chunks/hls.js", nil, nil, "")
+	a.assets = fstest.MapFS{"index.html": {Data: []byte("test")}, "chunks/hls.light.js": {Data: []byte("export const ready = true")}}
+	w := request(a, "GET", "/chunks/hls.light.js", nil, nil, "")
 	if w.Code != 200 || w.Header().Get("Content-Type") != "text/javascript; charset=utf-8" || !strings.Contains(w.Body.String(), "ready") {
 		t.Fatal(w.Code, w.Header().Get("Content-Type"), w.Body.String())
 	}

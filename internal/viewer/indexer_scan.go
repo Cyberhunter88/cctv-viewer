@@ -3,6 +3,7 @@ package viewer
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -195,17 +196,28 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		item.file = file
 		return item
 	}
+	// apply writes through the transaction of the batch it belongs to. Camera
+	// changes hold the index mutex while they wait for the single writer
+	// connection, so progress and warnings are only recorded here and reported
+	// once the transaction has ended; taking the mutex inside it would deadlock.
+	var tx *sql.Tx
+	var reports []func()
+	report := func(kind string) { reports = append(reports, func() { a.progress(c, kind) }) }
 	apply := func(item *pending) error {
 		inspected++
-		a.progress(c, "inspected")
-		skip := func(message string) { healthy = false; a.progress(c, "skipped"); a.warn(c.Name + ": " + message) }
+		report("inspected")
+		skip := func(message string) {
+			healthy = false
+			report("skipped")
+			reports = append(reports, func() { a.warn(c.Name + ": " + message) })
+		}
 		if item.skip != "" {
 			skip(item.skip)
 			return nil
 		}
 		if item.ignore {
 			if item.settle {
-				if _, e := a.db.ExecContext(a.ctx, `UPDATE recordings SET settled=1 WHERE camera_id=? AND path=? AND settled=0`, c.ID, item.name); e != nil {
+				if _, e := tx.ExecContext(a.ctx, `UPDATE recordings SET settled=1 WHERE camera_id=? AND path=? AND settled=0`, c.ID, item.name); e != nil {
 					skip("Index konnte nicht gespeichert werden")
 				}
 			}
@@ -232,16 +244,16 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		}
 		h := sha256.Sum256([]byte(c.ID + "\x00" + item.name))
 		id := hex.EncodeToString(h[:16])
-		_, e := a.db.ExecContext(a.ctx, `INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod,filename) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(camera_id,path) DO UPDATE SET start=excluded.start,duration=excluded.duration,codec=excluded.codec,size=excluded.size,mod=excluded.mod,filename=excluded.filename,settled=0`, id, c.ID, item.name, float64(start.UnixNano())/1e9, item.duration, item.codec, item.size, item.mod, filepath.Base(item.name))
+		_, e := tx.ExecContext(a.ctx, `INSERT INTO recordings(id,camera_id,path,start,duration,codec,size,mod,filename) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(camera_id,path) DO UPDATE SET start=excluded.start,duration=excluded.duration,codec=excluded.codec,size=excluded.size,mod=excluded.mod,filename=excluded.filename,settled=0`, id, c.ID, item.name, float64(start.UnixNano())/1e9, item.duration, item.codec, item.size, item.mod, filepath.Base(item.name))
 		if e != nil {
 			skip("Index konnte nicht gespeichert werden")
 			return nil
 		}
 		updated++
 		if item.exists {
-			a.progress(c, "changed")
+			report("changed")
 		} else {
-			a.progress(c, "added")
+			report("added")
 		}
 		return nil
 	}
@@ -296,10 +308,29 @@ func (a *App) scanPartitionMode(c Camera, p string, from, to int64, incremental 
 		}
 		probes.Wait()
 		batch = batch[:0]
+		// One transaction per batch replaces a commit per recording. The probes
+		// above ran before it began, so the writer is held only for the inserts.
+		if tx, err = a.db.BeginTx(a.ctx, nil); err != nil {
+			return err
+		}
+		defer func() {
+			tx.Rollback()
+			for _, notify := range reports {
+				notify()
+			}
+			reports = reports[:0]
+		}()
 		for _, item := range planned {
 			if err := apply(item); err != nil {
 				return err
 			}
+		}
+		if err := tx.Commit(); err != nil {
+			if a.ctx.Err() != nil {
+				return a.ctx.Err()
+			}
+			healthy = false
+			a.warn(c.Name + ": Index konnte nicht gespeichert werden")
 		}
 		return nil
 	}

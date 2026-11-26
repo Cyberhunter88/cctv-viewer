@@ -142,7 +142,8 @@ func (a *App) pruneStreams() {
 }
 
 // pruneCache removes the least recently used previews once the cache directory,
-// including temporary streams, exceeds three quarters of its budget.
+// including temporary streams, exceeds three quarters of its budget. Directories of
+// active streams are measured incrementally instead of being walked file by file.
 func (a *App) pruneCache() {
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
@@ -151,10 +152,21 @@ func (a *App) pruneCache() {
 		time time.Time
 		size int64
 	}
+	active, used := a.measureStreams()
+	skip := make(map[string]bool, len(active))
+	for s := range active {
+		skip[s.dir] = true
+	}
 	entries := []entry{}
-	var used int64
-	filepath.WalkDir(filepath.Join(a.config().DataDir, "cache"), func(p string, d fs.DirEntry, e error) error {
-		if e != nil || d.IsDir() {
+	root := filepath.Join(a.config().DataDir, "cache")
+	filepath.WalkDir(root, func(p string, d fs.DirEntry, e error) error {
+		if e != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if skip[p] {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		st, e := d.Info()
@@ -182,36 +194,85 @@ func (a *App) pruneCache() {
 	}
 }
 
-func (a *App) streamUsage() int64 {
+// measureStreams reports the bytes every active stream occupies and their total.
+func (a *App) measureStreams() (map[*stream]int64, int64) {
 	a.mediaMu.Lock()
-	dirs := []string{}
+	active := make([]*stream, 0, len(a.streams))
 	for _, s := range a.streams {
-		dirs = append(dirs, s.dir)
+		active = append(active, s)
 	}
 	a.mediaMu.Unlock()
+	a.usageMu.Lock()
+	defer a.usageMu.Unlock()
+	sizes := make(map[*stream]int64, len(active))
 	var total int64
-	for _, dir := range dirs {
-		filepath.WalkDir(dir, func(p string, d fs.DirEntry, e error) error {
-			if e == nil && !d.IsDir() {
-				if st, e := d.Info(); e == nil {
-					total += st.Size()
-				}
-			}
-			return nil
-		})
+	for _, s := range active {
+		size := s.measure()
+		sizes[s] = size
+		total += size
+	}
+	return sizes, total
+}
+
+// measure sums the files of the stream directory. Segments other than the newest
+// one are complete, so their sizes are remembered and not read again. The caller
+// holds App.usageMu.
+func (s *stream) measure() int64 {
+	entries, e := os.ReadDir(s.dir)
+	if e != nil {
+		return 0
+	}
+	if s.sizes == nil {
+		s.sizes = map[string]int64{}
+	}
+	// ReadDir sorts by name, so the last segment is the one FFmpeg may be writing.
+	newest := -1
+	for i, entry := range entries {
+		if isSegment(entry.Name()) {
+			newest = i
+		}
+	}
+	var total int64
+	for i, entry := range entries {
+		name := entry.Name()
+		if size, ok := s.sizes[name]; ok {
+			total += size
+			continue
+		}
+		if entry.IsDir() {
+			continue
+		}
+		st, e := entry.Info()
+		if e != nil {
+			continue
+		}
+		total += st.Size()
+		if i != newest && isSegment(name) {
+			s.sizes[name] = st.Size()
+		}
 	}
 	return total
 }
+
+func isSegment(name string) bool {
+	return strings.HasPrefix(name, "segment-") && strings.HasSuffix(name, ".ts")
+}
+
+func (a *App) streamUsage() int64 {
+	_, total := a.measureStreams()
+	return total
+}
+
 func (a *App) enforceStreamBudget() {
-	if a.streamUsage() <= a.config().HLSTempBytes {
+	sizes, total := a.measureStreams()
+	budget := a.config().HLSTempBytes
+	if total <= budget {
 		return
 	}
-	a.mediaMu.Lock()
-	ordered := []*stream{}
-	for _, s := range a.streams {
+	ordered := make([]*stream, 0, len(sizes))
+	for s := range sizes {
 		ordered = append(ordered, s)
 	}
-	a.mediaMu.Unlock()
 	sort.Slice(ordered, func(i, j int) bool {
 		select {
 		case <-ordered[i].done:
@@ -230,10 +291,11 @@ func (a *App) enforceStreamBudget() {
 		return ordered[i].created.Before(ordered[j].created)
 	})
 	for _, s := range ordered {
-		if a.streamUsage() <= a.config().HLSTempBytes {
+		if total <= budget {
 			break
 		}
 		a.removeStream(s.id)
+		total -= sizes[s]
 	}
 }
 
