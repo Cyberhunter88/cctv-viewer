@@ -16,18 +16,31 @@ function switchPage(path:string,fromHistory:boolean){
  }
  if(current==='recordings')onLeaveRecordings();
  for(const page of pages.values())page.element.hidden=page.element!==next.element;
- const initial=!current;current=path;
- if(!fromHistory){historyIndex++;history.pushState({...history.state,cctvPageIndex:historyIndex},'','#'+path)}else{historyIndex=initial?(typeof history.state?.cctvPageIndex==='number'?history.state.cctvPageIndex:0):targetIndex;history.replaceState({...history.state,cctvPageIndex:historyIndex},'','#'+path)}
+ const initial=!current;
+ current=path;
+ if(!fromHistory){
+  historyIndex++;
+  history.pushState({...history.state,cctvPageIndex:historyIndex},'','#'+path)
+ }else{
+  historyIndex=initial?(typeof history.state?.cctvPageIndex==='number'?history.state.cctvPageIndex:0):targetIndex;
+  history.replaceState({...history.state,cctvPageIndex:historyIndex},'','#'+path)
+ }
  document.title='CCTV Viewer · '+next.title;
  for(const link of document.querySelectorAll<HTMLAnchorElement>('[data-page]')){
   const active=link.dataset.page===path||link.dataset.page==='admin/cameras'&&path.startsWith('admin/cameras/');link.classList.toggle('active',active);
   if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');
   if(active){const group=link.closest('details');if(group)group.open=true}
  }
- const settings=isSettingsPage(path);if(settings)lastSettings=path.startsWith('admin/cameras/')?'admin/cameras':path;
+ const settings=isSettingsPage(path);
+ if(settings)lastSettings=path.startsWith('admin/cameras/')?'admin/cameras':path;
  document.documentElement.classList.toggle('settings-open',settings);
- const settingsNav=document.getElementById('settings-nav');if(settingsNav)settingsNav.hidden=!settings;
- for(const link of document.querySelectorAll<HTMLAnchorElement>('[data-section="settings"]')){link.classList.toggle('active',settings);if(settings)link.setAttribute('aria-current','true');else link.removeAttribute('aria-current');link.href='#'+lastSettings}
+ const settingsNav=document.getElementById('settings-nav');
+ if(settingsNav)settingsNav.hidden=!settings;
+ for(const link of document.querySelectorAll<HTMLAnchorElement>('[data-section="settings"]')){
+  link.classList.toggle('active',settings);
+  if(settings)link.setAttribute('aria-current','true');else link.removeAttribute('aria-current');
+  link.href='#'+lastSettings
+ }
  document.querySelector('#settings-nav [aria-current=page]')?.scrollIntoView({block:'nearest',inline:'center'});
  document.documentElement.classList.remove('mobile-nav-open');
  document.getElementById('mobile-nav-toggle')?.setAttribute('aria-expanded','false');
@@ -37,9 +50,15 @@ function switchPage(path:string,fromHistory:boolean){
  window.scrollTo(0,0);
 }
 export function startNavigation(admin:()=>boolean,pause:()=>void){
- isAdmin=admin;onLeaveRecordings=pause;
+ isAdmin=admin;
+ onLeaveRecordings=pause;
  for(const node of document.querySelectorAll<HTMLElement>('[data-admin]'))node.hidden=!isAdmin();
- document.addEventListener('click',event=>{const link=(event.target as Element).closest<HTMLAnchorElement>('a[data-page],a[data-section]');if(!link||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||event.button!==0)return;event.preventDefault();navigate(link.dataset.page??(pages.get(lastSettings)?.admin&&!isAdmin()?'settings/appearance':lastSettings))});
+ document.addEventListener('click',event=>{
+  const link=(event.target as Element).closest<HTMLAnchorElement>('a[data-page],a[data-section]');
+  if(!link||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||event.button!==0)return;
+  event.preventDefault();
+  navigate(link.dataset.page??(pages.get(lastSettings)?.admin&&!isAdmin()?'settings/appearance':lastSettings))
+ });
  window.addEventListener('hashchange',()=>switchPage(location.hash.slice(1)||'recordings',true));
  window.addEventListener('beforeunload',event=>{if(document.querySelector('[data-dirty="true"]')){event.preventDefault();event.returnValue=''}});
  switchPage(location.hash.slice(1)||'recordings',true);
@@ -50,6 +69,18 @@ export function formGuard(form:HTMLFormElement){
  let baseline:ReturnType<typeof value>[]=[];
  const dirty=()=>fields().some((e,i)=>value(e)!==baseline[i]);
  const update=()=>form.dataset.dirty=String(dirty());
- form.addEventListener('input',update);form.addEventListener('change',update);
- return {clean(){baseline=fields().map(value);update()},leave(){if(!dirty())return true;if(!confirm('Ungespeicherte Änderungen verwerfen?'))return false;fields().forEach((e,i)=>{if(e instanceof HTMLInputElement&&(e.type==='checkbox'||e.type==='radio'))e.checked=!!baseline[i];else e.value=String(baseline[i]??'')});update();return true}};
+ form.addEventListener('input',update);
+ form.addEventListener('change',update);
+ return {clean(){
+  baseline=fields().map(value);
+  update()
+ },leave(){
+  if(!dirty())return true;
+  if(!confirm('Ungespeicherte Änderungen verwerfen?'))return false;
+  fields().forEach((e,i)=>{
+   if(e instanceof HTMLInputElement&&(e.type==='checkbox'||e.type==='radio'))e.checked=!!baseline[i];else e.value=String(baseline[i]??'')
+  });
+  update();
+  return true
+ }};
 }

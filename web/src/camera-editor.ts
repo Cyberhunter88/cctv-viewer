@@ -32,7 +32,13 @@ export function initCameraEditor(form:HTMLFormElement,dialog:HTMLElement,onSaved
   $('camera-editor-title').textContent='Neue Kamera';$<HTMLDetailsElement>('camera-advanced').open=false;
   cameraFormatChanged();markCameraSaved();
  }
- function showCameraEditor(){form.dispatchEvent(new Event('cameraeditorchange'));dialog.classList.add('camera-editing');dialog.scrollTop=0;$('camera-editor-title').focus({preventScroll:true});if(matchMedia('(max-width:899px)').matches)$('camera-editor-title').closest('.camera-settings-editor')?.scrollIntoView({block:'start'})}
+ function showCameraEditor(){
+  form.dispatchEvent(new Event('cameraeditorchange'));
+  dialog.classList.add('camera-editing');
+  dialog.scrollTop=0;
+  $('camera-editor-title').focus({preventScroll:true});
+  if(matchMedia('(max-width:899px)').matches)$('camera-editor-title').closest('.camera-settings-editor')?.scrollIntoView({block:'start'})
+ }
  function editCamera(camera:CameraEditorCamera){
   form.reset();
   for(const [key,value] of Object.entries(camera)){
@@ -45,7 +51,13 @@ export function initCameraEditor(form:HTMLFormElement,dialog:HTMLElement,onSaved
   $<HTMLDetailsElement>('camera-advanced').open=!!(camera.offset||camera.format&&camera.format!=='automatic'||camera.timezone!=='Europe/Berlin');
   cameraFormatChanged();markCameraSaved();
  }
- async function leaveCameraEditor(){if(saving()||!await confirmDiscard())return;resetCamera();dialog.classList.remove('camera-editing');form.dispatchEvent(new Event('cameraeditorclosed'));$('new-camera').focus()}
+ async function leaveCameraEditor(){
+  if(saving()||!await confirmDiscard())return;
+  resetCamera();
+  dialog.classList.remove('camera-editing');
+  form.dispatchEvent(new Event('cameraeditorclosed'));
+  $('new-camera').focus()
+ }
  form.addEventListener('input',()=>form.dataset.dirty=String(cameraDirty()));
  form.addEventListener('change',()=>form.dataset.dirty=String(cameraDirty()));
  $<HTMLSelectElement>('camera-format').addEventListener('change',cameraFormatChanged);

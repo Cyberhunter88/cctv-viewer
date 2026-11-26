@@ -15,7 +15,14 @@ export function initCameraSettings(form:HTMLFormElement,dialog:HTMLElement,live:
   panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',button.id);
   button.onclick=()=>show(key);buttons.set(key,button);
  }
- tabs.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const keys=[...buttons.keys()],index=keys.indexOf(active);const key=event.key==='Home'?keys[0]:event.key==='End'?keys.at(-1)!:keys[(index+(event.key==='ArrowRight'?1:2))%3];show(key);buttons.get(key)!.focus()});
+ tabs.addEventListener('keydown',event=>{
+  if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+  event.preventDefault();
+  const keys=[...buttons.keys()],index=keys.indexOf(active);
+  const key=event.key==='Home'?keys[0]:event.key==='End'?keys.at(-1)!:keys[(index+(event.key==='ArrowRight'?1:2))%3];
+  show(key);
+  buttons.get(key)!.focus()
+ });
  function id(){return (form.elements.namedItem('id') as HTMLInputElement).value}
  function show(key:string){
   active=key;empty.hidden=opened;heading.hidden=!opened;tabs.hidden=!opened;
@@ -46,6 +53,12 @@ export function initCameraSettings(form:HTMLFormElement,dialog:HTMLElement,live:
   panels.list.hidden=key!=='list';panels.maintenance.hidden=key!=='maintenance';
  }
  for(const [key,button] of sections)button.onclick=()=>showSection(key as 'list'|'maintenance');
- byId('camera-section-list').parentElement!.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();const key=event.key==='ArrowRight'?'maintenance':'list';showSection(key);sections.get(key)!.focus()});
+ byId('camera-section-list').parentElement!.addEventListener('keydown',event=>{
+  if(!['ArrowLeft','ArrowRight'].includes(event.key))return;
+  event.preventDefault();
+  const key=event.key==='ArrowRight'?'maintenance':'list';
+  showSection(key);
+  sections.get(key)!.focus()
+ });
  return {showSection,canChange,leave,show,selected,clear(){opened=false;previousID='';void live.load('');show('general')}};
 }

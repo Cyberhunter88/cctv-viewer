@@ -45,7 +45,12 @@ export function initPreferencesDialog(c:Context){
   if(theme!==c.state.theme){c.state.theme=theme;window.dispatchEvent(new CustomEvent('themecommit',{detail:theme}))}
   applyPreferences();c.renderCameras();persist();
  }
- for(const tab of ['appearance','playback'])registerPage('settings/'+tab,{element:preferences,group:'preferences',title:tab==='appearance'?'Darstellung':'Wiedergabe',enter:()=>{syncPreferences();status.textContent='';$('preferences-title').textContent=tab==='appearance'?'Darstellung':'Wiedergabe';for(const section of preferences.querySelectorAll<HTMLElement>('[data-preference-page]'))section.hidden=section.dataset.preferencePage!==tab},
+ for(const tab of ['appearance','playback'])registerPage('settings/'+tab,{element:preferences,group:'preferences',title:tab==='appearance'?'Darstellung':'Wiedergabe',enter:()=>{
+  syncPreferences();
+  status.textContent='';
+  $('preferences-title').textContent=tab==='appearance'?'Darstellung':'Wiedergabe';
+  for(const section of preferences.querySelectorAll<HTMLElement>('[data-preference-page]'))section.hidden=section.dataset.preferencePage!==tab
+ },
   // A value typed just before leaving is still stored.
   leave:()=>{if(typingTimer!==undefined)commit();return true}});
  on('preferences-close',()=>navigate('recordings'));
@@ -56,13 +61,23 @@ export function initPreferencesDialog(c:Context){
  preferencesForm.addEventListener('submit',e=>{e.preventDefault();commit()});
  on('preferences-reset',async()=>{
   if(!await confirmAction({title:'Einstellungen zurücksetzen',message:'Persönliche Einstellungen und Kameraauswahl werden auf die Standardwerte zurückgesetzt.',confirm:'Zurücksetzen',danger:true}))return;
-  clearTimeout(typingTimer);typingTimer=undefined;
+  clearTimeout(typingTimer);
+  typingTimer=undefined;
   const previous=c.snapshot();
-  Object.assign(c.state,defaultView());delete c.state.railCollapsed;c.state.theme='system';c.resetSelection();
+  Object.assign(c.state,defaultView());
+  delete c.state.railCollapsed;
+  c.state.theme='system';
+  c.resetSelection();
   for(const id of ['layout','quality','speed'] as const)$<HTMLSelectElement>(id).value=c.state[id];
   window.dispatchEvent(new CustomEvent('themecommit',{detail:'system'}));
-  c.setTimelineHeight(c.state.timelineHeight);c.applyRail();applyPreferences();c.releaseTiles();c.renderCameras();syncPreferences();
-  status.textContent='';persist();
+  c.setTimelineHeight(c.state.timelineHeight);
+  c.applyRail();
+  applyPreferences();
+  c.releaseTiles();
+  c.renderCameras();
+  syncPreferences();
+  status.textContent='';
+  persist();
   // The reset is saved at once; the message offers to restore the previous settings.
   c.notifyAction('Persönliche Einstellungen zurückgesetzt.','Rückgängig',()=>{c.restore(previous);syncPreferences();c.notify('Persönliche Einstellungen wiederhergestellt.')});
  });

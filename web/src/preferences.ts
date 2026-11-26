@@ -6,7 +6,11 @@ export class PreferenceWriter {
  private running?:Promise<void>;
  private write:(changes:Record<string,unknown>)=>Promise<unknown>;
  private status:(saving:boolean,error?:unknown)=>void;
- constructor(initial:Record<string,unknown>,write:(changes:Record<string,unknown>)=>Promise<unknown>,status:(saving:boolean,error?:unknown)=>void){this.baseline=structuredClone(initial);this.write=write;this.status=status}
+ constructor(initial:Record<string,unknown>,write:(changes:Record<string,unknown>)=>Promise<unknown>,status:(saving:boolean,error?:unknown)=>void){
+ this.baseline=structuredClone(initial);
+ this.write=write;
+ this.status=status
+}
  save(snapshot:Record<string,unknown>):Promise<void>{
   for(const [key,value] of Object.entries(snapshot))if(JSON.stringify(value)!==JSON.stringify(this.baseline[key]))this.pending[key]=structuredClone(value);
   this.baseline=structuredClone(snapshot);

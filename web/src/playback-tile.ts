@@ -30,7 +30,12 @@ export interface TileContext {
   notify: (message: string) => void;
   request: <T>(url: string, options?: RequestInit) => Promise<T>;
 }
-function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] { const e = document.createElement(tag); e.className = className; e.textContent = text; return e; }
+function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] {
+  const e = document.createElement(tag);
+  e.className = className;
+  e.textContent = text;
+  return e;
+}
 export type ControlIcon = 'expand' | 'collapse' | 'sound' | 'muted' | 'play' | 'pause' | 'back' | 'forward' | 'reconnect' | 'pip' | 'target';
 export function setControlIcon(button: Element, name: ControlIcon) {
   const paths: Record<ControlIcon, string> = { expand: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5', collapse: 'M3 8h5V3m13 5h-5V3M8 21v-5H3m13 5v-5h5', sound: 'M11 5 6 9H3v6h3l5 4V5Zm4 3a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14', muted: 'M11 5 6 9H3v6h3l5 4V5Zm5 4 5 6m0-6-5 6', play: 'M7 5v14l12-7L7 5Z', pause: 'M8 5v14m8-14v14', back: 'M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4', forward: 'M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4', reconnect: 'M20 11a8 8 0 0 0-14.6-4M4 4v4h4m-4 5a8 8 0 0 0 14.6 4M20 20v-4h-4', pip: 'M3 5h18v14H3zM12 12h7v5h-7z', target: 'M12 3v4m0 10v4M3 12h4m10 0h4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z' };
@@ -297,7 +302,14 @@ export class Tile {
       }
     });
   }
-  setAudio(enabled: boolean) { this.video.muted = !enabled; setControlIcon(this.audioButton, enabled ? 'sound' : 'muted'); this.audioButton.setAttribute('aria-pressed', String(enabled)); const label = `${enabled ? 'Ton ausschalten' : 'Ton einschalten'} · ${this.camera.name}${this.view === 'wide' ? ' · Weitwinkel' : this.view === 'zoom' ? ' · Zoom' : ''}`; this.audioButton.setAttribute('aria-label', label); this.audioButton.title = label; }
+  setAudio(enabled: boolean) {
+  this.video.muted = !enabled;
+  setControlIcon(this.audioButton, enabled ? 'sound' : 'muted');
+  this.audioButton.setAttribute('aria-pressed', String(enabled));
+  const label = `${enabled ? 'Ton ausschalten' : 'Ton einschalten'} · ${this.camera.name}${this.view === 'wide' ? ' · Weitwinkel' : this.view === 'zoom' ? ' · Zoom' : ''}`;
+  this.audioButton.setAttribute('aria-label', label);
+  this.audioButton.title = label;
+}
   startPlayback() {
     if (this.playPending) {
       return;
@@ -319,7 +331,10 @@ export class Tile {
       }
     });
   }
-  applyAspect() { this.container.style.aspectRatio = this.context.state.aspect === 'auto' ? `${this.video.videoWidth || 16} / ${this.video.videoHeight || 9}` : this.context.state.aspect === 'fill' ? '16 / 9' : this.context.state.aspect; this.video.style.objectFit = this.context.state.aspect === 'fill' ? 'cover' : 'contain'; }
+  applyAspect() {
+  this.container.style.aspectRatio = this.context.state.aspect === 'auto' ? `${this.video.videoWidth || 16} / ${this.video.videoHeight || 9}` : this.context.state.aspect === 'fill' ? '16 / 9' : this.context.state.aspect;
+  this.video.style.objectFit = this.context.state.aspect === 'fill' ? 'cover' : 'contain';
+}
   fail(message: string) { const record = this.record; this.release(); this.record = record; this.failed = true; this.setMessage(message + ' · Bitte erneut versuchen.', true); }
   recover(message: string) {
     if (this.failed) {

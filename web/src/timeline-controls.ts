@@ -4,7 +4,10 @@ export function attachTimelineControls(canvas:HTMLCanvasElement,c:Context){
  const timeAt=(x:number)=>{const rect=canvas.getBoundingClientRect(),b=c.bounds();return b.viewStart+clamp((x-rect.left-85)/Math.max(1,rect.width-100),0,1)*(b.viewEnd-b.viewStart)};
  const tooltip=document.getElementById('timeline-tooltip');
  // The tooltip shows the time under the pointer and, after a short pause, a frame of the recording there.
- const label=document.createElement('span'),image=document.createElement('img');image.alt='';image.hidden=true;tooltip?.replaceChildren(label,image);
+ const label=document.createElement('span'),image=document.createElement('img');
+ image.alt='';
+ image.hidden=true;
+ tooltip?.replaceChildren(label,image);
  let previewTimer:ReturnType<typeof setTimeout>|undefined,previewURL='';
  const hidePreview=()=>{clearTimeout(previewTimer);previewURL='';image.hidden=true;image.removeAttribute('src');tooltip?.classList.remove('with-preview')};
  const hideTooltip=()=>{hidePreview();if(tooltip)tooltip.hidden=true};
@@ -15,17 +18,88 @@ export function attachTimelineControls(canvas:HTMLCanvasElement,c:Context){
   hidePreview();if(!url)return;
   previewURL=url;previewTimer=setTimeout(()=>{image.src=url},150);
  };
- const pointers=new Map<number,{x:number;y:number}>();let initialX=0,initialStart=0,initialEnd=0,distance=0,moved=false;
- canvas.addEventListener('pointerdown',e=>{hideTooltip();canvas.focus();pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});canvas.setPointerCapture(e.pointerId);const b=c.bounds();initialX=e.clientX;initialStart=b.viewStart;initialEnd=b.viewEnd;distance=0;moved=false;if(e.pointerType!=='touch'&&!e.shiftKey)c.seek(timeAt(e.clientX))});
- canvas.addEventListener('pointermove',e=>{if(!pointers.has(e.pointerId)){if(pointers.size===0&&e.pointerType!=='touch'&&tooltip){const rect=canvas.getBoundingClientRect();if(e.clientX>=rect.left+85&&e.clientX<=rect.right-15){const time=timeAt(e.clientX),x=e.clientX-rect.left;tooltip.hidden=false;label.textContent=clock(time);tooltip.style.left=Math.round(x)+'px';tooltip.classList.toggle('flip',x>rect.width-200);showPreview(c.preview?.(time,e.clientY-rect.top))}else hideTooltip()}return}pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});moved=moved||Math.abs(e.clientX-initialX)>5;
-  if(pointers.size===2){moved=true;const [a,b]=[...pointers.values()];const next=Math.hypot(a.x-b.x,a.y-b.y);if(distance>0&&next>0)c.zoom(distance/next,timeAt((a.x+b.x)/2));distance=next;initialStart=c.bounds().viewStart;initialEnd=c.bounds().viewEnd;initialX=e.clientX;return}
-  if(e.pointerType==='touch'||e.shiftKey){const b=c.bounds(),span=initialEnd-initialStart;const delta=(e.clientX-initialX)/Math.max(1,canvas.clientWidth-100)*span;const start=clamp(initialStart-delta,b.from,b.to-span);c.pan(start,start+span)}else c.seek(timeAt(e.clientX));
+ const pointers=new Map<number,{x:number;y:number}>();
+ let initialX=0,initialStart=0,initialEnd=0,distance=0,moved=false;
+ canvas.addEventListener('pointerdown',e=>{
+  hideTooltip();
+  canvas.focus();
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  canvas.setPointerCapture(e.pointerId);
+  const b=c.bounds();
+  initialX=e.clientX;
+  initialStart=b.viewStart;
+  initialEnd=b.viewEnd;
+  distance=0;
+  moved=false;
+  if(e.pointerType!=='touch'&&!e.shiftKey)c.seek(timeAt(e.clientX))
  });
- const finish=(e:PointerEvent)=>{hideTooltip();if(e.type==='pointerup'&&e.pointerType==='touch'&&!moved&&pointers.size===1)c.seek(timeAt(e.clientX));pointers.delete(e.pointerId);distance=0;if(pointers.size===1){initialX=[...pointers.values()][0].x;initialStart=c.bounds().viewStart;initialEnd=c.bounds().viewEnd;moved=true}};
+ canvas.addEventListener('pointermove',e=>{
+  if(!pointers.has(e.pointerId)){
+   if(pointers.size===0&&e.pointerType!=='touch'&&tooltip){
+    const rect=canvas.getBoundingClientRect();
+    if(e.clientX>=rect.left+85&&e.clientX<=rect.right-15){
+     const time=timeAt(e.clientX),x=e.clientX-rect.left;
+     tooltip.hidden=false;
+     label.textContent=clock(time);
+     tooltip.style.left=Math.round(x)+'px';
+     tooltip.classList.toggle('flip',x>rect.width-200);
+     showPreview(c.preview?.(time,e.clientY-rect.top))
+    }else hideTooltip()
+   }
+   return
+  }
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  moved=moved||Math.abs(e.clientX-initialX)>5;
+  if(pointers.size===2){
+   moved=true;
+   const [a,b]=[...pointers.values()];
+   const next=Math.hypot(a.x-b.x,a.y-b.y);
+   if(distance>0&&next>0)c.zoom(distance/next,timeAt((a.x+b.x)/2));
+   distance=next;
+   initialStart=c.bounds().viewStart;
+   initialEnd=c.bounds().viewEnd;
+   initialX=e.clientX;
+   return
+  }
+  if(e.pointerType==='touch'||e.shiftKey){
+   const b=c.bounds(),span=initialEnd-initialStart;
+   const delta=(e.clientX-initialX)/Math.max(1,canvas.clientWidth-100)*span;
+   const start=clamp(initialStart-delta,b.from,b.to-span);
+   c.pan(start,start+span)
+  }else c.seek(timeAt(e.clientX));
+ });
+ const finish=(e:PointerEvent)=>{
+  hideTooltip();
+  if(e.type==='pointerup'&&e.pointerType==='touch'&&!moved&&pointers.size===1)c.seek(timeAt(e.clientX));
+  pointers.delete(e.pointerId);
+  distance=0;
+  if(pointers.size===1){
+   initialX=[...pointers.values()][0].x;
+   initialStart=c.bounds().viewStart;
+   initialEnd=c.bounds().viewEnd;
+   moved=true
+  }
+ };
  for(const event of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(event,e=>finish(e as PointerEvent));
  canvas.addEventListener('pointerleave',()=>{hideTooltip()});
  canvas.addEventListener('wheel',e=>{e.preventDefault();hideTooltip();c.zoom(e.deltaY>0?1.5:1/1.5,timeAt(e.clientX))},{passive:false});
  // The focused timeline is a slider: its keys always work, independent of the global shortcuts.
- canvas.addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey)return;const b=c.bounds(),target=keyboardSeekTarget(e.key,e.shiftKey,b.cursor,b.from,b.to,c.seekStep());if(target!==undefined){e.preventDefault();c.seek(target);return}if(e.key==='+'||e.key==='='){e.preventDefault();c.zoom(.5)}if(e.key==='-'){e.preventDefault();c.zoom(2)}});
+ canvas.addEventListener('keydown',e=>{
+  if(e.ctrlKey||e.metaKey||e.altKey)return;
+  const b=c.bounds(),target=keyboardSeekTarget(e.key,e.shiftKey,b.cursor,b.from,b.to,c.seekStep());
+  if(target!==undefined){
+   e.preventDefault();
+   c.seek(target);
+   return
+  }
+  if(e.key==='+'||e.key==='='){
+   e.preventDefault();
+   c.zoom(.5)
+  }
+  if(e.key==='-'){
+   e.preventDefault();
+   c.zoom(2)
+  }
+ });
  return ()=>{};
 }

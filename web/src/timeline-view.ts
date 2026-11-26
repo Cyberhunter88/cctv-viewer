@@ -20,7 +20,11 @@ export function createTimelineView(canvas:HTMLCanvasElement,overview:HTMLCanvasE
   for(const camera of frame.cameras){
    const ranges=frame.records.filter(record=>record.cameraId===camera.id&&record.start<frame.viewEnd&&record.start+record.duration>frame.viewStart);
    if(!ranges.length){const item=document.createElement('li');item.textContent=`${camera.name}: keine Aufnahme in diesem Zeitfenster`;list.append(item);continue}
-   for(const gap of gaps(frame.records,camera.id,frame.viewStart,frame.viewEnd)){const item=document.createElement('li');item.textContent=`${camera.name}: Lücke von ${clock(gap.start)} bis ${clock(gap.end)}`;list.append(item)}
+   for(const gap of gaps(frame.records,camera.id,frame.viewStart,frame.viewEnd)){
+    const item=document.createElement('li');
+    item.textContent=`${camera.name}: Lücke von ${clock(gap.start)} bis ${clock(gap.end)}`;
+    list.append(item)
+   }
    for(const record of ranges){
     const item=document.createElement('li'),start=Math.max(frame.viewStart,record.start),end=Math.min(frame.viewEnd,record.start+record.duration);
     const view=record.view==='wide'?' · Weitwinkel':record.view==='zoom'?' · Zoom':'';
@@ -63,7 +67,14 @@ export function createTimelineView(canvas:HTMLCanvasElement,overview:HTMLCanvasE
   if(timelineKey!==key||timelineRecords!==records){
    ctx.font='11px system-ui';ctx.textAlign='center';
    for(let time=Math.ceil(viewStart/interval)*interval;time<=viewEnd;time+=interval){
-    const position=x(time);ctx.strokeStyle=palette.line;ctx.beginPath();ctx.moveTo(position,30);ctx.lineTo(position,height-10);ctx.stroke();ctx.fillStyle=palette.muted;ctx.fillText(clock(time).slice(0,5),position,19);
+    const position=x(time);
+    ctx.strokeStyle=palette.line;
+    ctx.beginPath();
+    ctx.moveTo(position,30);
+    ctx.lineTo(position,height-10);
+    ctx.stroke();
+    ctx.fillStyle=palette.muted;
+    ctx.fillText(clock(time).slice(0,5),position,19);
    }
    cameras.forEach((camera,index)=>{
     const y=39+index*34;ctx.fillStyle=palette.muted;ctx.textAlign='left';

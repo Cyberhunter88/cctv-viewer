@@ -46,6 +46,14 @@ export function recordingBoundary(records:Recording[],ids:string[],time:number,d
  const points=[...new Set(records.filter(r=>ids.includes(r.cameraId)).flatMap(r=>[r.start,r.start+r.duration]))].sort((a,b)=>a-b);
  return direction<0?points.filter(t=>t<time-.01).at(-1):points.find(t=>t>time+.01);
 }
-export function moveCamera(order:string[],source:string,target:string):string[]{const sourceIndex=order.indexOf(source),targetIndex=order.indexOf(target);if(sourceIndex<0||targetIndex<0||source===target)return [...order];const result=order.filter(id=>id!==source);result.splice(targetIndex,0,source);return result}
+export function moveCamera(order:string[],source:string,target:string):string[]{
+ const sourceIndex=order.indexOf(source),targetIndex=order.indexOf(target);
+ if(sourceIndex<0||targetIndex<0||source===target)return [...order];
+ const result=order.filter(id=>id!==source);
+ result.splice(targetIndex,0,source);
+ return result
+}
 
-export function defaultView():ViewState{return {cameras:[],order:[],layout:'auto',quality:'native',speed:'1',preload:'metadata',aspect:'auto',columns:2,rows:2,autoHotspot:false,collapsed:true,originalQualityVersion:1,timelineHeight:240,density:'comfortable',showTimestamps:true,showOverview:true,showThumbnails:true,shortcuts:true,seekStep:5}}
+export function defaultView():ViewState{
+ return {cameras:[],order:[],layout:'auto',quality:'native',speed:'1',preload:'metadata',aspect:'auto',columns:2,rows:2,autoHotspot:false,collapsed:true,originalQualityVersion:1,timelineHeight:240,density:'comfortable',showTimestamps:true,showOverview:true,showThumbnails:true,shortcuts:true,seekStep:5}
+}
