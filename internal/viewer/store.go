@@ -5,6 +5,8 @@ import (
 	"crypto/cipher"
 	"database/sql"
 	"errors"
+	"fmt"
+	"log/slog"
 	"math"
 	_ "modernc.org/sqlite"
 	"net/url"
@@ -170,7 +172,6 @@ func OpenStore(dir string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	// VACUUM INTO includes committed WAL pages and produces a standalone rollback copy.
 	var version int
 	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		db.Close()
@@ -180,35 +181,13 @@ func OpenStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, errors.New("Datenbankschema neuer als diese Anwendung")
 	}
-	if !fresh && version < 4 {
-		backup := filepath.Join(dir, "viewer-before-v4.db")
-		if _, statErr := os.Stat(backup); os.IsNotExist(statErr) {
-			if _, err = db.Exec("VACUUM INTO ?", backup); err != nil {
+	// Keep one standalone copy before each schema step that rewrites data.
+	for _, step := range []int{4, 5} {
+		if !fresh && version < step {
+			if err = backupBeforeVersion(db, dir, step); err != nil {
 				db.Close()
 				return nil, err
 			}
-			if err = os.Chmod(backup, 0600); err != nil {
-				db.Close()
-				return nil, err
-			}
-		} else if statErr != nil {
-			db.Close()
-			return nil, statErr
-		}
-	}
-	if !fresh && version < 5 {
-		backup := filepath.Join(dir, "viewer-before-v5.db")
-		if _, statErr := os.Stat(backup); os.IsNotExist(statErr) {
-			if _, err = db.Exec("VACUUM INTO ?", backup); err == nil {
-				err = os.Chmod(backup, 0600)
-			}
-			if err != nil {
-				db.Close()
-				return nil, err
-			}
-		} else if statErr != nil {
-			db.Close()
-			return nil, statErr
 		}
 	}
 	// WAL with synchronous=NORMAL stays consistent after a crash; only the most
@@ -278,7 +257,7 @@ CREATE TABLE IF NOT EXISTS scan_schedule(camera_id TEXT PRIMARY KEY REFERENCES c
  CREATE TABLE IF NOT EXISTS scan_jobs(id TEXT PRIMARY KEY, payload TEXT NOT NULL, queued_at INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS scan_history(id TEXT PRIMARY KEY, camera_id TEXT NOT NULL, camera_name TEXT NOT NULL, scan_date TEXT NOT NULL, manual INTEGER NOT NULL, finished INTEGER NOT NULL, state TEXT NOT NULL, inspected INTEGER NOT NULL, added INTEGER NOT NULL, changed INTEGER NOT NULL, skipped INTEGER NOT NULL, warnings TEXT NOT NULL);
  CREATE INDEX IF NOT EXISTS scan_history_recent ON scan_history(finished DESC);
- CREATE INDEX IF NOT EXISTS recordings_path ON recordings(camera_id,path);
+ DROP INDEX IF EXISTS recordings_path;
  CREATE INDEX IF NOT EXISTS recordings_start ON recordings(start);
 `); err != nil {
 		db.Close()
@@ -361,8 +340,24 @@ CREATE TABLE IF NOT EXISTS scan_schedule(camera_id TEXT PRIMARY KEY REFERENCES c
 	}
 	return s, nil
 }
-func (s *Store) Cameras() ([]Camera, error) {
-	rows, e := s.reader().Query(`SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset,supports_zoom FROM cameras ORDER BY name`)
+
+// backupBeforeVersion writes viewer-before-v<step>.db once. VACUUM INTO includes
+// committed WAL pages and produces a standalone rollback copy.
+func backupBeforeVersion(db *sql.DB, dir string, step int) error {
+	backup := filepath.Join(dir, fmt.Sprintf("viewer-before-v%d.db", step))
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		return err
+	}
+	if _, err := db.Exec("VACUUM INTO ?", backup); err != nil {
+		return err
+	}
+	return os.Chmod(backup, 0600)
+}
+func (s *Store) Cameras() ([]Camera, error) { return s.CamerasContext(context.Background()) }
+
+// CamerasContext lists the cameras and stops when the request goes away.
+func (s *Store) CamerasContext(ctx context.Context) ([]Camera, error) {
+	rows, e := s.reader().QueryContext(ctx, `SELECT id,name,folder,pattern,timezone,offset,format,prefix,indexing_mode,directory_pattern,view_mode,wide_marker,zoom_marker,zoom_offset,supports_zoom FROM cameras ORDER BY name`)
 	if e != nil {
 		return nil, e
 	}
@@ -440,9 +435,6 @@ func (s *Store) Recordings(camera string, from, to float64) ([]Recording, error)
 		}
 		r.Container = strings.ToLower(filepath.Ext(r.Path))
 		r.Kind = "video"
-		if r.Codec == "jpeg" {
-			r.Kind = "image"
-		}
 		r.View = recordingView(c, r.Path)
 		if r.View == "zoom" {
 			r.Start += c.ZoomOffset
@@ -453,7 +445,7 @@ func (s *Store) Recordings(camera string, from, to float64) ([]Recording, error)
 	}
 	return out, rows.Err()
 }
-func (s *Store) DayRecordings(cameras []Camera, from, to float64) ([]Recording, error) {
+func (s *Store) DayRecordings(ctx context.Context, cameras []Camera, from, to float64) ([]Recording, error) {
 	if len(cameras) == 0 {
 		return []Recording{}, nil
 	}
@@ -465,7 +457,7 @@ func (s *Store) DayRecordings(cameras []Camera, from, to float64) ([]Recording, 
 	}
 	// No indexed recording is longer than maxRecordingSeconds, so the start index
 	// can skip the entire history before the requested day.
-	rows, err := s.reader().Query(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE start<? AND start>? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, to+margin, from-margin-maxRecordingSeconds, from-margin)
+	rows, err := s.reader().QueryContext(ctx, `SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE start<? AND start>? AND start+duration>? AND codec!='jpeg' ORDER BY start,id`, to+margin, from-margin-maxRecordingSeconds, from-margin)
 	if err != nil {
 		return nil, err
 	}
@@ -507,14 +499,25 @@ func (s *Store) Recording(id string) (Recording, error) {
 	var r Recording
 	e := s.reader().QueryRow(`SELECT id,camera_id,path,start,duration,codec,size,mod FROM recordings WHERE id=? AND codec!='jpeg'`, id).Scan(&r.ID, &r.CameraID, &r.Path, &r.Start, &r.Duration, &r.Codec, &r.Size, &r.Mod)
 	r.Container = strings.ToLower(filepath.Ext(r.Path))
+	// Images are excluded by the query, so every result is a video.
 	r.Kind = "video"
-	if r.Codec == "jpeg" {
-		r.Kind = "image"
-	}
 	return r, e
 }
+
+// Cleanup removes expired sessions and sign-in flows and audit entries past their
+// retention. A failure is logged, so the tables cannot grow unnoticed.
 func (s *Store) Cleanup(ctx context.Context) {
-	s.ExecContext(ctx, `DELETE FROM sessions WHERE expires<?`, time.Now().Unix())
-	s.ExecContext(ctx, `DELETE FROM oidc_flows WHERE expires<?`, time.Now().Unix())
-	s.ExecContext(ctx, `DELETE FROM audit_log WHERE ts<?`, time.Now().Add(-auditRetention).Unix())
+	now := time.Now()
+	for _, step := range []struct {
+		table, query string
+		arg          int64
+	}{
+		{"sessions", `DELETE FROM sessions WHERE expires<?`, now.Unix()},
+		{"oidc_flows", `DELETE FROM oidc_flows WHERE expires<?`, now.Unix()},
+		{"audit_log", `DELETE FROM audit_log WHERE ts<?`, now.Add(-auditRetention).Unix()},
+	} {
+		if _, err := s.ExecContext(ctx, step.query, step.arg); err != nil && ctx.Err() == nil {
+			slog.Warn("Bereinigung abgelaufener Einträge fehlgeschlagen", "table", step.table, "error", err)
+		}
+	}
 }

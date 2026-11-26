@@ -51,10 +51,6 @@ func (a *App) createStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
-	if record.Kind == "image" {
-		fail(w, 400, "Einzelbilder sind keine Videos")
-		return
-	}
 	if math.IsNaN(input.Offset) || math.IsInf(input.Offset, 0) || input.Offset < 0 || input.Offset >= record.Duration {
 		fail(w, 400, "Startposition ungültig")
 		return

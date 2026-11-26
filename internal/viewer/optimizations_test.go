@@ -41,7 +41,7 @@ func TestDayQueryBoundsKeepLongAndMidnightRecordings(t *testing.T) {
 		}
 	}
 	want := "[longest across-midnight inside]"
-	day, err := store.DayRecordings([]Camera{camera}, from, to)
+	day, err := store.DayRecordings(context.Background(), []Camera{camera}, from, to)
 	if err != nil {
 		t.Fatal(err)
 	}
